@@ -1,24 +1,5 @@
 import React from "react";
-import {
-  Activity,
-  BatteryCharging,
-  Camera,
-  Cpu,
-  FileCheck2,
-  FileWarning,
-  Fingerprint,
-  Flame,
-  Gauge,
-  HardDrive,
-  Keyboard,
-  LayoutDashboard,
-  Lock,
-  MemoryStick,
-  Monitor,
-  PlugZap,
-  Send,
-  ShieldCheck,
-} from "lucide-react";
+import { Activity, FileCheck2, Lock, Send } from "lucide-react";
 import type { ModuleRecord, StepModuleId, TestModuleId } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
@@ -32,23 +13,6 @@ interface SidebarProps {
   allStepsDone: boolean;
   onOpenReportModal: () => void;
 }
-
-const ICONS: Record<TestModuleId, React.ReactNode> = {
-  dashboard: <LayoutDashboard className="w-4 h-4" />,
-  specs: <Cpu className="w-4 h-4" />,
-  security: <ShieldCheck className="w-4 h-4" />,
-  battery: <BatteryCharging className="w-4 h-4" />,
-  logs: <FileWarning className="w-4 h-4" />,
-  storage: <HardDrive className="w-4 h-4" />,
-  display: <Monitor className="w-4 h-4" />,
-  keyboard: <Keyboard className="w-4 h-4" />,
-  biometrics: <Fingerprint className="w-4 h-4" />,
-  media: <Camera className="w-4 h-4" />,
-  ram: <MemoryStick className="w-4 h-4" />,
-  performance: <Gauge className="w-4 h-4" />,
-  gpu: <Flame className="w-4 h-4" />,
-  ports_speakers: <PlugZap className="w-4 h-4" />,
-};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
@@ -67,52 +31,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pct = Math.round((completedCount / stepOrder.length) * 100);
 
   return (
-    <aside className="w-72 shrink-0 bg-black text-white border-r border-zinc-800 flex flex-col h-full select-none">
-      {/* Brand Header */}
-      <div className="px-4 py-4 border-b border-zinc-800 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-          <Activity className="w-5 h-5 text-white stroke-[2.5]" />
+    <aside className="w-64 shrink-0 bg-[#F8FAFC] text-black border-r border-zinc-300 flex flex-col h-full select-none">
+      {/* Instrument Nameplate */}
+      <div className="px-4 py-3.5 border-b border-zinc-300 bg-white flex items-center gap-2.5">
+        <div className="w-7 h-7 rounded-[2px] bg-black flex items-center justify-center shrink-0">
+          <Activity className="w-4 h-4 text-blue-500 stroke-[2.5]" />
         </div>
-        <div className="min-w-0">
-          <div className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5">
-            LaptopBench QC
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 text-blue-400 border border-zinc-700">
-              PRO
+        <div className="min-w-0 flex-1">
+          <div className="font-black text-xs tracking-wider uppercase text-black flex items-center justify-between">
+            <span>LaptopBench QC</span>
+            <span className="font-mono text-[9px] font-bold px-1 py-0.5 bg-blue-600 text-white rounded-[2px]">
+              v2.1
             </span>
           </div>
-          <div className="text-[11px] text-zinc-400 truncate">
-            Strict Step-by-Step Deep QC
+          <div className="font-mono text-[10px] text-zinc-500 tracking-tight truncate">
+            PRECISION LAB INSTRUMENT
           </div>
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
+      {/* Overview Manifest Link */}
+      <div className="border-b border-zinc-300">
         <button
           onClick={() => onSelect("dashboard")}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+          className={`w-full flex items-center justify-between px-4 py-2.5 text-xs transition cursor-pointer border-l-[3px] ${
             activeTab === "dashboard"
-              ? "bg-blue-600 text-white"
-              : "text-zinc-300 hover:bg-zinc-900"
+              ? "bg-white border-l-blue-600 text-black font-bold"
+              : "bg-transparent border-l-transparent text-zinc-700 hover:bg-white hover:text-black font-medium"
           }`}
         >
-          <span className="flex items-center gap-2.5">
-            {ICONS.dashboard}
-            Overview Dashboard
+          <span className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-blue-600 font-bold">00</span>
+            <span className="tracking-tight">Inspection Manifest</span>
           </span>
-          <span className="font-mono text-[10px] opacity-80">
+          <span className="font-mono text-[10px] text-zinc-600 tabular-nums">
             {completedCount}/{stepOrder.length}
           </span>
         </button>
+      </div>
 
-        <div className="pt-2 pb-1 px-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-          Sequential QC Pipeline
-        </div>
+      {/* Sequential Pipeline Rail */}
+      <div className="px-4 pt-3 pb-1.5 text-[9px] font-mono font-bold uppercase tracking-[0.14em] text-zinc-500 flex items-center justify-between">
+        <span>Sequential Protocol</span>
+        <span>LOCKED BY DEFAULT</span>
+      </div>
 
+      <nav className="flex-1 overflow-y-auto divide-y divide-zinc-200/80 border-t border-zinc-200">
         {stepOrder.map((id, idx) => {
           const mod = modules[id];
           const isUnlocked = idx <= unlockedIndex;
           const isActive = activeTab === id;
+          const num = String(idx + 1).padStart(2, "0");
 
           return (
             <button
@@ -120,56 +89,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
               disabled={!isUnlocked}
               onClick={() => isUnlocked && onSelect(id)}
               title={!isUnlocked ? `Complete or skip Step ${idx} first to unlock` : mod.name}
-              className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition ${
+              className={`w-full flex items-center justify-between gap-2 px-3.5 py-2 text-xs transition border-l-[3px] ${
                 isActive
-                  ? "bg-white text-black font-bold"
+                  ? "bg-white border-l-blue-600 text-black font-bold"
                   : isUnlocked
-                  ? "text-zinc-200 hover:bg-zinc-900 cursor-pointer"
-                  : "text-zinc-600 cursor-not-allowed opacity-65"
+                  ? "bg-transparent border-l-transparent text-zinc-900 hover:bg-white cursor-pointer font-medium"
+                  : "bg-transparent border-l-transparent text-zinc-500 cursor-not-allowed"
               }`}
             >
               <span className="flex items-center gap-2 min-w-0">
                 <span
-                  className={`w-5 h-5 rounded text-[10px] font-mono font-bold flex items-center justify-center shrink-0 ${
+                  className={`font-mono text-[10px] tabular-nums font-bold shrink-0 ${
                     isActive
-                      ? "bg-blue-600 text-white"
+                      ? "text-blue-600"
                       : isUnlocked
-                      ? "bg-zinc-800 text-zinc-200"
-                      : "bg-zinc-900 text-zinc-600"
+                      ? "text-black"
+                      : "text-zinc-400"
                   }`}
                 >
-                  {idx + 1}
+                  {num}
                 </span>
-                <span className="truncate">{mod.name}</span>
+                <span className="truncate tracking-tight">{mod.name}</span>
                 {id === "gpu" && isGamingCapable && (
-                  <span
-                    className={`px-1 py-0.5 text-[9px] rounded font-bold ${
-                      isActive ? "bg-blue-600 text-white" : "bg-blue-950 text-blue-300 border border-blue-700"
-                    }`}
-                  >
+                  <span className="px-1 py-0.2 bg-blue-600 text-white font-mono text-[8px] font-bold rounded-[2px] shrink-0">
                     dGPU
                   </span>
                 )}
               </span>
 
               {!isUnlocked ? (
-                <Lock className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                <Lock className="w-3 h-3 text-zinc-400 shrink-0" />
               ) : (
-                <StatusBadge status={mod.status} compact darkSurface={!isActive} />
+                <StatusBadge status={mod.status} compact />
               )}
             </button>
           );
         })}
       </nav>
 
-      {/* Progress, Final Report & Creator Credit */}
-      <div className="p-3 border-t border-zinc-800 bg-zinc-950 space-y-2.5">
+      {/* Bottom Progress, Certificate Trigger & Creator Plate */}
+      <div className="p-3.5 border-t border-zinc-300 bg-white space-y-2.5">
         <div>
-          <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-1">
-            <span>Pipeline Progress</span>
-            <span className="font-mono text-white font-bold">{pct}%</span>
+          <div className="flex items-center justify-between font-mono text-[10px] text-zinc-600 mb-1 tabular-nums">
+            <span className="uppercase tracking-wider">Completion</span>
+            <span className="font-bold text-black">{pct}%</span>
           </div>
-          <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+          <div className="h-1 bg-zinc-200 overflow-hidden">
             <div
               className="h-full bg-blue-600 transition-all duration-300"
               style={{ width: `${pct}%` }}
@@ -180,26 +145,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={onOpenReportModal}
           disabled={!allStepsDone}
-          title={allStepsDone ? "Export QC Certificate" : "Finish or skip all 13 steps to unlock Final Report"}
-          className={`w-full py-2.5 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition ${
+          title={allStepsDone ? "Open Swiss Lab Certificate & Export" : "Complete or explicitly skip all 13 steps to unlock Certificate"}
+          className={`w-full py-2 px-3 rounded-[2px] font-mono font-bold text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border ${
             allStepsDone
-              ? "bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
-              : "bg-zinc-900 text-zinc-500 border border-zinc-800 cursor-not-allowed"
+              ? "bg-blue-600 hover:bg-blue-700 border-blue-600 text-white cursor-pointer"
+              : "bg-zinc-100 text-zinc-500 border-zinc-300 cursor-not-allowed"
           }`}
         >
-          {allStepsDone ? <FileCheck2 className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
-          {allStepsDone ? "Generate Final QC Report" : `Complete All Steps (${completedCount}/${stepOrder.length})`}
+          {allStepsDone ? <FileCheck2 className="w-3.5 h-3.5" /> : <Lock className="w-3 h-3" />}
+          {allStepsDone ? "Issue QC Certificate" : `Locked (${completedCount}/${stepOrder.length})`}
         </button>
 
-        {/* Creator Credit Tag */}
-        <div className="pt-2 border-t border-zinc-800/90 text-center space-y-0.5">
-          <div className="text-[11px] font-semibold text-white">
-            Created by Hein Htet Zaw
-          </div>
-          <div className="inline-flex items-center justify-center gap-1 text-[11px] font-mono text-blue-400">
-            <Send className="w-3 h-3" />
-            <span>Telegram: @ich8g92</span>
-          </div>
+        {/* Creator Attribution Plate */}
+        <div className="pt-2 border-t border-zinc-200 flex items-center justify-between text-[10px]">
+          <span className="font-semibold text-black truncate">Hein Htet Zaw</span>
+          <span className="font-mono text-blue-700 font-bold inline-flex items-center gap-1 shrink-0">
+            <Send className="w-2.5 h-2.5" /> @ich8g92
+          </span>
         </div>
       </div>
     </aside>

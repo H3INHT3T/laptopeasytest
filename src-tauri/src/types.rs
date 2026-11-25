@@ -680,11 +680,24 @@ pub struct PortsSpeakerSignoff {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SubsystemScoreBar {
+    pub label: String,
+    pub score_pct: f64,
+    pub metric_text: String,
+    pub status_label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportReportPayload {
     pub shop_profile: ShopProfile,
     pub customer_or_sku: String,
     pub technician_notes: String,
     pub overall_verdict: String,
+    #[serde(default)]
+    pub durability_grade: Option<String>,
+    #[serde(default)]
+    pub subsystem_scores: Vec<SubsystemScoreBar>,
     pub specs: Option<SystemSpecs>,
     pub tests: Vec<ReportTestEntry>,
     pub signoff: PortsSpeakerSignoff,

@@ -420,6 +420,13 @@ pub fn run_self_test() -> Result<(), String> {
         customer_or_sku: "TEST-001".into(),
         technician_notes: "Automated self-test".into(),
         overall_verdict: "PASSED".into(),
+        durability_grade: Some("A+".into()),
+        subsystem_scores: vec![types::SubsystemScoreBar {
+            label: "RAM Stability".into(),
+            score_pct: 100.0,
+            metric_text: "0 errors across 4096 MB".into(),
+            status_label: "0 ERR PASS".into(),
+        }],
         specs: None,
         tests: vec![types::ReportTestEntry {
             id: "ram".into(),

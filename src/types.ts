@@ -585,11 +585,20 @@ export interface PortsSpeakerSignoff {
   speakersNotes: string;
 }
 
+export interface SubsystemScoreBar {
+  label: string;
+  scorePct: number;
+  metricText: string;
+  statusLabel: string;
+}
+
 export interface ExportReportPayload {
   shopProfile: ShopProfile;
   customerOrSku: string;
   technicianNotes: string;
   overallVerdict: string;
+  durabilityGrade?: string | null;
+  subsystemScores?: SubsystemScoreBar[];
   specs: SystemSpecs | null;
   tests: Array<{
     id: string;

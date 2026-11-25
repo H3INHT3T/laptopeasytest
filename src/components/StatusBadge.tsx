@@ -14,20 +14,20 @@ export const StatusBadge: React.FC<{ status: TestStatus; compact?: boolean; dark
     warn: {
       label: "WARN",
       cls: darkSurface
-        ? "bg-blue-950 text-blue-200 border-blue-400"
-        : "bg-blue-50 text-blue-900 border-blue-600",
+        ? "bg-transparent text-blue-300 border-blue-400"
+        : "bg-white text-blue-700 border-blue-600",
     },
     fail: {
       label: "FAIL",
       cls: darkSurface
-        ? "bg-white text-black border-white font-extrabold"
-        : "bg-black text-white border-black font-extrabold",
+        ? "bg-white text-black border-white font-black"
+        : "bg-black text-white border-black font-black",
     },
     running: {
       label: "RUN",
       cls: darkSurface
         ? "bg-blue-600/30 text-blue-200 border-blue-400 animate-pulse"
-        : "bg-blue-50 text-blue-700 border-blue-500 animate-pulse",
+        : "bg-blue-50 text-blue-700 border-blue-600 animate-pulse",
     },
     skipped: {
       label: "SKIP",
@@ -45,15 +45,15 @@ export const StatusBadge: React.FC<{ status: TestStatus; compact?: boolean; dark
       label: "WAIT",
       cls: darkSurface
         ? "bg-zinc-900 text-zinc-500 border-zinc-800"
-        : "bg-zinc-100 text-zinc-500 border-zinc-200",
+        : "bg-white text-zinc-400 border-zinc-300",
     },
   };
 
   const item = map[status];
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-md border font-bold tracking-wider ${
-        compact ? "px-1.5 py-0.5 text-[9px]" : "px-2.5 py-0.5 text-[11px]"
+      className={`inline-flex items-center justify-center rounded-[2px] border font-mono font-bold tracking-[0.08em] uppercase ${
+        compact ? "px-1.5 py-[1px] text-[9px]" : "px-2 py-0.5 text-[10px]"
       } ${item.cls}`}
     >
       {item.label}

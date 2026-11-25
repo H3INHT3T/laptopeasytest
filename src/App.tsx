@@ -5,6 +5,7 @@ import type {
   BiometricsHardwareReport,
   ErrorLogsReport,
   GpuStressResult,
+  LiveTelemetrySnapshot,
   ModuleRecord,
   PerfBenchResult,
   PortsSpeakerSignoff,
@@ -21,6 +22,7 @@ import type {
   VramTestResult,
 } from "./types";
 import { Sidebar } from "./components/Sidebar";
+import { TopTelemetryStrip } from "./components/TopTelemetryStrip";
 import { PreReportModal } from "./components/PreReportModal";
 import { DashboardView } from "./tests/DashboardView";
 import { SpecsView } from "./tests/SpecsView";
@@ -90,6 +92,7 @@ export const App: React.FC = () => {
   });
 
   const [specs, setSpecs] = useState<SystemSpecs | null>(null);
+  const [liveTelemetry, setLiveTelemetry] = useState<LiveTelemetrySnapshot | null>(null);
   const [securityReport, setSecurityReport] = useState<SecurityAuditReport | null>(null);
   const [batteryReport, setBatteryReport] = useState<BatteryHealthReport | null>(null);
   const [errorLogsReport, setErrorLogsReport] = useState<ErrorLogsReport | null>(null);
@@ -118,7 +121,6 @@ export const App: React.FC = () => {
     []
   );
 
-  // Advance one step forward strictly one-by-one
   const advanceFrom = useCallback((currentId: StepModuleId) => {
     const idx = STEP_ORDER.indexOf(currentId);
     if (idx >= 0 && idx + 1 < STEP_ORDER.length) {
@@ -129,7 +131,6 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Explicit technician Skip Step button
   const skipStep = useCallback(
     (currentId: StepModuleId) => {
       updateModule(currentId, "skipped", "Explicitly skipped by technician via Skip Step button.");
@@ -168,7 +169,6 @@ export const App: React.FC = () => {
     try {
       const rep = await invoke<BatteryHealthReport>("get_battery_health");
       setBatteryReport(rep);
-      // Keep status pending until technician confirms live Charge/Discharge (unless no battery present)
       if (!rep.present) {
         updateModule("battery", "notApplicable", rep.notes);
       } else {
@@ -209,7 +209,7 @@ export const App: React.FC = () => {
         ...prev,
         storage: {
           ...prev.storage,
-          summary: `${rep.summary} Run SSD Speed Benchmark to complete Step 5.`,
+          summary: `${rep.summary} Run Direct-IO SSD Benchmark to complete Stage 05.`,
         },
       }));
     } catch (e) {
@@ -244,11 +244,29 @@ export const App: React.FC = () => {
     runAllAutoChecks();
   }, [runAllAutoChecks]);
 
-  const allStepsDone = STEP_ORDER.every((id) => {
+  // Persistent Live Docked Telemetry Polling (every 3s)
+  useEffect(() => {
+    let active = true;
+    const poll = () => {
+      invoke<LiveTelemetrySnapshot>("sample_live_telemetry")
+        .then((snap) => {
+          if (active) setLiveTelemetry(snap);
+        })
+        .catch(() => {});
+    };
+    poll();
+    const id = window.setInterval(poll, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const completedCount = STEP_ORDER.filter((id) => {
     const st = modules[id].status;
     return st !== "pending" && st !== "running";
-  });
-
+  }).length;
+  const allStepsDone = completedCount === STEP_ORDER.length;
   const totalSteps = STEP_ORDER.length;
 
   return (
@@ -264,249 +282,262 @@ export const App: React.FC = () => {
         onOpenReportModal={() => setReportModalOpen(true)}
       />
 
-      <main className="flex-1 overflow-y-auto p-6 bg-zinc-50/40">
-        <div className="max-w-6xl mx-auto">
-          {activeTab === "dashboard" && (
-            <DashboardView
-              specs={specs}
-              stepOrder={STEP_ORDER}
-              unlockedIndex={unlockedIndex}
-              modules={modules}
-              autoRunning={autoRunning}
-              allStepsDone={allStepsDone}
-              onRunAutoChecks={runAllAutoChecks}
-              onStartOrResume={() => setActiveTab(STEP_ORDER[Math.min(unlockedIndex, STEP_ORDER.length - 1)])}
-              onSelectModule={setActiveTab}
-              onOpenReport={() => setReportModalOpen(true)}
-            />
-          )}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <TopTelemetryStrip
+          specs={specs}
+          telemetry={liveTelemetry}
+          completedCount={completedCount}
+          totalSteps={totalSteps}
+        />
 
-          {activeTab === "specs" && (
-            <SpecsView
-              specs={specs}
-              loading={modules.specs.status === "running"}
-              status={modules.specs.status}
-              stepNumber={1}
-              totalSteps={totalSteps}
-              onRefresh={fetchSpecs}
-              onNext={() => advanceFrom("specs")}
-              onSkip={() => skipStep("specs")}
-            />
-          )}
+        <main className="flex-1 overflow-y-auto p-5 bg-[#FAFAFA]">
+          <div className="max-w-6xl mx-auto">
+            {activeTab === "dashboard" && (
+              <DashboardView
+                specs={specs}
+                stepOrder={STEP_ORDER}
+                unlockedIndex={unlockedIndex}
+                modules={modules}
+                autoRunning={autoRunning}
+                allStepsDone={allStepsDone}
+                onRunAutoChecks={runAllAutoChecks}
+                onStartOrResume={() => setActiveTab(STEP_ORDER[Math.min(unlockedIndex, STEP_ORDER.length - 1)])}
+                onSelectModule={setActiveTab}
+                onOpenReport={() => setReportModalOpen(true)}
+              />
+            )}
 
-          {activeTab === "security" && (
-            <SecurityAuditView
-              report={securityReport}
-              loading={modules.security.status === "running"}
-              status={modules.security.status}
-              stepNumber={2}
-              totalSteps={totalSteps}
-              onRefresh={fetchSecurity}
-              onNext={() => advanceFrom("security")}
-              onSkip={() => skipStep("security")}
-            />
-          )}
+            {activeTab === "specs" && (
+              <SpecsView
+                specs={specs}
+                loading={modules.specs.status === "running"}
+                status={modules.specs.status}
+                stepNumber={1}
+                totalSteps={totalSteps}
+                onRefresh={fetchSpecs}
+                onNext={() => advanceFrom("specs")}
+                onSkip={() => skipStep("specs")}
+              />
+            )}
 
-          {activeTab === "battery" && (
-            <BatteryView
-              report={batteryReport}
-              loading={modules.battery.status === "running"}
-              status={modules.battery.status}
-              stepNumber={3}
-              totalSteps={totalSteps}
-              onRefresh={fetchBattery}
-              onUpdateStatus={(st, sum) => updateModule("battery", st, sum)}
-              onNext={() => advanceFrom("battery")}
-              onSkip={() => skipStep("battery")}
-            />
-          )}
+            {activeTab === "security" && (
+              <SecurityAuditView
+                report={securityReport}
+                loading={modules.security.status === "running"}
+                status={modules.security.status}
+                stepNumber={2}
+                totalSteps={totalSteps}
+                onRefresh={fetchSecurity}
+                onNext={() => advanceFrom("security")}
+                onSkip={() => skipStep("security")}
+              />
+            )}
 
-          {activeTab === "logs" && (
-            <ErrorLogsView
-              report={errorLogsReport}
-              loading={modules.logs.status === "running"}
-              status={modules.logs.status}
-              stepNumber={4}
-              totalSteps={totalSteps}
-              onScan={fetchErrorLogs}
-              onNext={() => advanceFrom("logs")}
-              onSkip={() => skipStep("logs")}
-            />
-          )}
+            {activeTab === "battery" && (
+              <BatteryView
+                report={batteryReport}
+                loading={modules.battery.status === "running"}
+                status={modules.battery.status}
+                stepNumber={3}
+                totalSteps={totalSteps}
+                onRefresh={fetchBattery}
+                onUpdateStatus={(st, sum) => updateModule("battery", st, sum)}
+                onNext={() => advanceFrom("battery")}
+                onSkip={() => skipStep("battery")}
+              />
+            )}
 
-          {activeTab === "storage" && (
-            <StorageView
-              smartReport={smartReport}
-              benchResult={storageBench}
-              loadingSmart={modules.storage.status === "running"}
-              status={modules.storage.status}
-              stepNumber={5}
-              totalSteps={totalSteps}
-              onRefreshSmart={fetchSmart}
-              onBenchComplete={(res) => {
-                setStorageBench(res);
-                const smartSt = smartReport?.status ?? "pass";
-                const combined: TestStatus =
-                  smartSt === "fail" || res.status === "fail"
-                    ? "fail"
-                    : smartSt === "warn" || res.status === "warn"
-                    ? "warn"
-                    : "pass";
-                updateModule("storage", combined, `${smartReport?.summary ?? "SMART OK"} | ${res.summary}`);
-              }}
-              onNext={() => advanceFrom("storage")}
-              onSkip={() => skipStep("storage")}
-            />
-          )}
+            {activeTab === "logs" && (
+              <ErrorLogsView
+                report={errorLogsReport}
+                loading={modules.logs.status === "running"}
+                status={modules.logs.status}
+                stepNumber={4}
+                totalSteps={totalSteps}
+                onScan={fetchErrorLogs}
+                onNext={() => advanceFrom("logs")}
+                onSkip={() => skipStep("logs")}
+              />
+            )}
 
-          {activeTab === "display" && (
-            <DisplayTestView
-              status={modules.display.status}
-              notes={modules.display.notes}
-              stepNumber={6}
-              totalSteps={totalSteps}
-              onVerdict={(st, sum, notes) => updateModule("display", st, sum, notes)}
-              onNext={() => advanceFrom("display")}
-              onSkip={() => skipStep("display")}
-            />
-          )}
+            {activeTab === "storage" && (
+              <StorageView
+                telemetry={liveTelemetry}
+                smartReport={smartReport}
+                benchResult={storageBench}
+                loadingSmart={modules.storage.status === "running"}
+                status={modules.storage.status}
+                stepNumber={5}
+                totalSteps={totalSteps}
+                onRefreshSmart={fetchSmart}
+                onBenchComplete={(res) => {
+                  setStorageBench(res);
+                  const smartSt = smartReport?.status ?? "pass";
+                  const combined: TestStatus =
+                    smartSt === "fail" || res.status === "fail"
+                      ? "fail"
+                      : smartSt === "warn" || res.status === "warn"
+                      ? "warn"
+                      : "pass";
+                  updateModule("storage", combined, `${smartReport?.summary ?? "SMART OK"} | ${res.summary}`);
+                }}
+                onNext={() => advanceFrom("storage")}
+                onSkip={() => skipStep("storage")}
+              />
+            )}
 
-          {activeTab === "keyboard" && (
-            <KeyboardTestView
-              osFamily={specs?.osFamily ?? "windows"}
-              status={modules.keyboard.status}
-              notes={modules.keyboard.notes}
-              stepNumber={7}
-              totalSteps={totalSteps}
-              onVerdict={(st, sum, notes) => updateModule("keyboard", st, sum, notes)}
-              onNext={() => advanceFrom("keyboard")}
-              onSkip={() => skipStep("keyboard")}
-            />
-          )}
+            {activeTab === "display" && (
+              <DisplayTestView
+                status={modules.display.status}
+                notes={modules.display.notes}
+                stepNumber={6}
+                totalSteps={totalSteps}
+                onVerdict={(st, sum, notes) => updateModule("display", st, sum, notes)}
+                onNext={() => advanceFrom("display")}
+                onSkip={() => skipStep("display")}
+              />
+            )}
 
-          {activeTab === "biometrics" && (
-            <BiometricsView
-              hwReport={bioHwReport}
-              loading={false}
-              status={modules.biometrics.status}
-              stepNumber={8}
-              totalSteps={totalSteps}
-              onRefresh={fetchBiometricsHw}
-              onVerdict={(st, sum) => updateModule("biometrics", st, sum)}
-              onNext={() => advanceFrom("biometrics")}
-              onSkip={() => skipStep("biometrics")}
-            />
-          )}
+            {activeTab === "keyboard" && (
+              <KeyboardTestView
+                osFamily={specs?.osFamily ?? "windows"}
+                status={modules.keyboard.status}
+                notes={modules.keyboard.notes}
+                stepNumber={7}
+                totalSteps={totalSteps}
+                onVerdict={(st, sum, notes) => updateModule("keyboard", st, sum, notes)}
+                onNext={() => advanceFrom("keyboard")}
+                onSkip={() => skipStep("keyboard")}
+              />
+            )}
 
-          {activeTab === "media" && (
-            <MediaTestView
-              status={modules.media.status}
-              notes={modules.media.notes}
-              stepNumber={9}
-              totalSteps={totalSteps}
-              onVerdict={(st, sum, notes) => updateModule("media", st, sum, notes)}
-              onNext={() => advanceFrom("media")}
-              onSkip={() => skipStep("media")}
-            />
-          )}
+            {activeTab === "biometrics" && (
+              <BiometricsView
+                hwReport={bioHwReport}
+                loading={false}
+                status={modules.biometrics.status}
+                stepNumber={8}
+                totalSteps={totalSteps}
+                onRefresh={fetchBiometricsHw}
+                onVerdict={(st, sum) => updateModule("biometrics", st, sum)}
+                onNext={() => advanceFrom("biometrics")}
+                onSkip={() => skipStep("biometrics")}
+              />
+            )}
 
-          {activeTab === "ram" && (
-            <RamTestView
-              memoryTypeHint={specs?.ramModules[0]?.memoryType ?? "DDR4"}
-              result={ramResult}
-              status={modules.ram.status}
-              stepNumber={10}
-              totalSteps={totalSteps}
-              onRunningChange={(r) => {
-                if (r) updateModule("ram", "running", "Running TestMem5 multi-threaded RAM stress...");
-              }}
-              onComplete={(res) => {
-                setRamResult(res);
-                updateModule("ram", res.status, res.summary);
-              }}
-              onNext={() => advanceFrom("ram")}
-              onSkip={() => skipStep("ram")}
-            />
-          )}
+            {activeTab === "media" && (
+              <MediaTestView
+                status={modules.media.status}
+                notes={modules.media.notes}
+                stepNumber={9}
+                totalSteps={totalSteps}
+                onVerdict={(st, sum, notes) => updateModule("media", st, sum, notes)}
+                onNext={() => advanceFrom("media")}
+                onSkip={() => skipStep("media")}
+              />
+            )}
 
-          {activeTab === "performance" && (
-            <PerformanceView
-              manufacturer={specs?.manufacturer}
-              model={specs?.model}
-              result={perfResult}
-              status={modules.performance.status}
-              stepNumber={11}
-              totalSteps={totalSteps}
-              onRunningChange={(r) => {
-                if (r) updateModule("performance", "running", "Running 14-Stage All-Scope Performance & Creator Suite...");
-              }}
-              onComplete={(res) => {
-                setPerfResult(res);
-                updateModule("performance", res.status, res.summary);
-              }}
-              onNext={() => advanceFrom("performance")}
-              onSkip={() => skipStep("performance")}
-            />
-          )}
+            {activeTab === "ram" && (
+              <RamTestView
+                telemetry={liveTelemetry}
+                memoryTypeHint={specs?.ramModules[0]?.memoryType ?? "DDR4"}
+                result={ramResult}
+                status={modules.ram.status}
+                stepNumber={10}
+                totalSteps={totalSteps}
+                onRunningChange={(r) => {
+                  if (r) updateModule("ram", "running", "Running TestMem5 multi-threaded RAM stress...");
+                }}
+                onComplete={(res) => {
+                  setRamResult(res);
+                  updateModule("ram", res.status, res.summary);
+                }}
+                onNext={() => advanceFrom("ram")}
+                onSkip={() => skipStep("ram")}
+              />
+            )}
 
-          {activeTab === "gpu" && (
-            <GpuStressView
-              isGamingCapable={specs?.isGamingCapable ?? false}
-              result={gpuResult}
-              vramResult={vramResult}
-              tortureResult={tortureResult}
-              status={modules.gpu.status}
-              stepNumber={12}
-              totalSteps={totalSteps}
-              onRunningChange={(r) => {
-                if (r) updateModule("gpu", "running", "Running native wgpu GPU / VRAM / Combined Power Stress...");
-              }}
-              onComplete={(res) => {
-                setGpuResult(res);
-                const statuses = [res.status, vramResult?.status, tortureResult?.status].filter(Boolean) as TestStatus[];
-                const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-                const parts = [res.summary, vramResult?.summary, tortureResult?.summary].filter(Boolean).join(" | ");
-                updateModule("gpu", merged, parts);
-              }}
-              onVramComplete={(res) => {
-                setVramResult(res);
-                const statuses = [gpuResult?.status, res.status, tortureResult?.status].filter(Boolean) as TestStatus[];
-                const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-                const parts = [gpuResult?.summary, res.summary, tortureResult?.summary].filter(Boolean).join(" | ");
-                updateModule("gpu", merged, parts);
-              }}
-              onTortureComplete={(res) => {
-                setTortureResult(res);
-                const statuses = [gpuResult?.status, vramResult?.status, res.status].filter(Boolean) as TestStatus[];
-                const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-                const parts = [gpuResult?.summary, vramResult?.summary, res.summary].filter(Boolean).join(" | ");
-                updateModule("gpu", merged, parts);
-              }}
-              onMarkNA={() =>
-                updateModule("gpu", "notApplicable", "Marked N/A — integrated office laptop GPU.")
-              }
-              onNext={() => advanceFrom("gpu")}
-              onSkip={() => skipStep("gpu")}
-            />
-          )}
+            {activeTab === "performance" && (
+              <PerformanceView
+                telemetry={liveTelemetry}
+                manufacturer={specs?.manufacturer}
+                model={specs?.model}
+                result={perfResult}
+                status={modules.performance.status}
+                stepNumber={11}
+                totalSteps={totalSteps}
+                onRunningChange={(r) => {
+                  if (r) updateModule("performance", "running", "Running 14-Stage All-Scope Performance & Creator Suite...");
+                }}
+                onComplete={(res) => {
+                  setPerfResult(res);
+                  updateModule("performance", res.status, res.summary);
+                }}
+                onNext={() => advanceFrom("performance")}
+                onSkip={() => skipStep("performance")}
+              />
+            )}
 
-          {activeTab === "ports_speakers" && (
-            <PortsSpeakersView
-              status={modules.ports_speakers.status}
-              signoff={signoff}
-              stepNumber={13}
-              totalSteps={totalSteps}
-              onUpdateSignoff={setSignoff}
-              onVerdict={(st, sum) => updateModule("ports_speakers", st, sum)}
-              onFinish={() => setReportModalOpen(true)}
-              onSkip={() => {
-                updateModule("ports_speakers", "skipped", "Explicitly skipped by technician.");
-                setReportModalOpen(true);
-              }}
-            />
-          )}
-        </div>
-      </main>
+            {activeTab === "gpu" && (
+              <GpuStressView
+                telemetry={liveTelemetry}
+                isGamingCapable={specs?.isGamingCapable ?? false}
+                result={gpuResult}
+                vramResult={vramResult}
+                tortureResult={tortureResult}
+                status={modules.gpu.status}
+                stepNumber={12}
+                totalSteps={totalSteps}
+                onRunningChange={(r) => {
+                  if (r) updateModule("gpu", "running", "Running native wgpu GPU / VRAM / Combined Power Stress...");
+                }}
+                onComplete={(res) => {
+                  setGpuResult(res);
+                  const statuses = [res.status, vramResult?.status, tortureResult?.status].filter(Boolean) as TestStatus[];
+                  const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
+                  const parts = [res.summary, vramResult?.summary, tortureResult?.summary].filter(Boolean).join(" | ");
+                  updateModule("gpu", merged, parts);
+                }}
+                onVramComplete={(res) => {
+                  setVramResult(res);
+                  const statuses = [gpuResult?.status, res.status, tortureResult?.status].filter(Boolean) as TestStatus[];
+                  const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
+                  const parts = [gpuResult?.summary, res.summary, tortureResult?.summary].filter(Boolean).join(" | ");
+                  updateModule("gpu", merged, parts);
+                }}
+                onTortureComplete={(res) => {
+                  setTortureResult(res);
+                  const statuses = [gpuResult?.status, vramResult?.status, res.status].filter(Boolean) as TestStatus[];
+                  const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
+                  const parts = [gpuResult?.summary, vramResult?.summary, res.summary].filter(Boolean).join(" | ");
+                  updateModule("gpu", merged, parts);
+                }}
+                onMarkNA={() =>
+                  updateModule("gpu", "notApplicable", "Marked N/A — integrated office laptop GPU.")
+                }
+                onNext={() => advanceFrom("gpu")}
+                onSkip={() => skipStep("gpu")}
+              />
+            )}
+
+            {activeTab === "ports_speakers" && (
+              <PortsSpeakersView
+                status={modules.ports_speakers.status}
+                signoff={signoff}
+                stepNumber={13}
+                totalSteps={totalSteps}
+                onUpdateSignoff={setSignoff}
+                onVerdict={(st, sum) => updateModule("ports_speakers", st, sum)}
+                onFinish={() => setReportModalOpen(true)}
+                onSkip={() => {
+                  updateModule("ports_speakers", "skipped", "Explicitly skipped by technician.");
+                  setReportModalOpen(true);
+                }}
+              />
+            )}
+          </div>
+        </main>
+      </div>
 
       <PreReportModal
         isOpen={reportModalOpen}
@@ -520,6 +551,13 @@ export const App: React.FC = () => {
         stepOrder={STEP_ORDER}
         modules={modules}
         signoff={signoff}
+        batteryReport={batteryReport}
+        storageBench={storageBench}
+        ramResult={ramResult}
+        perfResult={perfResult}
+        gpuResult={gpuResult}
+        vramResult={vramResult}
+        tortureResult={tortureResult}
       />
     </div>
   );
