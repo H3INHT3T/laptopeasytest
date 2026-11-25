@@ -323,6 +323,46 @@ export interface BiometricAuthResult {
   message: string;
 }
 
+export interface LiveTelemetrySnapshot {
+  cpuUsagePct: number;
+  cpuClockMhz: number;
+  cpuTempC: number | null;
+  cpuPowerW: number | null;
+  gpuTempC: number | null;
+  gpuLoadPct: number | null;
+  gpuPowerW: number | null;
+  fanRpm: number | null;
+  acPlugged: boolean | null;
+  batteryPercent: number | null;
+  batteryWatts: number | null;
+  sensorSource: string;
+}
+
+export interface ShopModelBenchmarkAvg {
+  modelKey: string;
+  displayLabel: string;
+  unitsTested: number;
+  avgCompositeScore: number | null;
+  avgOfficeScore: number | null;
+  avgCreatorScore: number | null;
+  avgMemoryMark: number | null;
+  avgGpuFps: number | null;
+  avgSsdReadMbS: number | null;
+  lastTestedAt: string;
+}
+
+export interface ShopModelComparison {
+  found: boolean;
+  unitsTested: number;
+  shopAvgComposite: number | null;
+  shopAvgOffice: number | null;
+  shopAvgCreator: number | null;
+  shopAvgGpuFps: number | null;
+  shopAvgSsdRead: number | null;
+  percentVsShop: number | null;
+  lastTestedAt: string | null;
+}
+
 export interface PerfBenchProgress {
   phase: string;
   percent: number;
@@ -330,11 +370,14 @@ export interface PerfBenchProgress {
   cpuUsagePct: number;
   cpuClockMhz: number;
   cpuTempC: number | null;
+  raytracePreviewUrl: string | null;
+  telemetry: LiveTelemetrySnapshot | null;
 }
 
 export interface PerfBenchResult {
   status: TestStatus;
   preset: string;
+  simdIsa: string;
   integerMathScore: number;
   floatMathScore: number;
   primeScore: number;
@@ -346,6 +389,13 @@ export interface PerfBenchResult {
   databaseScore: number;
   singleCoreScore: number;
   multiCoreScore: number;
+  officeScore: number;
+  creatorScore: number;
+  creatorRaytraceScore: number;
+  creatorMegaRaysS: number;
+  creatorAiGemmScore: number;
+  creatorImageScore: number;
+  raytracePreviewUrl: string | null;
   memoryCachedGbS: number;
   memoryBandwidthGbS: number;
   memoryWriteGbS: number;
@@ -354,10 +404,110 @@ export interface PerfBenchResult {
   compositeScore: number;
   throttleDropPct: number;
   tier: string;
+  durabilityGrade: string;
   peakCpuTempC: number | null;
   elapsedSecs: number;
   cancelled: boolean;
   baseline: BaselineRating;
+  shopComparison: ShopModelComparison | null;
+  summary: string;
+}
+
+export interface VramTestProgress {
+  running: boolean;
+  adapterName: string;
+  patternName: string;
+  passNumber: number;
+  percent: number;
+  allocatedVramMb: number;
+  totalGbVerified: number;
+  bandwidthGbS: number;
+  errorsFound: number;
+  elapsedSecs: number;
+  durationSecs: number;
+  gpuTempC: number | null;
+}
+
+export interface VramTestResult {
+  status: TestStatus;
+  adapterName: string;
+  backend: string;
+  allocatedVramMb: number;
+  passesCompleted: number;
+  totalGbVerified: number;
+  avgBandwidthGbS: number;
+  errorsFound: number;
+  peakTempC: number | null;
+  elapsedSecs: number;
+  cancelled: boolean;
+  baseline: BaselineRating;
+  summary: string;
+}
+
+export interface PowerTortureProgress {
+  running: boolean;
+  adapterName: string;
+  simdIsa: string;
+  elapsedSecs: number;
+  durationSecs: number;
+  percent: number;
+  gpuFps: number;
+  gpuAvgFps: number;
+  cpuOpsPerSec: number;
+  telemetry: LiveTelemetrySnapshot;
+  batteryStartPct: number | null;
+  batteryDeltaPct: number | null;
+  batteryDrainWhilePlugged: boolean;
+  thermalWarning: boolean;
+  previewDataUrl: string | null;
+}
+
+export interface PowerTortureResult {
+  status: TestStatus;
+  adapterName: string;
+  simdIsa: string;
+  durationSecs: number;
+  elapsedSecs: number;
+  avgFps: number;
+  fpsDropPct: number;
+  peakCpuTempC: number | null;
+  peakGpuTempC: number | null;
+  peakGpuPowerW: number | null;
+  batteryStartPct: number | null;
+  batteryEndPct: number | null;
+  batteryDeltaPct: number | null;
+  batteryDrainWhilePlugged: boolean;
+  thermalCutoffTriggered: boolean;
+  cancelled: boolean;
+  durabilityGrade: string;
+  baseline: BaselineRating;
+  summary: string;
+}
+
+export interface BurnInProgress {
+  running: boolean;
+  stageIndex: number;
+  totalStages: number;
+  stageName: string;
+  stageDetail: string;
+  overallPercent: number;
+  elapsedSecs: number;
+  totalDurationSecs: number;
+  ramErrors: number;
+  vramErrors: number;
+  batteryDrainAlert: boolean;
+  telemetry: LiveTelemetrySnapshot | null;
+}
+
+export interface BurnInResult {
+  status: TestStatus;
+  totalMinutes: number;
+  elapsedSecs: number;
+  cancelled: boolean;
+  ramResult: RamTestResult | null;
+  vramResult: VramTestResult | null;
+  tortureResult: PowerTortureResult | null;
+  durabilityGrade: string;
   summary: string;
 }
 

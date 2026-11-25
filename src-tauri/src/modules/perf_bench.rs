@@ -1,5 +1,7 @@
-use crate::modules::baselines;
-use crate::types::{BaselineRating, PerfBenchProgress, PerfBenchResult, TestStatus};
+use crate::modules::{baselines, raytracer, shop_history, simd_kernels, telemetry::TelemetryReader};
+use crate::types::{
+    BaselineRating, PerfBenchProgress, PerfBenchResult, ShopRecordSample, TestStatus,
+};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -9,33 +11,8 @@ use std::sync::{
     Arc,
 };
 use std::time::Instant;
-use sysinfo::{Components, System};
+use sysinfo::System;
 use tauri::{AppHandle, Emitter};
-
-fn read_cpu_telemetry(sys: &mut System, components: &mut Components) -> (f32, u64, Option<f32>) {
-    sys.refresh_cpu_usage();
-    sys.refresh_cpu_frequency();
-    components.refresh(true);
-    let usage = sys.global_cpu_usage();
-    let clock_mhz = sys.cpus().first().map(|c| c.frequency()).unwrap_or(0);
-    let mut best_temp: Option<f32> = None;
-    for comp in components.list() {
-        let label = comp.label().to_lowercase();
-        if label.contains("cpu")
-            || label.contains("core")
-            || label.contains("package")
-            || label.contains("tdie")
-            || label.contains("soc")
-        {
-            if let Some(t) = comp.temperature() {
-                if t > 10.0 && t < 125.0 {
-                    best_temp = Some(best_temp.map_or(t, |prev| prev.max(t)));
-                }
-            }
-        }
-    }
-    (usage, clock_mhz, best_temp)
-}
 
 fn count_primes_up_to(limit: usize) -> usize {
     let mut is_prime = vec![true; limit + 1];
@@ -182,7 +159,7 @@ fn database_ops_workload(seed: u64) -> u64 {
 }
 
 fn measure_memory_latency_ns() -> f64 {
-    let count: usize = 4 * 1024 * 1024; // 32 MB exceeds laptop L3 cache
+    let count: usize = 4 * 1024 * 1024;
     let mut next = vec![0usize; count];
     let mut perm: Vec<usize> = (0..count).collect();
     let mut rng: u64 = 0x1234_5678_9ABC_DEF0;
@@ -207,7 +184,6 @@ fn measure_memory_latency_ns() -> f64 {
     (ns * 10.0).round() / 10.0
 }
 
-/// Runs a calibrated workload repeatedly until `stage_secs` elapses so thermal/turbo behavior is truly measured!
 fn run_timed_stage<F>(
     stage_secs: f64,
     cancel: &Arc<AtomicBool>,
@@ -226,7 +202,7 @@ where
         }
         unit_work(units);
         units += 1;
-        if last_tick.elapsed().as_millis() >= 350 {
+        if last_tick.elapsed().as_millis() >= 380 {
             on_tick((t0.elapsed().as_secs_f64() / stage_secs).min(1.0));
             last_tick = Instant::now();
         }
@@ -235,21 +211,25 @@ where
     Some(units as f64 / elapsed)
 }
 
+/// LaptopBench QC v2.0 Full 360° All-Scope Performance Suite:
+/// 14 sustained stages covering PassMark 11 CPU/Memory, Office Productivity, Bare-Metal SIMD AI GEMM
+/// (AVX2+FMA / ARM64 NEON), Cinebench-Style 3D Path-Tracing Renderer with live tile preview,
+/// Creator 1080p Image Convolution, Hot-CPU Thermal Throttle Check, Factory Normal Rating,
+/// and Auto-Learning Shop Model History comparison.
 pub fn run_performance_benchmark(
     app: &AppHandle,
     preset: &str,
+    manufacturer: Option<String>,
+    model: Option<String>,
     cancel: Arc<AtomicBool>,
 ) -> Result<PerfBenchResult, String> {
-    // Sustained time-calibrated stages so the CPU truly warms up and exposes thermal throttling!
-    // Quick Shop QC: ~3.5s x 12 stages ≈ 45-50s
-    // Standard Durability: ~10s x 12 stages ≈ 2 min
-    // Thermal Burn-in: ~20s x 12 stages ≈ 4 min
     let stage_secs: f64 = match preset {
-        "standard" => 10.0,
-        "burnin" => 20.0,
-        _ => 3.5,
+        "standard" => 9.0, // ~2.2 minutes
+        "burnin" => 18.0,  // ~4.5 minutes
+        _ => 3.2,          // ~50-60 seconds Shop QC
     };
 
+    let simd_isa = simd_kernels::detected_simd_isa().to_string();
     let mut sys = System::new_all();
     sys.refresh_all();
     let cpu_brand = sys
@@ -260,14 +240,14 @@ pub fn run_performance_benchmark(
     let phys_cores = sys.physical_core_count().unwrap_or_else(|| sys.cpus().len());
     let log_cores = sys.cpus().len();
 
-    let mut components = Components::new_with_refreshed_list();
+    let mut telemetry = TelemetryReader::new();
     let mut peak_temp: Option<f32> = None;
     let started = Instant::now();
     let threads = rayon::current_num_threads().max(1);
 
-    let mut emit = |phase: &str, pct: f64, sys: &mut System, comps: &mut Components| {
-        let (usage, clock_mhz, temp) = read_cpu_telemetry(sys, comps);
-        if let Some(t) = temp {
+    let mut emit = |phase: &str, pct: f64, preview: Option<String>, tel: &mut TelemetryReader| {
+        let snap = tel.sample(false);
+        if let Some(t) = snap.cpu_temp_c {
             peak_temp = Some(peak_temp.map_or(t, |p| p.max(t)));
         }
         let _ = app.emit(
@@ -276,9 +256,11 @@ pub fn run_performance_benchmark(
                 phase: phase.to_string(),
                 percent: (pct * 10.0).round() / 10.0,
                 elapsed_secs: (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
-                cpu_usage_pct: (usage * 10.0).round() / 10.0,
-                cpu_clock_mhz: clock_mhz,
-                cpu_temp_c: temp.map(|t| (t * 10.0).round() / 10.0),
+                cpu_usage_pct: snap.cpu_usage_pct,
+                cpu_clock_mhz: snap.cpu_clock_mhz,
+                cpu_temp_c: snap.cpu_temp_c,
+                raytrace_preview_url: preview,
+                telemetry: Some(snap),
             },
         );
     };
@@ -287,23 +269,23 @@ pub fn run_performance_benchmark(
     let sc_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("1/12 CPU Single-Threaded (Primes + ALU)", f * 8.0, &mut sys, &mut components),
+        |f| emit("1/14 CPU Single-Threaded (Primes + ALU)", f * 6.5, None, &mut telemetry),
         |u| {
             black_box(count_primes_up_to(500_000 + (u as usize % 17)));
             black_box(integer_math_workload(4_000_000, u));
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let single_core_score = (sc_rate * 850.0).round() as u64;
 
-    // Stage 2: Integer Math Multi-Core (ALSO captures early-thermal reference throughput!)
+    // Stage 2: Integer Math Multi-Core (captures early-thermal reference!)
     let mut early_int_rate = 0.0f64;
     let int_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("2/12 CPU Integer Math (All Cores)", 8.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("2/14 CPU Integer Math (All Cores)", 6.5 + f * 6.5, None, &mut telemetry),
         |u| {
             let t_u = Instant::now();
             let _: u64 = (0..threads * 2)
@@ -316,7 +298,7 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let integer_math_score = (int_rate * 2600.0).round() as u64;
 
@@ -324,16 +306,13 @@ pub fn run_performance_benchmark(
     let fp_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("3/12 CPU Floating-Point FP64 Matrix", 16.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("3/14 CPU Floating-Point FP64 Matrix", 13.0 + f * 6.5, None, &mut telemetry),
         |_| {
-            let _: f64 = (0..threads)
-                .into_par_iter()
-                .map(|_| float_fma_workload(176))
-                .sum();
+            let _: f64 = (0..threads).into_par_iter().map(|_| float_fma_workload(176)).sum();
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let float_math_score = (fp_rate * 1900.0).round() as u64;
 
@@ -341,7 +320,7 @@ pub fn run_performance_benchmark(
     let pr_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("4/12 CPU Prime Numbers Sieve", 24.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("4/14 CPU Prime Numbers Sieve", 19.5 + f * 6.5, None, &mut telemetry),
         |u| {
             let _: usize = (0..threads * 2)
                 .into_par_iter()
@@ -350,15 +329,15 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let prime_score = (pr_rate * 2200.0).round() as u64;
 
-    // Stage 5: Extended Instructions / Vector Math
+    // Stage 5: Extended Vector Math
     let vec_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("5/12 CPU Extended Vector / SIMD", 32.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("5/14 CPU Extended Vector Math", 26.0 + f * 6.5, None, &mut telemetry),
         |_| {
             let _: f32 = (0..threads * 2)
                 .into_par_iter()
@@ -367,15 +346,15 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let vector_score = (vec_rate * 1800.0).round() as u64;
 
-    // Stage 6: Data Compression (LZ)
+    // Stage 6: Office — LZ Data Compression
     let cmp_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("6/12 CPU Data Compression (LZ)", 40.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("6/14 Office: Data Compression (LZ)", 32.5 + f * 6.5, None, &mut telemetry),
         |_| {
             let _: usize = (0..threads * 2)
                 .into_par_iter()
@@ -384,15 +363,15 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let compression_score = (cmp_rate * 2100.0).round() as u64;
 
-    // Stage 7: SHA-256 Encryption
+    // Stage 7: Office — SHA-256 Encryption
     let enc_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("7/12 CPU SHA-256 Encryption", 48.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("7/14 Office: SHA-256 Encryption", 39.0 + f * 6.5, None, &mut telemetry),
         |u| {
             let _: usize = (0..threads * 2)
                 .into_par_iter()
@@ -411,7 +390,7 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let encryption_score = (enc_rate * 2000.0).round() as u64;
 
@@ -419,24 +398,21 @@ pub fn run_performance_benchmark(
     let phy_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("8/12 CPU 3D Physics Simulation", 56.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("8/14 CPU 3D Physics Simulation", 45.5 + f * 6.5, None, &mut telemetry),
         |_| {
-            let _: f64 = (0..threads)
-                .into_par_iter()
-                .map(|_| physics_nbody_workload(160, 10))
-                .sum();
+            let _: f64 = (0..threads).into_par_iter().map(|_| physics_nbody_workload(160, 10)).sum();
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let physics_score = (phy_rate * 2300.0).round() as u64;
 
-    // Stage 9: Parallel Sorting
+    // Stage 9: Office — Parallel Sorting
     let sort_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("9/12 CPU Parallel Sorting", 64.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("9/14 Office: Parallel Dataset Sorting", 52.0 + f * 6.5, None, &mut telemetry),
         |u| {
             let _: u64 = (0..threads * 2)
                 .into_par_iter()
@@ -451,15 +427,15 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let sorting_score = (sort_rate * 1950.0).round() as u64;
 
-    // Stage 10: Database Operations (PassMark Memory/CPU Mixed HashMap Workload)
+    // Stage 10: Office — Database Insert/Query Operations
     let db_rate = match run_timed_stage(
         stage_secs,
         &cancel,
-        |f| emit("10/12 Database Operations (Insert/Query)", 72.0 + f * 8.0, &mut sys, &mut components),
+        |f| emit("10/14 Office: Database Query Operations", 58.5 + f * 6.5, None, &mut telemetry),
         |u| {
             let _: u64 = (0..threads)
                 .into_par_iter()
@@ -468,14 +444,86 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
     let database_score = (db_rate * 1450.0).round() as u64;
 
-    // Stage 11: Memory Suite — Cached Read, Uncached Read/Copy, Write & DRAM Pointer-Chase Latency
-    emit("11/12 Memory Cached / Uncached / Write / Latency", 82.0, &mut sys, &mut components);
-    // Cached (256 KB stays inside L2/L3 cache)
-    let cache_buf = vec![0xA5u64; 32768]; // 256 KB
+    // Stage 11: Creator / AI — Bare-Metal SIMD GEMM (AVX2+FMA / ARM64 NEON)
+    let ai_label = format!("11/14 Creator AI Matrix GEMM ({})", simd_isa);
+    let ai_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit(&ai_label, 65.0 + f * 7.0, None, &mut telemetry),
+        |u| {
+            let _: f32 = (0..threads)
+                .into_par_iter()
+                .map(|t| simd_kernels::simd_ai_gemm_step(160, (u as f32) + (t as f32) * 0.1))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
+    };
+    let creator_ai_gemm_score = (ai_rate * 1150.0).round() as u64;
+
+    // Stage 12: Creator — Cinebench-Style 3D Path-Tracing Renderer + Image Convolution
+    let (rt_w, rt_h, rt_spp) = match preset {
+        "burnin" => (640, 360, 8),
+        "standard" => (512, 288, 6),
+        _ => (448, 252, 4),
+    };
+    let (creator_raytrace_score, creator_mega_rays_s, raytrace_preview_url) =
+        match raytracer::run_creator_raytrace_bench(
+            rt_w,
+            rt_h,
+            rt_spp,
+            (stage_secs * 1.35).max(3.5),
+            &cancel,
+            |frac, preview| {
+                emit(
+                    "12/14 Creator 3D Path-Tracing Renderer (Cinebench-Style)",
+                    72.0 + frac * 10.0,
+                    preview,
+                    &mut telemetry,
+                );
+            },
+        ) {
+            Some(v) => v,
+            None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
+        };
+
+    // Quick Creator 1080p Image Sharpen Filter pass inside Stage 12
+    let img_rate = match run_timed_stage(
+        (stage_secs * 0.6).max(1.8),
+        &cancel,
+        |f| {
+            emit(
+                "12/14 Creator 1080p Image Convolution Filter",
+                82.0 + f * 3.0,
+                raytrace_preview_url.clone(),
+                &mut telemetry,
+            )
+        },
+        |_| {
+            let _: u64 = (0..threads.min(4))
+                .into_par_iter()
+                .map(|_| simd_kernels::creator_image_filter_pass(960, 540))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
+    };
+    let creator_image_score = (img_rate * 1650.0).round() as u64;
+
+    // Stage 13: Memory Suite — Cached, Uncached Copy, Write & DRAM Pointer-Chase Latency
+    emit(
+        "13/14 Memory Cached / Uncached / Write / Latency",
+        86.0,
+        raytrace_preview_url.clone(),
+        &mut telemetry,
+    );
+    let cache_buf = vec![0xA5u64; 32768];
     let t_c = Instant::now();
     let mut c_sum = 0u64;
     let c_iters = 4000usize;
@@ -491,7 +539,6 @@ pub fn run_performance_benchmark(
         .round()
         / 10.0;
 
-    // Uncached Threaded Read/Copy & Write (64 MB > L3 cache)
     let bytes_len = 64 * 1024 * 1024;
     let src = vec![0x5Au8; bytes_len];
     let mut dst = vec![0u8; bytes_len];
@@ -499,7 +546,7 @@ pub fn run_performance_benchmark(
     let t_mw = Instant::now();
     while t_mw.elapsed().as_secs_f64() < (stage_secs * 0.45).max(1.2) {
         if cancel.load(Ordering::Relaxed) {
-            return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
+            return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64()));
         }
         dst.par_chunks_mut(1024 * 1024).for_each(|d| d.fill(0x3C));
         mem_passes += 1;
@@ -514,7 +561,7 @@ pub fn run_performance_benchmark(
     let t_mc = Instant::now();
     while t_mc.elapsed().as_secs_f64() < (stage_secs * 0.55).max(1.5) {
         if cancel.load(Ordering::Relaxed) {
-            return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
+            return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64()));
         }
         dst.par_chunks_mut(1024 * 1024)
             .zip(src.par_chunks(1024 * 1024))
@@ -534,11 +581,18 @@ pub fn run_performance_benchmark(
         + (14000.0 / memory_latency_ns.max(12.0)))
         .round() as u64;
 
-    // Stage 12: Sustained Thermal Throttle Check (re-runs Stage 2 ALU workload while CPU is hot!)
+    // Stage 14: Sustained Hot-CPU Thermal Throttle Check
     let late_int_rate = match run_timed_stage(
         (stage_secs * 0.9).max(2.5),
         &cancel,
-        |f| emit("12/12 Thermal Throttle Verification (Hot CPU)", 90.0 + f * 9.0, &mut sys, &mut components),
+        |f| {
+            emit(
+                "14/14 Thermal Throttle Verification (Hot CPU)",
+                91.0 + f * 8.0,
+                raytrace_preview_url.clone(),
+                &mut telemetry,
+            )
+        },
         |u| {
             let _: u64 = (0..threads * 2)
                 .into_par_iter()
@@ -547,14 +601,14 @@ pub fn run_performance_benchmark(
         },
     ) {
         Some(r) => r,
-        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+        None => return Ok(cancelled_result(preset, &simd_isa, started.elapsed().as_secs_f64())),
     };
 
     let ref_rate = early_int_rate.max(int_rate).max(0.001);
     let throttle_drop_pct = (((ref_rate - late_int_rate) / ref_rate) * 100.0).clamp(0.0, 99.0);
     let throttle_drop_pct = (throttle_drop_pct * 10.0).round() / 10.0;
 
-    emit("Completed", 100.0, &mut sys, &mut components);
+    emit("Completed", 100.0, raytrace_preview_url.clone(), &mut telemetry);
 
     let multi_core_score = ((integer_math_score
         + float_math_score
@@ -568,9 +622,22 @@ pub fn run_performance_benchmark(
         / 9.0)
         .round() as u64;
 
-    let composite_score = (single_core_score as f64 * 0.22
-        + multi_core_score as f64 * 0.58
-        + memory_mark as f64 * 0.20)
+    let office_score = ((single_core_score as f64 * 0.30)
+        + (compression_score as f64 * 0.20)
+        + (encryption_score as f64 * 0.15)
+        + (sorting_score as f64 * 0.15)
+        + (database_score as f64 * 0.20))
+        .round() as u64;
+
+    let creator_score = ((creator_raytrace_score as f64 * 0.42)
+        + (creator_ai_gemm_score as f64 * 0.33)
+        + (creator_image_score as f64 * 0.25))
+        .round() as u64;
+
+    let composite_score = (single_core_score as f64 * 0.16
+        + multi_core_score as f64 * 0.38
+        + creator_score as f64 * 0.28
+        + memory_mark as f64 * 0.18)
         .round() as u64;
 
     let baseline = baselines::rate_cpu_performance(
@@ -581,11 +648,55 @@ pub fn run_performance_benchmark(
         throttle_drop_pct,
     );
 
-    let tier = if composite_score >= 16000 {
-        "High-Performance / Gaming"
-    } else if composite_score >= 9500 {
-        "Workstation / Pro Notebook"
-    } else if composite_score >= 5200 {
+    let durability_grade = baselines::compute_durability_grade(
+        baseline.percent_of_normal,
+        throttle_drop_pct,
+        0,
+        peak_temp.map(|t| t >= 102.0).unwrap_or(false),
+        false,
+    );
+
+    // Compare against prior shop history BEFORE recording this unit, then save!
+    let mfr = manufacturer.unwrap_or_else(|| "Generic".into());
+    let mdl = model.unwrap_or_else(|| cpu_brand.clone());
+    let prior_comparison = shop_history::compare_against_shop(
+        app,
+        &mfr,
+        &mdl,
+        &cpu_brand,
+        Some(composite_score as f64),
+    );
+    let _ = shop_history::record_sample(
+        app,
+        ShopRecordSample {
+            manufacturer: mfr.clone(),
+            model: mdl.clone(),
+            cpu_brand: cpu_brand.clone(),
+            composite_score: Some(composite_score as f64),
+            office_score: Some(office_score as f64),
+            creator_score: Some(creator_score as f64),
+            memory_mark: Some(memory_mark as f64),
+            gpu_fps: None,
+            ssd_read_mb_s: None,
+        },
+    );
+    let shop_comparison = if prior_comparison.found {
+        Some(prior_comparison)
+    } else {
+        Some(shop_history::compare_against_shop(
+            app,
+            &mfr,
+            &mdl,
+            &cpu_brand,
+            Some(composite_score as f64),
+        ))
+    };
+
+    let tier = if composite_score >= 16500 {
+        "Flagship Workstation / Gaming"
+    } else if composite_score >= 10000 {
+        "Creator / Pro Notebook"
+    } else if composite_score >= 5600 {
         "Office / Productivity"
     } else {
         "Entry / Light Use"
@@ -605,6 +716,7 @@ pub fn run_performance_benchmark(
     Ok(PerfBenchResult {
         status,
         preset: preset.to_string(),
+        simd_isa,
         integer_math_score,
         float_math_score,
         prime_score,
@@ -616,6 +728,13 @@ pub fn run_performance_benchmark(
         database_score,
         single_core_score,
         multi_core_score,
+        office_score,
+        creator_score,
+        creator_raytrace_score,
+        creator_mega_rays_s,
+        creator_ai_gemm_score,
+        creator_image_score,
+        raytrace_preview_url,
         memory_cached_gb_s,
         memory_bandwidth_gb_s,
         memory_write_gb_s,
@@ -624,27 +743,30 @@ pub fn run_performance_benchmark(
         composite_score,
         throttle_drop_pct,
         tier: tier.clone(),
+        durability_grade: durability_grade.clone(),
         peak_cpu_temp_c: peak_temp.map(|t| (t * 10.0).round() / 10.0),
         elapsed_secs: elapsed,
         cancelled: false,
         baseline: baseline.clone(),
+        shop_comparison,
         summary: format!(
-            "[{} — {:.0}% of Normal] Mark {} ({}) | Throttle Drop: {:.1}% | Mem {:.1} GB/s ({:.1} ns)",
-            baseline.grade,
+            "[Grade {} • {:.0}% of Normal] Mark {} (Office {} | Creator {} | Mem {}) | Throttle {:.1}%",
+            durability_grade,
             baseline.percent_of_normal,
             composite_score,
-            tier,
+            office_score,
+            creator_score,
+            memory_mark,
             throttle_drop_pct,
-            memory_bandwidth_gb_s,
-            memory_latency_ns
         ),
     })
 }
 
-fn cancelled_result(preset: &str, elapsed: f64) -> PerfBenchResult {
+fn cancelled_result(preset: &str, simd_isa: &str, elapsed: f64) -> PerfBenchResult {
     PerfBenchResult {
         status: TestStatus::Warn,
         preset: preset.to_string(),
+        simd_isa: simd_isa.to_string(),
         integer_math_score: 0,
         float_math_score: 0,
         prime_score: 0,
@@ -656,6 +778,13 @@ fn cancelled_result(preset: &str, elapsed: f64) -> PerfBenchResult {
         database_score: 0,
         single_core_score: 0,
         multi_core_score: 0,
+        office_score: 0,
+        creator_score: 0,
+        creator_raytrace_score: 0,
+        creator_mega_rays_s: 0.0,
+        creator_ai_gemm_score: 0,
+        creator_image_score: 0,
+        raytrace_preview_url: None,
         memory_cached_gb_s: 0.0,
         memory_bandwidth_gb_s: 0.0,
         memory_write_gb_s: 0.0,
@@ -664,6 +793,7 @@ fn cancelled_result(preset: &str, elapsed: f64) -> PerfBenchResult {
         composite_score: 0,
         throttle_drop_pct: 0.0,
         tier: "Cancelled".to_string(),
+        durability_grade: "CANCELLED".to_string(),
         peak_cpu_temp_c: None,
         elapsed_secs: (elapsed * 10.0).round() / 10.0,
         cancelled: true,
@@ -674,6 +804,7 @@ fn cancelled_result(preset: &str, elapsed: f64) -> PerfBenchResult {
             grade: "CANCELLED".into(),
             verdict_note: "Benchmark was stopped early by technician.".into(),
         },
+        shop_comparison: None,
         summary: "Performance benchmark was cancelled.".to_string(),
     }
 }

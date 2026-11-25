@@ -359,6 +359,66 @@ pub struct BiometricAuthResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LiveTelemetrySnapshot {
+    pub cpu_usage_pct: f32,
+    pub cpu_clock_mhz: u64,
+    pub cpu_temp_c: Option<f32>,
+    pub cpu_power_w: Option<f32>,
+    pub gpu_temp_c: Option<f32>,
+    pub gpu_load_pct: Option<f32>,
+    pub gpu_power_w: Option<f32>,
+    pub fan_rpm: Option<u32>,
+    pub ac_plugged: Option<bool>,
+    pub battery_percent: Option<f64>,
+    pub battery_watts: Option<f64>,
+    pub sensor_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShopModelBenchmarkAvg {
+    pub model_key: String,
+    pub display_label: String,
+    pub units_tested: u32,
+    pub avg_composite_score: Option<f64>,
+    pub avg_office_score: Option<f64>,
+    pub avg_creator_score: Option<f64>,
+    pub avg_memory_mark: Option<f64>,
+    pub avg_gpu_fps: Option<f64>,
+    pub avg_ssd_read_mb_s: Option<f64>,
+    pub last_tested_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShopModelComparison {
+    pub found: bool,
+    pub units_tested: u32,
+    pub shop_avg_composite: Option<f64>,
+    pub shop_avg_office: Option<f64>,
+    pub shop_avg_creator: Option<f64>,
+    pub shop_avg_gpu_fps: Option<f64>,
+    pub shop_avg_ssd_read: Option<f64>,
+    pub percent_vs_shop: Option<f64>,
+    pub last_tested_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShopRecordSample {
+    pub manufacturer: String,
+    pub model: String,
+    pub cpu_brand: String,
+    pub composite_score: Option<f64>,
+    pub office_score: Option<f64>,
+    pub creator_score: Option<f64>,
+    pub memory_mark: Option<f64>,
+    pub gpu_fps: Option<f64>,
+    pub ssd_read_mb_s: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PerfBenchProgress {
     pub phase: String,
     pub percent: f64,
@@ -366,6 +426,8 @@ pub struct PerfBenchProgress {
     pub cpu_usage_pct: f32,
     pub cpu_clock_mhz: u64,
     pub cpu_temp_c: Option<f32>,
+    pub raytrace_preview_url: Option<String>,
+    pub telemetry: Option<LiveTelemetrySnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -373,6 +435,7 @@ pub struct PerfBenchProgress {
 pub struct PerfBenchResult {
     pub status: TestStatus,
     pub preset: String,
+    pub simd_isa: String,
     pub integer_math_score: u64,
     pub float_math_score: u64,
     pub prime_score: u64,
@@ -384,6 +447,13 @@ pub struct PerfBenchResult {
     pub database_score: u64,
     pub single_core_score: u64,
     pub multi_core_score: u64,
+    pub office_score: u64,
+    pub creator_score: u64,
+    pub creator_raytrace_score: u64,
+    pub creator_mega_rays_s: f64,
+    pub creator_ai_gemm_score: u64,
+    pub creator_image_score: u64,
+    pub raytrace_preview_url: Option<String>,
     pub memory_cached_gb_s: f64,
     pub memory_bandwidth_gb_s: f64,
     pub memory_write_gb_s: f64,
@@ -392,10 +462,122 @@ pub struct PerfBenchResult {
     pub composite_score: u64,
     pub throttle_drop_pct: f64,
     pub tier: String,
+    pub durability_grade: String,
     pub peak_cpu_temp_c: Option<f32>,
     pub elapsed_secs: f64,
     pub cancelled: bool,
     pub baseline: BaselineRating,
+    pub shop_comparison: Option<ShopModelComparison>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VramTestProgress {
+    pub running: bool,
+    pub adapter_name: String,
+    pub pattern_name: String,
+    pub pass_number: u32,
+    pub percent: f64,
+    pub allocated_vram_mb: u64,
+    pub total_gb_verified: f64,
+    pub bandwidth_gb_s: f64,
+    pub errors_found: u64,
+    pub elapsed_secs: f64,
+    pub duration_secs: u64,
+    pub gpu_temp_c: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VramTestResult {
+    pub status: TestStatus,
+    pub adapter_name: String,
+    pub backend: String,
+    pub allocated_vram_mb: u64,
+    pub passes_completed: u32,
+    pub total_gb_verified: f64,
+    pub avg_bandwidth_gb_s: f64,
+    pub errors_found: u64,
+    pub peak_temp_c: Option<f32>,
+    pub elapsed_secs: f64,
+    pub cancelled: bool,
+    pub baseline: BaselineRating,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerTortureProgress {
+    pub running: bool,
+    pub adapter_name: String,
+    pub simd_isa: String,
+    pub elapsed_secs: f64,
+    pub duration_secs: u64,
+    pub percent: f64,
+    pub gpu_fps: f64,
+    pub gpu_avg_fps: f64,
+    pub cpu_ops_per_sec: f64,
+    pub telemetry: LiveTelemetrySnapshot,
+    pub battery_start_pct: Option<f64>,
+    pub battery_delta_pct: Option<f64>,
+    pub battery_drain_while_plugged: bool,
+    pub thermal_warning: bool,
+    pub preview_data_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerTortureResult {
+    pub status: TestStatus,
+    pub adapter_name: String,
+    pub simd_isa: String,
+    pub duration_secs: u64,
+    pub elapsed_secs: f64,
+    pub avg_fps: f64,
+    pub fps_drop_pct: f64,
+    pub peak_cpu_temp_c: Option<f32>,
+    pub peak_gpu_temp_c: Option<f32>,
+    pub peak_gpu_power_w: Option<f32>,
+    pub battery_start_pct: Option<f64>,
+    pub battery_end_pct: Option<f64>,
+    pub battery_delta_pct: Option<f64>,
+    pub battery_drain_while_plugged: bool,
+    pub thermal_cutoff_triggered: bool,
+    pub cancelled: bool,
+    pub durability_grade: String,
+    pub baseline: BaselineRating,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BurnInProgress {
+    pub running: bool,
+    pub stage_index: u32,
+    pub total_stages: u32,
+    pub stage_name: String,
+    pub stage_detail: String,
+    pub overall_percent: f64,
+    pub elapsed_secs: f64,
+    pub total_duration_secs: u64,
+    pub ram_errors: u64,
+    pub vram_errors: u64,
+    pub battery_drain_alert: bool,
+    pub telemetry: Option<LiveTelemetrySnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BurnInResult {
+    pub status: TestStatus,
+    pub total_minutes: u64,
+    pub elapsed_secs: f64,
+    pub cancelled: bool,
+    pub ram_result: Option<RamTestResult>,
+    pub vram_result: Option<VramTestResult>,
+    pub torture_result: Option<PowerTortureResult>,
+    pub durability_grade: String,
     pub summary: String,
 }
 

@@ -8,6 +8,7 @@ import type {
   ModuleRecord,
   PerfBenchResult,
   PortsSpeakerSignoff,
+  PowerTortureResult,
   RamTestResult,
   SecurityAuditReport,
   ShopProfile,
@@ -17,6 +18,7 @@ import type {
   SystemSpecs,
   TestModuleId,
   TestStatus,
+  VramTestResult,
 } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { PreReportModal } from "./components/PreReportModal";
@@ -62,8 +64,8 @@ const INITIAL_MODULES: Record<StepModuleId, ModuleRecord> = {
   biometrics: { id: "biometrics", stepNumber: 8, name: "Fingerprint & Face ID", category: "Interactive", status: "pending", summary: "", notes: "" },
   media: { id: "media", stepNumber: 9, name: "Camera & Microphone", category: "Interactive", status: "pending", summary: "", notes: "" },
   ram: { id: "ram", stepNumber: 10, name: "RAM Stress (TM5)", category: "Deep Stress", status: "pending", summary: "", notes: "" },
-  performance: { id: "performance", stepNumber: 11, name: "Performance (PM11)", category: "Deep Stress", status: "pending", summary: "", notes: "" },
-  gpu: { id: "gpu", stepNumber: 12, name: "GPU Stress (FurMark)", category: "Deep Stress", status: "pending", summary: "", notes: "" },
+  performance: { id: "performance", stepNumber: 11, name: "360° Perf & Creator", category: "Deep Stress", status: "pending", summary: "", notes: "" },
+  gpu: { id: "gpu", stepNumber: 12, name: "GPU, VRAM & Power", category: "Deep Stress", status: "pending", summary: "", notes: "" },
   ports_speakers: { id: "ports_speakers", stepNumber: 13, name: "Ports & Speakers", category: "Final Verification", status: "pending", summary: "", notes: "" },
 };
 
@@ -97,6 +99,8 @@ export const App: React.FC = () => {
   const [bioHwReport, setBioHwReport] = useState<BiometricsHardwareReport | null>(null);
   const [perfResult, setPerfResult] = useState<PerfBenchResult | null>(null);
   const [gpuResult, setGpuResult] = useState<GpuStressResult | null>(null);
+  const [vramResult, setVramResult] = useState<VramTestResult | null>(null);
+  const [tortureResult, setTortureResult] = useState<PowerTortureResult | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
 
   const updateModule = useCallback(
@@ -427,12 +431,14 @@ export const App: React.FC = () => {
 
           {activeTab === "performance" && (
             <PerformanceView
+              manufacturer={specs?.manufacturer}
+              model={specs?.model}
               result={perfResult}
               status={modules.performance.status}
               stepNumber={11}
               totalSteps={totalSteps}
               onRunningChange={(r) => {
-                if (r) updateModule("performance", "running", "Running PassMark 11-style 10-stage benchmark...");
+                if (r) updateModule("performance", "running", "Running 14-Stage All-Scope Performance & Creator Suite...");
               }}
               onComplete={(res) => {
                 setPerfResult(res);
@@ -447,15 +453,34 @@ export const App: React.FC = () => {
             <GpuStressView
               isGamingCapable={specs?.isGamingCapable ?? false}
               result={gpuResult}
+              vramResult={vramResult}
+              tortureResult={tortureResult}
               status={modules.gpu.status}
               stepNumber={12}
               totalSteps={totalSteps}
               onRunningChange={(r) => {
-                if (r) updateModule("gpu", "running", "Running native wgpu FurMark-style GPU stress...");
+                if (r) updateModule("gpu", "running", "Running native wgpu GPU / VRAM / Combined Power Stress...");
               }}
               onComplete={(res) => {
                 setGpuResult(res);
-                updateModule("gpu", res.status, res.summary);
+                const statuses = [res.status, vramResult?.status, tortureResult?.status].filter(Boolean) as TestStatus[];
+                const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
+                const parts = [res.summary, vramResult?.summary, tortureResult?.summary].filter(Boolean).join(" | ");
+                updateModule("gpu", merged, parts);
+              }}
+              onVramComplete={(res) => {
+                setVramResult(res);
+                const statuses = [gpuResult?.status, res.status, tortureResult?.status].filter(Boolean) as TestStatus[];
+                const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
+                const parts = [gpuResult?.summary, res.summary, tortureResult?.summary].filter(Boolean).join(" | ");
+                updateModule("gpu", merged, parts);
+              }}
+              onTortureComplete={(res) => {
+                setTortureResult(res);
+                const statuses = [gpuResult?.status, vramResult?.status, res.status].filter(Boolean) as TestStatus[];
+                const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
+                const parts = [gpuResult?.summary, vramResult?.summary, res.summary].filter(Boolean).join(" | ");
+                updateModule("gpu", merged, parts);
               }}
               onMarkNA={() =>
                 updateModule("gpu", "notApplicable", "Marked N/A — integrated office laptop GPU.")

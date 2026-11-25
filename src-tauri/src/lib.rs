@@ -3,8 +3,9 @@ mod modules;
 mod types;
 
 use modules::{
-    battery, biometrics, error_logs, gpu_stress, keyboard_hook, perf_bench, ram_test, report,
-    security_audit, specs, storage,
+    battery, biometrics, error_logs, gpu_stress, keyboard_hook, perf_bench, power_torture,
+    ram_test, raytracer, report, security_audit, shop_history, simd_kernels, specs, storage,
+    telemetry, vram_test,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -12,10 +13,11 @@ use std::sync::{
 };
 use tauri::{AppHandle, State};
 use types::{
-    BatteryHealthReport, BiometricAuthResult, BiometricsHardwareReport, ErrorLogsReport,
-    ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult, PerfBenchResult,
-    RamTestResult, SecurityAuditReport, ShopProfile, StorageBenchResult, StorageSmartReport,
-    SystemSpecs,
+    BatteryHealthReport, BiometricAuthResult, BiometricsHardwareReport, BurnInResult,
+    ErrorLogsReport, ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
+    LiveTelemetrySnapshot, PerfBenchResult, PowerTortureResult, RamTestResult, SecurityAuditReport,
+    ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, StorageBenchResult,
+    StorageSmartReport, SystemSpecs, VramTestResult,
 };
 
 pub struct CancelRegistry {
@@ -25,6 +27,9 @@ pub struct CancelRegistry {
     pub ram_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub perf_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub gpu_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub vram_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub torture_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub burnin_cancel: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl Default for CancelRegistry {
@@ -36,6 +41,9 @@ impl Default for CancelRegistry {
             ram_cancel: Mutex::new(None),
             perf_cancel: Mutex::new(None),
             gpu_cancel: Mutex::new(None),
+            vram_cancel: Mutex::new(None),
+            torture_cancel: Mutex::new(None),
+            burnin_cancel: Mutex::new(None),
         }
     }
 }
@@ -186,10 +194,12 @@ async fn run_performance_benchmark(
     app: AppHandle,
     state: State<'_, CancelRegistry>,
     preset: String,
+    manufacturer: Option<String>,
+    model: Option<String>,
 ) -> Result<PerfBenchResult, String> {
     let cancel = replace_flag(&state.perf_cancel);
     tauri::async_runtime::spawn_blocking(move || {
-        perf_bench::run_performance_benchmark(&app, &preset, cancel)
+        perf_bench::run_performance_benchmark(&app, &preset, manufacturer, model, cancel)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -233,6 +243,109 @@ fn cancel_gpu_stress(state: State<'_, CancelRegistry>) {
 }
 
 #[tauri::command]
+async fn run_vram_test(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    adapter_index: Option<usize>,
+    target_vram_mb: Option<u64>,
+    duration_secs: Option<u64>,
+) -> Result<VramTestResult, String> {
+    let cancel = replace_flag(&state.vram_cancel);
+    let dur = duration_secs.unwrap_or(60).clamp(20, 1800);
+    tauri::async_runtime::spawn_blocking(move || {
+        vram_test::run_vram_integrity_test(&app, adapter_index, target_vram_mb, dur, cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_vram_test(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.vram_cancel);
+}
+
+#[tauri::command]
+async fn run_power_torture(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    adapter_index: Option<usize>,
+    duration_secs: Option<u64>,
+    thermal_cutoff_c: Option<f32>,
+) -> Result<PowerTortureResult, String> {
+    let cancel = replace_flag(&state.torture_cancel);
+    let dur = duration_secs.unwrap_or(120).clamp(30, 1800);
+    let cutoff = thermal_cutoff_c.unwrap_or(95.0).clamp(75.0, 105.0);
+    tauri::async_runtime::spawn_blocking(move || {
+        power_torture::run_power_torture(&app, adapter_index, dur, cutoff, cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_power_torture(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.torture_cancel);
+}
+
+#[tauri::command]
+async fn run_shelf_burnin(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    total_minutes: u64,
+    thermal_cutoff_c: Option<f32>,
+    memory_type_hint: Option<String>,
+) -> Result<BurnInResult, String> {
+    let cancel = replace_flag(&state.burnin_cancel);
+    let cutoff = thermal_cutoff_c.unwrap_or(95.0).clamp(75.0, 105.0);
+    tauri::async_runtime::spawn_blocking(move || {
+        power_torture::run_shelf_burnin(&app, total_minutes, cutoff, memory_type_hint, cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_shelf_burnin(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.burnin_cancel);
+}
+
+#[tauri::command]
+fn get_shop_model_comparison(
+    app: AppHandle,
+    manufacturer: String,
+    model: String,
+    cpu_brand: String,
+    current_composite: Option<f64>,
+) -> ShopModelComparison {
+    shop_history::compare_against_shop(&app, &manufacturer, &model, &cpu_brand, current_composite)
+}
+
+#[tauri::command]
+fn list_shop_history(app: AppHandle) -> Vec<ShopModelBenchmarkAvg> {
+    shop_history::list_history(&app)
+}
+
+#[tauri::command]
+fn export_shop_history(app: AppHandle, target_path: String) -> Result<usize, String> {
+    shop_history::export_history_to_file(&app, &target_path)
+}
+
+#[tauri::command]
+fn import_shop_history(app: AppHandle, source_path: String) -> Result<usize, String> {
+    shop_history::import_history_from_file(&app, &source_path)
+}
+
+#[tauri::command]
+async fn sample_live_telemetry() -> Result<LiveTelemetrySnapshot, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut reader = telemetry::TelemetryReader::new();
+        reader.sample(true)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn load_shop_profile(app: AppHandle) -> ShopProfile {
     report::load_shop_profile(&app)
 }
@@ -253,9 +366,9 @@ async fn export_qc_report(
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.0 Self-Test & Hardware Verification ===");
 
-    // 1. RAM pattern verification & bit-flip injection check
+    // 1. RAM pattern verification
     let mut ram_buf = vec![0u64; 65536];
     for pid in 0..5 {
         let errs = ram_test::verify_pattern_pass(&mut ram_buf, pid, 42);
@@ -265,7 +378,38 @@ pub fn run_self_test() -> Result<(), String> {
     }
     println!("[PASS] RAM pattern verifier (5 patterns, 0 errors)");
 
-    // 2. Native PDF 1.4 generator check
+    // 2. Bare-metal SIMD AI GEMM & Creator Image kernels
+    let isa = simd_kernels::detected_simd_isa();
+    let gemm_sum = simd_kernels::simd_ai_gemm_step(64, 1.0);
+    let img_sum = simd_kernels::creator_image_filter_pass(160, 90);
+    if !gemm_sum.is_finite() || gemm_sum == 0.0 || img_sum == 0 {
+        return Err("SIMD/Creator kernel returned invalid output".into());
+    }
+    println!("[PASS] SIMD Kernels ({} | GEMM={:.1} | ImageConv={})", isa, gemm_sum, img_sum);
+
+    // 3. Cinebench-style 3D Path-Tracer smoke render
+    let cancel_false = Arc::new(AtomicBool::new(false));
+    let (rt_score, mrays, rt_jpg) = raytracer::run_creator_raytrace_bench(
+        128,
+        72,
+        2,
+        0.1,
+        &cancel_false,
+        |_, _| {},
+    )
+    .ok_or_else(|| "Raytracer smoke render failed".to_string())?;
+    if rt_score == 0 || rt_jpg.is_none() {
+        return Err("Raytracer produced empty frame or score".into());
+    }
+    println!("[PASS] 3D Path-Tracer (Score={} | {:.2} MRays/s | JPEG ok)", rt_score, mrays);
+
+    // 4. Dedicated VRAM wgpu compute shader smoke test
+    match vram_test::smoke_test_vram_shader() {
+        Ok(msg) => println!("[PASS] VRAM Compute Shader: {}", msg),
+        Err(e) => println!("[WARN] VRAM Compute Shader skipped: {}", e),
+    }
+
+    // 5. Native PDF 1.4 generator check
     let sample_payload = ExportReportPayload {
         shop_profile: ShopProfile {
             shop_name: "Self-Test Shop".into(),
@@ -300,7 +444,14 @@ pub fn run_self_test() -> Result<(), String> {
     }
     println!("[PASS] Native PDF 1.4 certificate generator ({} bytes)", pdf.len());
 
-    // 3. Live OS diagnostic probes
+    // 6. Live Telemetry & OS diagnostic probes
+    let mut tel = telemetry::TelemetryReader::new();
+    let snap = tel.sample(true);
+    println!(
+        "[PASS] Telemetry ({}): CPU {:.0}% @ {} MHz | Temp={:?} | AC={:?} | Bat={:?}%",
+        snap.sensor_source, snap.cpu_usage_pct, snap.cpu_clock_mhz, snap.cpu_temp_c, snap.ac_plugged, snap.battery_percent
+    );
+
     let sp = specs::collect_system_specs();
     println!(
         "[PASS] Specs: {} {} | {} ({}C/{}T) | {:.1} GB RAM | Gaming={}",
@@ -331,7 +482,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL SELF-TESTS PASSED ===");
+    println!("=== ALL v2.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -362,6 +513,17 @@ pub fn run() {
             list_gpu_adapters,
             run_gpu_stress,
             cancel_gpu_stress,
+            run_vram_test,
+            cancel_vram_test,
+            run_power_torture,
+            cancel_power_torture,
+            run_shelf_burnin,
+            cancel_shelf_burnin,
+            get_shop_model_comparison,
+            list_shop_history,
+            export_shop_history,
+            import_shop_history,
+            sample_live_telemetry,
             load_shop_profile,
             save_shop_profile,
             export_qc_report,
