@@ -1,3 +1,4 @@
+use crate::modules::baselines;
 use crate::types::{RamTestProgress, RamTestResult, TestStatus};
 use rayon::prelude::*;
 use std::sync::{
@@ -18,7 +19,6 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
     let errors = AtomicU64::new(0);
 
     match test_kind {
-        // Test 0: RefreshStable (TM5 Default/Absolut)
         0 => {
             buf.par_chunks_mut(chunk_words).enumerate().for_each(|(c_idx, chunk)| {
                 let base = (c_idx * chunk_words) as u64;
@@ -31,8 +31,7 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
                     };
                 }
             });
-            // Brief DRAM refresh-window pause to catch weak cell retention / tREFI instability
-            std::thread::sleep(Duration::from_millis(60));
+            std::thread::sleep(Duration::from_millis(90));
             buf.par_chunks(chunk_words).enumerate().for_each(|(c_idx, chunk)| {
                 let base = (c_idx * chunk_words) as u64;
                 let mut local = 0u64;
@@ -52,7 +51,6 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
                 }
             });
         }
-        // Test 1: MirrorMove (cross-bank copy & bitwise inversion)
         1 => {
             let half = buf.len() / 2;
             let (left, right) = buf.split_at_mut(half);
@@ -63,7 +61,6 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
                     *slot = splitmix64((base + i as u64).wrapping_add(seed));
                 }
             });
-            // Mirror left -> right inverted
             right[..half]
                 .par_chunks_mut(sub_chunk)
                 .zip(left.par_chunks(sub_chunk))
@@ -72,7 +69,6 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
                         *d = !s;
                     }
                 });
-            // Verify right matches !left
             right[..half]
                 .par_chunks(sub_chunk)
                 .zip(left.par_chunks(sub_chunk))
@@ -88,7 +84,6 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
                     }
                 });
         }
-        // Test 2: MirrorMove128 (128-bit pair cross-bank copy & verify)
         2 => {
             let half = (buf.len() / 2) & !1;
             let (left, right) = buf.split_at_mut(half);
@@ -127,7 +122,6 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
                     }
                 });
         }
-        // Test 3: SimpleTest Mode 1 (serj 0x45357354 walking-bit & address-xor)
         3 => {
             let p0 = 0x0000_1E5F_4535_7354u64 ^ seed;
             buf.par_chunks_mut(chunk_words).enumerate().for_each(|(c_idx, chunk)| {
@@ -152,7 +146,6 @@ pub fn verify_pattern_pass(buf: &mut [u64], test_kind: usize, seed: u64) -> u64 
                 }
             });
         }
-        // Test 4+: SimpleTest Mode 2 (anta777 0x6E72A941 SplitMix64 high-entropy PRNG)
         _ => {
             let p1 = 0x0014_AAB7_6E72_A941u64 ^ seed;
             buf.par_chunks_mut(chunk_words).enumerate().for_each(|(c_idx, chunk)| {
@@ -191,6 +184,8 @@ pub fn run_ram_stress_test(
     app: &AppHandle,
     preset: &str,
     memory_percent: Option<u32>,
+    custom_duration_secs: Option<u64>,
+    memory_type_hint: Option<String>,
     cancel: Arc<AtomicBool>,
 ) -> Result<RamTestResult, String> {
     let mut sys = System::new_all();
@@ -199,22 +194,24 @@ pub fn run_ram_stress_test(
     let total_ram_mb = sys.total_memory() / (1024 * 1024);
     let avail_ram_mb = sys.available_memory() / (1024 * 1024);
 
-    let pct = memory_percent.unwrap_or(60).clamp(20, 75) as u64;
-    let safe_max_mb = avail_ram_mb.saturating_sub(2048).max(256);
-    let target_mb = ((avail_ram_mb * pct) / 100).min(safe_max_mb).clamp(256, 8192);
+    let pct = memory_percent.unwrap_or(65).clamp(25, 78) as u64;
+    let safe_max_mb = avail_ram_mb.saturating_sub(1800).max(512);
+    let target_mb = ((avail_ram_mb * pct) / 100).min(safe_max_mb).clamp(512, 10240);
 
-    let (profile_name, total_cycles, target_duration_secs): (&str, u32, u64) = match preset {
-        "standard" => ("Absolut @ anta777 (Standard)", 6, 300),
-        "burnin" => ("Extreme @ anta777 (Burn-in)", 15, 900),
-        _ => ("Default @ serj (Quick QC)", 3, 90),
+    // Real time-enforced durability durations (never exits in 2 seconds!)
+    let (profile_name, default_duration_secs): (&str, u64) = match preset {
+        "standard" => ("Absolut @ anta777 (5m Durability)", 300),
+        "burnin" => ("Extreme @ anta777 (15m Burn-In)", 900),
+        _ => ("Default @ serj (2m Shop QC)", 120),
     };
+    let duration_secs = custom_duration_secs.unwrap_or(default_duration_secs).clamp(30, 3600);
 
     let test_sequence: [(&str, usize); 6] = [
         ("Test0: RefreshStable (Retention)", 0),
-        ("Test1: SimpleTest Mode 1 (0x45357354)", 3),
+        ("Test1: SimpleTest (0x45357354)", 3),
         ("Test2: MirrorMove (64-bit Bus)", 1),
-        ("Test3: SimpleTest Mode 2 (PRNG 0x6E72A941)", 4),
-        ("Test4: MirrorMove128 (128-bit Cacheline)", 2),
+        ("Test3: SimpleTest PRNG (0x6E72A941)", 4),
+        ("Test4: MirrorMove128 (128-bit)", 2),
         ("Test5: RefreshStable Inverted", 0),
     ];
 
@@ -223,13 +220,18 @@ pub fn run_ram_stress_test(
 
     let started = Instant::now();
     let mut total_errors = 0u64;
+    let mut total_gb_verified = 0.0f64;
     let mut peak_bw = 0.0f64;
+    let mut bw_sum = 0.0f64;
+    let mut bw_samples = 0u64;
     let mut cycles_completed = 0u32;
     let mut cancelled = false;
-    let total_steps = (total_cycles as usize) * test_sequence.len();
-    let mut step_done = 0usize;
+    let mut per_test_passes = vec![0u32; test_sequence.len()];
+    let mut per_test_errors = vec![0u64; test_sequence.len()];
 
-    'outer: for cycle in 1..=total_cycles {
+    let mut cycle: u32 = 0;
+    'outer: loop {
+        cycle += 1;
         for (t_idx, &(pname, pid)) in test_sequence.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 cancelled = true;
@@ -241,18 +243,21 @@ pub fn run_ram_stress_test(
                 ^ ((t_idx as u64).wrapping_mul(0x94D0_49BB_1331_11EB));
             let errs = verify_pattern_pass(&mut buffer, pid, seed);
             total_errors += errs;
+            per_test_passes[t_idx] += 1;
+            per_test_errors[t_idx] += errs;
 
             let pass_secs = t_pass.elapsed().as_secs_f64().max(0.001);
-            let bytes_moved = (target_mb as f64) * 2.0 / 1024.0;
-            let bw = ((bytes_moved / pass_secs) * 100.0).round() / 100.0;
+            let pass_gb = (target_mb as f64) * 2.0 / 1024.0;
+            total_gb_verified += pass_gb;
+            let bw = ((pass_gb / pass_secs) * 100.0).round() / 100.0;
             if bw > peak_bw {
                 peak_bw = bw;
             }
+            bw_sum += bw;
+            bw_samples += 1;
 
-            step_done += 1;
             let elapsed = started.elapsed().as_secs_f64();
-            let pct_by_steps = (step_done as f64 / total_steps as f64) * 100.0;
-            let pct_by_time = (elapsed / target_duration_secs as f64) * 100.0;
+            let pct_done = ((elapsed / duration_secs as f64) * 100.0).min(99.5);
 
             let _ = app.emit(
                 "ram:progress",
@@ -262,16 +267,19 @@ pub fn run_ram_stress_test(
                     test_index: t_idx,
                     pattern_name: pname.to_string(),
                     cycle,
-                    total_cycles,
-                    percent: pct_by_steps.max(pct_by_time).min(99.0),
+                    percent: pct_done,
                     allocated_mb: target_mb,
+                    total_gb_verified: (total_gb_verified * 10.0).round() / 10.0,
                     bandwidth_gb_s: bw,
                     errors_found: total_errors,
+                    per_test_passes: per_test_passes.clone(),
+                    per_test_errors: per_test_errors.clone(),
                     elapsed_secs: (elapsed * 10.0).round() / 10.0,
+                    duration_secs,
                 },
             );
 
-            if cycle >= 1 && elapsed >= target_duration_secs as f64 {
+            if elapsed >= duration_secs as f64 {
                 cycles_completed = cycle;
                 break 'outer;
             }
@@ -282,8 +290,19 @@ pub fn run_ram_stress_test(
     drop(buffer);
 
     let elapsed = (started.elapsed().as_secs_f64() * 10.0).round() / 10.0;
+    let avg_bw = if bw_samples > 0 {
+        ((bw_sum / bw_samples as f64) * 10.0).round() / 10.0
+    } else {
+        peak_bw
+    };
+
+    let mtype = memory_type_hint.unwrap_or_else(|| "DDR4".into());
+    let baseline = baselines::rate_ram(&mtype, peak_bw, total_errors);
+
     let status = if total_errors > 0 {
         TestStatus::Fail
+    } else if cancelled && elapsed < 30.0 {
+        TestStatus::Warn
     } else if cancelled {
         TestStatus::Warn
     } else {
@@ -292,18 +311,18 @@ pub fn run_ram_stress_test(
 
     let summary = if total_errors > 0 {
         format!(
-            "RAM FAILURE ({}): {} bit error(s) detected across {} MB!",
-            profile_name, total_errors, target_mb
+            "RAM FAILURE ({}): {} bit error(s) after {:.1} GB verified!",
+            profile_name, total_errors, total_gb_verified
         )
     } else if cancelled {
         format!(
-            "Stopped early after {:.1}s ({} MB tested, 0 errors).",
-            elapsed, target_mb
+            "Stopped early at {:.0}s — {:.1} GB verified across {} MB window, 0 errors.",
+            elapsed, total_gb_verified, target_mb
         )
     } else {
         format!(
-            "0 errors across {} MB — {} ({} cycles, peak {:.1} GB/s).",
-            target_mb, profile_name, cycles_completed, peak_bw
+            "[{}] 0 errors across {:.1} GB verified ({} MB window, {} cycles, {:.0}s, peak {:.1} GB/s).",
+            baseline.grade, total_gb_verified, target_mb, cycles_completed, elapsed, peak_bw
         )
     };
 
@@ -313,12 +332,17 @@ pub fn run_ram_stress_test(
         profile_name: profile_name.to_string(),
         allocated_mb: target_mb,
         total_ram_mb,
+        total_gb_verified: (total_gb_verified * 10.0).round() / 10.0,
         cycles_completed,
         patterns_tested: test_sequence.iter().map(|(n, _)| n.to_string()).collect(),
+        per_test_passes,
+        per_test_errors,
         errors_found: total_errors,
         peak_bandwidth_gb_s: peak_bw,
+        avg_bandwidth_gb_s: avg_bw,
         elapsed_secs: elapsed,
         cancelled,
+        baseline,
         summary,
     })
 }

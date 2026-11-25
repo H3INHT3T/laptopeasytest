@@ -67,17 +67,22 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   const [active, setActive] = useState(false);
   const [idx, setIdx] = useState(0);
   const [viewedSet, setViewedSet] = useState<Set<number>>(new Set());
-  const [showHud, setShowHud] = useState(true);
+  const [hudPinned, setHudPinned] = useState(false);
+  const [hudHover, setHudHover] = useState(false);
+  const [cursorHidden, setCursorHidden] = useState(false);
   const [measuredHz, setMeasuredHz] = useState<number>(60);
   const [droppedFrames, setDroppedFrames] = useState<number>(0);
   const [notes, setNotes] = useState(initialNotes);
   const motionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const idleTimerRef = useRef<number | null>(null);
 
   const enterFullscreen = async (startIdx = 0) => {
     setIdx(startIdx);
     setViewedSet((prev) => new Set(prev).add(startIdx));
     setActive(true);
-    setShowHud(true);
+    setHudPinned(false);
+    setHudHover(false);
+    setCursorHidden(false);
     try {
       const win = getCurrentWindow();
       await win.setDecorations(false);
@@ -132,11 +137,25 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
         e.preventDefault();
         setIdx((i) => (i - 1 + PATTERNS.length) % PATTERNS.length);
       } else if (e.key.toLowerCase() === "h") {
-        setShowHud((h) => !h);
+        setHudPinned((h) => !h);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    const scheduleHide = () => {
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = window.setTimeout(() => {
+        setCursorHidden(true);
+      }, 1600);
+    };
+    scheduleHide();
+    return () => {
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+    };
   }, [active]);
 
   // Motion & live Hz + dropped-frame loop
@@ -206,10 +225,21 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
 
   const pattern = PATTERNS[idx];
 
+  const hudVisible = hudPinned || hudHover;
+
   const fullscreenOverlay = active
     ? createPortal(
         <div
           onClick={() => setIdx((i) => (i + 1) % PATTERNS.length)}
+          onMouseMove={(e) => {
+            setCursorHidden(false);
+            const nearBottom = e.clientY >= window.innerHeight - 84;
+            setHudHover(nearBottom);
+            if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+            if (!nearBottom) {
+              idleTimerRef.current = window.setTimeout(() => setCursorHidden(true), 1600);
+            }
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             exitFullscreen();
@@ -225,7 +255,7 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             zIndex: 999999,
             backgroundColor: pattern.kind === "solid" ? pattern.color : "#000000",
           }}
-          className="cursor-pointer select-none overflow-hidden"
+          className={`select-none overflow-hidden ${cursorHidden && !hudVisible ? "cursor-none" : "cursor-pointer"}`}
         >
           {pattern.kind === "gradient" && (
             <div className="w-full h-full flex flex-col">
@@ -348,29 +378,44 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             <canvas ref={motionCanvasRef} className="w-full h-full block" />
           )}
 
-          {showHud && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/90 border border-white/25 rounded-xl px-5 py-3 text-xs text-white flex items-center gap-4 shadow-2xl"
-            >
-              <div>
-                <div className="font-bold">
-                  [{idx + 1}/{PATTERNS.length}] {pattern.name}
-                  {pattern.kind === "motion" ? ` • ~${measuredHz} Hz (${droppedFrames} drops)` : ""}
-                </div>
-                <div className="text-zinc-300 text-[11px]">{pattern.desc}</div>
+          {/* Hover-only floating controls (completely hidden unless hovering bottom edge or pressing H) */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onMouseEnter={() => setHudHover(true)}
+            onMouseLeave={() => setHudHover(false)}
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/90 border border-white/25 rounded-xl px-5 py-3 text-xs text-white flex items-center gap-4 shadow-2xl transition-opacity duration-200 ${
+              hudVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <div>
+              <div className="font-bold">
+                [{idx + 1}/{PATTERNS.length}] {pattern.name}
+                {pattern.kind === "motion" ? ` • ~${measuredHz} Hz (${droppedFrames} drops)` : ""}
               </div>
-              <div className="text-[11px] text-blue-400 font-mono whitespace-nowrap">
-                Click / Space: Next • H: Hide HUD • Esc: Exit
-              </div>
-              <button
-                onClick={exitFullscreen}
-                className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
-              >
-                Exit
-              </button>
+              <div className="text-zinc-300 text-[11px]">{pattern.desc}</div>
             </div>
-          )}
+            <div className="text-[11px] text-blue-400 font-mono whitespace-nowrap">
+              Click / Space: Next • Esc / Right-Click: Exit
+            </div>
+            <button
+              onClick={() => setIdx((i) => (i - 1 + PATTERNS.length) % PATTERNS.length)}
+              className="px-2.5 py-1.5 rounded-lg border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => setIdx((i) => (i + 1) % PATTERNS.length)}
+              className="px-2.5 py-1.5 rounded-lg border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
+            >
+              Next
+            </button>
+            <button
+              onClick={exitFullscreen}
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+            >
+              Exit
+            </button>
+          </div>
         </div>,
         document.body
       )
@@ -392,7 +437,7 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             <StatusBadge status={status} />
           </div>
           <p className="text-xs text-zinc-600 mt-1">
-            True edge-to-edge borderless fullscreen suite: dead/stuck pixels, OLED/IPS uniformity, 256-step gradients, Gamma 2.2, 1px LCD inversion, font sharpness, and motion Hz.
+            True unobstructed fullscreen: controls stay hidden until you hover the bottom edge (or press H). Click/Space: Next • Esc/Right-Click: Exit.
           </p>
         </div>
         <button

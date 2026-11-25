@@ -14,6 +14,16 @@ pub enum TestStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BaselineRating {
+    pub detected_class: String,
+    pub expected_normal: String,
+    pub percent_of_normal: f64,
+    pub grade: String,
+    pub verdict_note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RamModuleInfo {
     pub slot: String,
     pub capacity_gb: f64,
@@ -253,13 +263,18 @@ pub struct StorageBenchResult {
     pub status: TestStatus,
     pub preset: String,
     pub test_size_mb: u64,
+    pub direct_io: bool,
     pub seq_write_mb_s: f64,
     pub seq_read_mb_s: f64,
     pub rand_4k_write_mb_s: f64,
     pub rand_4k_read_mb_s: f64,
     pub rand_4k_write_iops: u64,
     pub rand_4k_read_iops: u64,
+    pub avg_4k_latency_ms: f64,
+    pub p99_4k_latency_ms: f64,
+    pub integrity_errors: u64,
     pub elapsed_secs: f64,
+    pub baseline: BaselineRating,
     pub summary: String,
 }
 
@@ -269,6 +284,8 @@ pub struct StorageBenchProgress {
     pub phase: String,
     pub percent: f64,
     pub current_mb_s: f64,
+    pub elapsed_secs: f64,
+    pub integrity_errors: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,12 +296,15 @@ pub struct RamTestProgress {
     pub test_index: usize,
     pub pattern_name: String,
     pub cycle: u32,
-    pub total_cycles: u32,
     pub percent: f64,
     pub allocated_mb: u64,
+    pub total_gb_verified: f64,
     pub bandwidth_gb_s: f64,
     pub errors_found: u64,
+    pub per_test_passes: Vec<u32>,
+    pub per_test_errors: Vec<u64>,
     pub elapsed_secs: f64,
+    pub duration_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,12 +315,17 @@ pub struct RamTestResult {
     pub profile_name: String,
     pub allocated_mb: u64,
     pub total_ram_mb: u64,
+    pub total_gb_verified: f64,
     pub cycles_completed: u32,
     pub patterns_tested: Vec<String>,
+    pub per_test_passes: Vec<u32>,
+    pub per_test_errors: Vec<u64>,
     pub errors_found: u64,
     pub peak_bandwidth_gb_s: f64,
+    pub avg_bandwidth_gb_s: f64,
     pub elapsed_secs: f64,
     pub cancelled: bool,
+    pub baseline: BaselineRating,
     pub summary: String,
 }
 
@@ -337,7 +362,9 @@ pub struct BiometricAuthResult {
 pub struct PerfBenchProgress {
     pub phase: String,
     pub percent: f64,
+    pub elapsed_secs: f64,
     pub cpu_usage_pct: f32,
+    pub cpu_clock_mhz: u64,
     pub cpu_temp_c: Option<f32>,
 }
 
@@ -354,16 +381,21 @@ pub struct PerfBenchResult {
     pub encryption_score: u64,
     pub physics_score: u64,
     pub sorting_score: u64,
+    pub database_score: u64,
     pub single_core_score: u64,
     pub multi_core_score: u64,
+    pub memory_cached_gb_s: f64,
     pub memory_bandwidth_gb_s: f64,
+    pub memory_write_gb_s: f64,
     pub memory_latency_ns: f64,
     pub memory_mark: u64,
     pub composite_score: u64,
+    pub throttle_drop_pct: f64,
     pub tier: String,
     pub peak_cpu_temp_c: Option<f32>,
     pub elapsed_secs: f64,
     pub cancelled: bool,
+    pub baseline: BaselineRating,
     pub summary: String,
 }
 
@@ -388,6 +420,7 @@ pub struct GpuStressProgress {
     pub fps: f64,
     pub avg_fps: f64,
     pub min_fps: f64,
+    pub low_1pct_fps: f64,
     pub frame_time_ms: f64,
     pub frames_rendered: u64,
     pub elapsed_secs: f64,
@@ -410,12 +443,15 @@ pub struct GpuStressResult {
     pub avg_fps: f64,
     pub min_fps: f64,
     pub max_fps: f64,
+    pub low_1pct_fps: f64,
+    pub fps_drop_pct: f64,
     pub frames_rendered: u64,
     pub peak_temp_c: Option<f32>,
     pub peak_power_w: Option<f32>,
     pub thermal_cutoff_triggered: bool,
     pub elapsed_secs: f64,
     pub cancelled: bool,
+    pub baseline: BaselineRating,
     pub summary: String,
 }
 

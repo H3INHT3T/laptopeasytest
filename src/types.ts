@@ -7,6 +7,14 @@ export type TestStatus =
   | "skipped"
   | "notApplicable";
 
+export interface BaselineRating {
+  detectedClass: string;
+  expectedNormal: string;
+  percentOfNormal: number;
+  grade: string;
+  verdictNote: string;
+}
+
 export type StepModuleId =
   | "specs"
   | "security"
@@ -233,19 +241,26 @@ export interface StorageBenchProgress {
   phase: string;
   percent: number;
   currentMbS: number;
+  elapsedSecs: number;
+  integrityErrors: number;
 }
 
 export interface StorageBenchResult {
   status: TestStatus;
   preset: string;
   testSizeMb: number;
+  directIo: boolean;
   seqWriteMbS: number;
   seqReadMbS: number;
   rand4kWriteMbS: number;
   rand4kReadMbS: number;
   rand4kWriteIops: number;
   rand4kReadIops: number;
+  avg4kLatencyMs: number;
+  p994kLatencyMs: number;
+  integrityErrors: number;
   elapsedSecs: number;
+  baseline: BaselineRating;
   summary: string;
 }
 
@@ -255,12 +270,15 @@ export interface RamTestProgress {
   testIndex: number;
   patternName: string;
   cycle: number;
-  totalCycles: number;
   percent: number;
   allocatedMb: number;
+  totalGbVerified: number;
   bandwidthGbS: number;
   errorsFound: number;
+  perTestPasses: number[];
+  perTestErrors: number[];
   elapsedSecs: number;
+  durationSecs: number;
 }
 
 export interface RamTestResult {
@@ -269,12 +287,17 @@ export interface RamTestResult {
   profileName: string;
   allocatedMb: number;
   totalRamMb: number;
+  totalGbVerified: number;
   cyclesCompleted: number;
   patternsTested: string[];
+  perTestPasses: number[];
+  perTestErrors: number[];
   errorsFound: number;
   peakBandwidthGbS: number;
+  avgBandwidthGbS: number;
   elapsedSecs: number;
   cancelled: boolean;
+  baseline: BaselineRating;
   summary: string;
 }
 
@@ -303,7 +326,9 @@ export interface BiometricAuthResult {
 export interface PerfBenchProgress {
   phase: string;
   percent: number;
+  elapsedSecs: number;
   cpuUsagePct: number;
+  cpuClockMhz: number;
   cpuTempC: number | null;
 }
 
@@ -318,16 +343,21 @@ export interface PerfBenchResult {
   encryptionScore: number;
   physicsScore: number;
   sortingScore: number;
+  databaseScore: number;
   singleCoreScore: number;
   multiCoreScore: number;
+  memoryCachedGbS: number;
   memoryBandwidthGbS: number;
+  memoryWriteGbS: number;
   memoryLatencyNs: number;
   memoryMark: number;
   compositeScore: number;
+  throttleDropPct: number;
   tier: string;
   peakCpuTempC: number | null;
   elapsedSecs: number;
   cancelled: boolean;
+  baseline: BaselineRating;
   summary: string;
 }
 
@@ -348,6 +378,7 @@ export interface GpuStressProgress {
   fps: number;
   avgFps: number;
   minFps: number;
+  low1pctFps: number;
   frameTimeMs: number;
   framesRendered: number;
   elapsedSecs: number;
@@ -368,12 +399,15 @@ export interface GpuStressResult {
   avgFps: number;
   minFps: number;
   maxFps: number;
+  low1pctFps: number;
+  fpsDropPct: number;
   framesRendered: number;
   peakTempC: number | null;
   peakPowerW: number | null;
   thermalCutoffTriggered: boolean;
   elapsedSecs: number;
   cancelled: boolean;
+  baseline: BaselineRating;
   summary: string;
 }
 

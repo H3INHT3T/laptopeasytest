@@ -408,6 +408,7 @@ export const App: React.FC = () => {
 
           {activeTab === "ram" && (
             <RamTestView
+              memoryTypeHint={specs?.ramModules[0]?.memoryType ?? "DDR4"}
               result={ramResult}
               status={modules.ram.status}
               stepNumber={10}

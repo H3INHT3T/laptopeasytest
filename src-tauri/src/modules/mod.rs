@@ -1,3 +1,4 @@
+pub mod baselines;
 pub mod battery;
 pub mod biometrics;
 pub mod error_logs;

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Gauge, HardDrive, Play, RefreshCw, Square } from "lucide-react";
+import { Gauge, HardDrive, Play, RefreshCw, ShieldCheck, Square } from "lucide-react";
 import type {
   StorageBenchProgress,
   StorageBenchResult,
@@ -11,6 +11,8 @@ import type {
 } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { LiveChart } from "../components/LiveChart";
+import { BaselineCard } from "../components/BaselineCard";
 
 interface StorageViewProps {
   smartReport: StorageSmartReport | null;
@@ -40,12 +42,14 @@ export const StorageView: React.FC<StorageViewProps> = ({
   const [preset, setPreset] = useState<StressPreset>("quick");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<StorageBenchProgress | null>(null);
+  const [speedHistory, setSpeedHistory] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<StorageBenchProgress>("storage:progress", (ev) => {
       setProgress(ev.payload);
+      setSpeedHistory((prev) => [...prev.slice(-79), ev.payload.currentMbS]);
     }).then((fn) => {
       unlisten = fn;
     });
@@ -54,12 +58,25 @@ export const StorageView: React.FC<StorageViewProps> = ({
     };
   }, []);
 
+  const primaryDrive = smartReport?.drives[0];
+
   const startBench = async () => {
     setError(null);
     setRunning(true);
-    setProgress({ phase: "Preparing temporary benchmark file...", percent: 2, currentMbS: 0 });
+    setSpeedHistory([]);
+    setProgress({
+      phase: "Opening Direct-IO uncached test file...",
+      percent: 1,
+      currentMbS: 0,
+      elapsedSecs: 0,
+      integrityErrors: 0,
+    });
     try {
-      const res = await invoke<StorageBenchResult>("run_storage_benchmark", { preset });
+      const res = await invoke<StorageBenchResult>("run_storage_benchmark", {
+        preset,
+        interfaceHint: primaryDrive?.interfaceType ?? null,
+        mediaHint: primaryDrive?.mediaType ?? null,
+      });
       onBenchComplete(res);
     } catch (e) {
       setError(String(e));
@@ -77,12 +94,12 @@ export const StorageView: React.FC<StorageViewProps> = ({
               0{stepNumber}
             </span>
             <h1 className="text-xl font-black text-black tracking-tight">
-              SSD Health (SMART) &amp; Deep Speed Benchmark
+              SSD Health (SMART) &amp; Direct-IO Durability Test
             </h1>
             <StatusBadge status={status} />
           </div>
           <p className="text-xs text-zinc-600 mt-1">
-            DriveDx-inspired NVMe/SATA SMART diagnostics plus non-destructive Sequential &amp; Random 4K Read/Write speed test.
+            Bypasses OS RAM cache (Direct-IO) for real sustained NAND write, byte-for-byte surface integrity verification, 4K P99 latency, and NVMe/SATA baseline rating.
           </p>
         </div>
         <button
@@ -99,7 +116,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
       <div className="space-y-3">
         {!smartReport ? (
           <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-center text-sm text-zinc-600">
-            {loadingSmart ? "Reading NVMe/SATA SMART reliability counters..." : "Click Re-scan SMART to read drive health."}
+            {loadingSmart ? "Reading NVMe/SATA SMART reliability counters..." : "Click Re-scan SMART to inspect drives."}
           </div>
         ) : smartReport.drives.length === 0 ? (
           <div className="rounded-xl border border-blue-600 bg-blue-50 p-4 text-xs text-black">
@@ -168,16 +185,16 @@ export const StorageView: React.FC<StorageViewProps> = ({
         )}
       </div>
 
-      {/* Non-Destructive SSD Speed Benchmark */}
+      {/* Real-Time Direct-IO Durability Benchmark */}
       <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 className="text-sm font-bold text-black flex items-center gap-2">
               <Gauge className="w-4 h-4 text-blue-600" />
-              Non-Destructive SSD Speed Benchmark (Required Deep Test)
+              Direct-IO Sustained SSD Durability &amp; Integrity Test
             </h2>
             <p className="text-xs text-zinc-600 mt-0.5">
-              Measures real Sequential &amp; Random 4K Read/Write using an auto-deleted temp file.
+              Writes uncached random blocks directly to NAND, verifies every byte on read-back, and measures 4K P99 latency.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -187,9 +204,9 @@ export const StorageView: React.FC<StorageViewProps> = ({
               onChange={(e) => setPreset(e.target.value as StressPreset)}
               className="bg-white border border-zinc-300 rounded-lg px-2.5 py-2 text-xs text-black font-medium"
             >
-              <option value="quick">Quick QC (256 MB)</option>
-              <option value="standard">Standard (512 MB)</option>
-              <option value="burnin">Deep Burn-in (1 GB)</option>
+              <option value="quick">Shop QC — 1 GB Direct-IO + 4K Verify</option>
+              <option value="standard">Standard Durability — 2 GB Direct-IO + 8K Ops</option>
+              <option value="burnin">Deep Burn-In — 4 GB SLC Exhaust + 16K Ops</option>
             </select>
             {running ? (
               <button
@@ -203,57 +220,81 @@ export const StorageView: React.FC<StorageViewProps> = ({
                 onClick={startBench}
                 className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
-                <Play className="w-3.5 h-3.5" /> Run SSD Speed Test
+                <Play className="w-3.5 h-3.5" /> Start Durability Test
               </button>
             )}
           </div>
         </div>
 
-        {running && progress && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs font-mono text-black font-semibold">
-              <span>{progress.phase}</span>
-              <span>
-                {progress.currentMbS.toFixed(0)} MB/s • {progress.percent.toFixed(0)}%
-              </span>
-            </div>
-            <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
-              <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress.percent}%` }} />
-            </div>
+        {(running || speedHistory.length > 0) && (
+          <div className="space-y-3">
+            {running && progress && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs font-mono text-black font-bold">
+                  <span className="text-blue-700">{progress.phase}</span>
+                  <span>
+                    {progress.elapsedSecs.toFixed(1)}s • {progress.percent.toFixed(0)}% • Verify Errors: {progress.integrityErrors}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
+                  <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress.percent}%` }} />
+                </div>
+              </div>
+            )}
+            <LiveChart title="Real-Time Direct-IO Disk Throughput" unit="MB/s" data={speedHistory} />
           </div>
         )}
 
-        {error && (
-          <div className="rounded-lg bg-black text-white px-3 py-2 text-xs">{error}</div>
-        )}
+        {error && <div className="rounded-lg bg-black text-white px-3 py-2 text-xs">{error}</div>}
 
-        {benchResult && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono">
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-[11px] text-zinc-500">Sequential Read</div>
-              <div className="text-xl font-black text-blue-600 mt-1">
-                {benchResult.seqReadMbS.toFixed(0)} <span className="text-xs">MB/s</span>
+        {benchResult && !running && (
+          <div className="space-y-4">
+            <BaselineCard baseline={benchResult.baseline} />
+
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5 font-mono">
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-[10px] text-zinc-500">Direct Seq Read</div>
+                <div className="text-lg font-black text-blue-600 mt-0.5">
+                  {benchResult.seqReadMbS.toFixed(0)} <span className="text-[11px]">MB/s</span>
+                </div>
               </div>
-            </div>
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-[11px] text-zinc-500">Sequential Write</div>
-              <div className="text-xl font-black text-black mt-1">
-                {benchResult.seqWriteMbS.toFixed(0)} <span className="text-xs">MB/s</span>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-[10px] text-zinc-500">Direct Seq Write</div>
+                <div className="text-lg font-black text-black mt-0.5">
+                  {benchResult.seqWriteMbS.toFixed(0)} <span className="text-[11px]">MB/s</span>
+                </div>
               </div>
-            </div>
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-[11px] text-zinc-500">Random 4K Read</div>
-              <div className="text-xl font-black text-black mt-1">
-                {benchResult.rand4kReadIops.toLocaleString()} <span className="text-xs">IOPS</span>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-[10px] text-zinc-500">4K Read IOPS</div>
+                <div className="text-lg font-black text-black mt-0.5">
+                  {benchResult.rand4kReadIops.toLocaleString()}
+                </div>
+                <div className="text-[10px] text-zinc-500">{benchResult.rand4kReadMbS.toFixed(1)} MB/s</div>
               </div>
-              <div className="text-[10px] text-zinc-500">{benchResult.rand4kReadMbS.toFixed(1)} MB/s</div>
-            </div>
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-[11px] text-zinc-500">Random 4K Write</div>
-              <div className="text-xl font-black text-black mt-1">
-                {benchResult.rand4kWriteIops.toLocaleString()} <span className="text-xs">IOPS</span>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-[10px] text-zinc-500">4K Write IOPS</div>
+                <div className="text-lg font-black text-black mt-0.5">
+                  {benchResult.rand4kWriteIops.toLocaleString()}
+                </div>
+                <div className="text-[10px] text-zinc-500">{benchResult.rand4kWriteMbS.toFixed(1)} MB/s</div>
               </div>
-              <div className="text-[10px] text-zinc-500">{benchResult.rand4kWriteMbS.toFixed(1)} MB/s</div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-[10px] text-zinc-500">4K Latency (Avg / P99)</div>
+                <div className="text-sm font-black text-black mt-1">
+                  {benchResult.avg4kLatencyMs.toFixed(2)} / {benchResult.p994kLatencyMs.toFixed(2)} ms
+                </div>
+              </div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-[10px] text-zinc-500 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-blue-600" /> Surface Verify
+                </div>
+                <div className={`text-lg font-black mt-0.5 ${benchResult.integrityErrors > 0 ? "text-black underline" : "text-blue-600"}`}>
+                  {benchResult.integrityErrors} err
+                </div>
+                <div className="text-[10px] text-zinc-500">
+                  {benchResult.directIo ? "OS Cache Bypassed" : "Flushed Sync"}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -263,8 +304,8 @@ export const StorageView: React.FC<StorageViewProps> = ({
         stepNumber={stepNumber}
         totalSteps={totalSteps}
         status={status}
-        canProceed={Boolean(benchResult)}
-        requirementHint="Run the non-destructive SSD Speed Benchmark to complete Step 5 (or click Skip Step)."
+        canProceed={Boolean(benchResult && !running)}
+        requirementHint="Run the Direct-IO SSD Durability & Integrity Test to complete Step 5 (or click Skip Step)."
         onNext={onNext}
         onSkip={onSkip}
       />

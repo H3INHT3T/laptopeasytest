@@ -1,3 +1,4 @@
+use crate::modules::baselines;
 use crate::types::{GpuAdapterInfo, GpuStressProgress, GpuStressResult, TestStatus};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use bytemuck::{Pod, Zeroable};
@@ -52,8 +53,6 @@ pub fn list_gpu_adapters() -> Vec<GpuAdapterInfo> {
         .collect()
 }
 
-/// Reads optional GPU temperature, load %, and power draw (W).
-/// Uses nvidia-smi when an NVIDIA GPU is present, otherwise checks sysinfo thermal sensors.
 fn read_gpu_telemetry() -> (Option<f32>, Option<f32>, Option<f32>) {
     #[cfg(target_os = "windows")]
     {
@@ -78,7 +77,6 @@ fn read_gpu_telemetry() -> (Option<f32>, Option<f32>, Option<f32>) {
         }
     }
 
-    // Cross-platform fallback via sysinfo components
     let components = sysinfo::Components::new_with_refreshed_list();
     let mut gpu_temp: Option<f32> = None;
     for comp in components.list() {
@@ -95,7 +93,6 @@ fn read_gpu_telemetry() -> (Option<f32>, Option<f32>, Option<f32>) {
 }
 
 fn encode_preview_jpeg(rgba_padded: &[u8], width: u32, height: u32, padded_bpr: u32) -> Option<String> {
-    // Downscale 2x for snappy UI live preview transfer
     let out_w = (width / 2).max(1);
     let out_h = (height / 2).max(1);
     let mut rgb = Vec::with_capacity((out_w * out_h * 3) as usize);
@@ -127,13 +124,15 @@ pub fn run_gpu_stress_test(
     adapter_index: Option<usize>,
     preset: &str,
     resolution: &str,
+    extreme_mode: bool,
     thermal_cutoff_c: f32,
     cancel: Arc<AtomicBool>,
 ) -> Result<GpuStressResult, String> {
     let duration_secs: u64 = match preset {
-        "standard" => 300,
-        "burnin" => 900,
-        _ => 90, // quick
+        "standard" => 300,  // 5 min durability
+        "burnin" => 900,    // 15 min gaming burn-in
+        "extended" => 1800, // 30 min extended stress
+        _ => 120,           // 2 min Shop QC
     };
 
     let (width, height): (u32, u32) = match resolution {
@@ -180,14 +179,18 @@ pub fn run_gpu_stress_test(
         source: wgpu::ShaderSource::Wgsl(SHADER_WGSL.into()),
     });
 
+    let stress_iters = if extreme_mode {
+        128.0
+    } else if adapter_info.device_type == wgpu::DeviceType::DiscreteGpu {
+        96.0
+    } else {
+        64.0
+    };
+
     let uniform_data = Uniforms {
         resolution: [width as f32, height as f32],
         time: 0.0,
-        stress_iters: if adapter_info.device_type == wgpu::DeviceType::DiscreteGpu {
-            96.0
-        } else {
-            64.0
-        },
+        stress_iters,
     };
     let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Uniforms"),
@@ -283,6 +286,7 @@ pub fn run_gpu_stress_test(
     let mut window_frames = 0u64;
     let mut min_fps = f64::MAX;
     let mut max_fps = 0.0f64;
+    let mut fps_samples: Vec<f64> = Vec::with_capacity(2048);
     let mut peak_temp: Option<f32> = None;
     let mut peak_power: Option<f32> = None;
     let mut cur_temp: Option<f32> = None;
@@ -301,7 +305,7 @@ pub fn run_gpu_stress_test(
         let u = Uniforms {
             resolution: [width as f32, height as f32],
             time: elapsed_s,
-            stress_iters: uniform_data.stress_iters,
+            stress_iters,
         };
         queue.write_buffer(&uniform_buf, 0, bytemuck::cast_slice(&[u]));
 
@@ -360,7 +364,7 @@ pub fn run_gpu_stress_test(
         frames_rendered += 1;
         window_frames += 1;
 
-        if last_telemetry.elapsed().as_secs_f64() >= 1.5 {
+        if last_telemetry.elapsed().as_secs_f64() >= 1.2 {
             let (t, l, p) = read_gpu_telemetry();
             cur_temp = t;
             cur_load = l;
@@ -382,6 +386,7 @@ pub fn run_gpu_stress_test(
             let win_secs = last_emit.elapsed().as_secs_f64().max(0.001);
             let inst_fps = window_frames as f64 / win_secs;
             if frames_rendered > 4 {
+                fps_samples.push(inst_fps);
                 if inst_fps < min_fps {
                     min_fps = inst_fps;
                 }
@@ -392,7 +397,8 @@ pub fn run_gpu_stress_test(
             let total_elapsed = started.elapsed().as_secs_f64().max(0.001);
             let avg_fps = frames_rendered as f64 / total_elapsed;
 
-            // Map preview readback buffer
+            let low_1pct_fps = compute_low_1pct(&fps_samples, inst_fps);
+
             let slice = readback_buf.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
             slice.map_async(wgpu::MapMode::Read, move |res| {
@@ -423,6 +429,7 @@ pub fn run_gpu_stress_test(
                     } else {
                         (inst_fps * 10.0).round() / 10.0
                     },
+                    low_1pct_fps: (low_1pct_fps * 10.0).round() / 10.0,
                     frame_time_ms: (1000.0 / inst_fps.max(0.1) * 10.0).round() / 10.0,
                     frames_rendered,
                     elapsed_secs: (total_elapsed * 10.0).round() / 10.0,
@@ -452,10 +459,27 @@ pub fn run_gpu_stress_test(
     } else {
         avg_fps
     };
+    let low_1pct_fps = (compute_low_1pct(&fps_samples, avg_fps) * 10.0).round() / 10.0;
+
+    // Thermal throttle FPS drop: compare early 20% window vs final 20% window
+    let fps_drop_pct = if fps_samples.len() >= 10 {
+        let k = (fps_samples.len() / 5).max(3);
+        let early: f64 = fps_samples[..k].iter().sum::<f64>() / k as f64;
+        let late: f64 = fps_samples[fps_samples.len() - k..].iter().sum::<f64>() / k as f64;
+        ((((early - late) / early.max(0.1)) * 100.0).clamp(0.0, 99.0) * 10.0).round() / 10.0
+    } else {
+        0.0
+    };
+
+    let res_label = format!("{}x{}", width, height);
+    let baseline = baselines::rate_gpu(&adapter_name, &res_label, avg_fps, fps_drop_pct, thermal_cutoff_triggered);
 
     let status = if thermal_cutoff_triggered {
         TestStatus::Fail
-    } else if cancelled || peak_temp.map(|t| t >= thermal_cutoff_c - 6.0).unwrap_or(false) {
+    } else if cancelled
+        || fps_drop_pct >= 20.0
+        || peak_temp.map(|t| t >= thermal_cutoff_c - 6.0).unwrap_or(false)
+    {
         TestStatus::Warn
     } else {
         TestStatus::Pass
@@ -463,25 +487,25 @@ pub fn run_gpu_stress_test(
 
     let summary = if thermal_cutoff_triggered {
         format!(
-            "THERMAL SAFETY CUTOFF at {:.0}°C on {}! Check cooling paste/fans.",
+            "THERMAL CUTOFF at {:.0}°C on {}! Inspect GPU fans & paste.",
             peak_temp.unwrap_or(thermal_cutoff_c),
             adapter_name
         )
     } else if cancelled {
         format!(
-            "Stopped early ({:.1}s) on {} — Avg {:.1} FPS{}.",
-            elapsed,
-            adapter_name,
-            avg_fps,
-            peak_temp.map(|t| format!(", Peak {:.0}°C", t)).unwrap_or_default()
+            "Stopped early ({:.0}s) on {} — Avg {:.1} FPS (1% Low {:.1}, Drop {:.1}%).",
+            elapsed, adapter_name, avg_fps, low_1pct_fps, fps_drop_pct
         )
     } else {
         format!(
-            "Stable {} GPU stress on {} — Avg {:.1} FPS (Min {:.1}){}.",
-            resolution,
+            "[{} — {:.0}% of Normal] {} @ {} — Avg {:.1} FPS (1% Low {:.1}, Throttle Drop {:.1}%){}.",
+            baseline.grade,
+            baseline.percent_of_normal,
             adapter_name,
+            res_label,
             avg_fps,
-            final_min,
+            low_1pct_fps,
+            fps_drop_pct,
             peak_temp.map(|t| format!(", Peak {:.0}°C", t)).unwrap_or_default()
         )
     };
@@ -490,17 +514,30 @@ pub fn run_gpu_stress_test(
         status,
         adapter_name,
         backend: backend_str,
-        resolution: format!("{}x{}", width, height),
+        resolution: res_label,
         preset: preset.to_string(),
         avg_fps,
         min_fps: final_min,
         max_fps: final_max,
+        low_1pct_fps,
+        fps_drop_pct,
         frames_rendered,
         peak_temp_c: peak_temp,
         peak_power_w: peak_power,
         thermal_cutoff_triggered,
         elapsed_secs: (elapsed * 10.0).round() / 10.0,
         cancelled,
+        baseline,
         summary,
     })
+}
+
+fn compute_low_1pct(samples: &[f64], fallback: f64) -> f64 {
+    if samples.is_empty() {
+        return fallback;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = (sorted.len() / 20).max(1);
+    sorted[..n].iter().sum::<f64>() / n as f64
 }

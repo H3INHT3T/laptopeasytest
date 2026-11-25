@@ -110,10 +110,12 @@ async fn run_storage_benchmark(
     app: AppHandle,
     state: State<'_, CancelRegistry>,
     preset: String,
+    interface_hint: Option<String>,
+    media_hint: Option<String>,
 ) -> Result<StorageBenchResult, String> {
     let cancel = replace_flag(&state.storage_cancel);
     tauri::async_runtime::spawn_blocking(move || {
-        storage::run_storage_benchmark(&app, &preset, cancel)
+        storage::run_storage_benchmark(&app, &preset, interface_hint, media_hint, cancel)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -130,10 +132,19 @@ async fn run_ram_stress(
     state: State<'_, CancelRegistry>,
     preset: String,
     memory_percent: Option<u32>,
+    custom_duration_secs: Option<u64>,
+    memory_type_hint: Option<String>,
 ) -> Result<RamTestResult, String> {
     let cancel = replace_flag(&state.ram_cancel);
     tauri::async_runtime::spawn_blocking(move || {
-        ram_test::run_ram_stress_test(&app, &preset, memory_percent, cancel)
+        ram_test::run_ram_stress_test(
+            &app,
+            &preset,
+            memory_percent,
+            custom_duration_secs,
+            memory_type_hint,
+            cancel,
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -203,12 +214,14 @@ async fn run_gpu_stress(
     adapter_index: Option<usize>,
     preset: String,
     resolution: String,
+    extreme_mode: Option<bool>,
     thermal_cutoff_c: Option<f32>,
 ) -> Result<GpuStressResult, String> {
     let cancel = replace_flag(&state.gpu_cancel);
     let cutoff = thermal_cutoff_c.unwrap_or(95.0).clamp(75.0, 105.0);
+    let extreme = extreme_mode.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        gpu_stress::run_gpu_stress_test(&app, adapter_index, &preset, &resolution, cutoff, cancel)
+        gpu_stress::run_gpu_stress_test(&app, adapter_index, &preset, &resolution, extreme, cutoff, cancel)
     })
     .await
     .map_err(|e| e.to_string())?

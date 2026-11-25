@@ -6,11 +6,12 @@ import type {
   GpuAdapterInfo,
   GpuStressProgress,
   GpuStressResult,
-  StressPreset,
   TestStatus,
 } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { LiveChart } from "../components/LiveChart";
+import { BaselineCard } from "../components/BaselineCard";
 
 interface GpuStressViewProps {
   isGamingCapable: boolean;
@@ -23,6 +24,13 @@ interface GpuStressViewProps {
   onRunningChange: (running: boolean) => void;
   onNext: () => void;
   onSkip: () => void;
+}
+
+function fmtTime(secs: number): string {
+  const s = Math.max(0, Math.round(secs));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
 export const GpuStressView: React.FC<GpuStressViewProps> = ({
@@ -39,11 +47,14 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
 }) => {
   const [adapters, setAdapters] = useState<GpuAdapterInfo[]>([]);
   const [selectedAdapter, setSelectedAdapter] = useState<number>(0);
-  const [preset, setPreset] = useState<StressPreset>("quick");
+  const [preset, setPreset] = useState<"quick" | "standard" | "burnin" | "extended">("quick");
   const [resolution, setResolution] = useState<"720p" | "1080p" | "1440p" | "4k">("720p");
+  const [extremeMode, setExtremeMode] = useState(false);
   const [cutoffC, setCutoffC] = useState(95);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<GpuStressProgress | null>(null);
+  const [fpsHistory, setFpsHistory] = useState<number[]>([]);
+  const [tempHistory, setTempHistory] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,6 +69,10 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
     let unlisten: (() => void) | null = null;
     listen<GpuStressProgress>("gpu:progress", (ev) => {
       setProgress(ev.payload);
+      setFpsHistory((prev) => [...prev.slice(-79), ev.payload.fps]);
+      if (ev.payload.gpuTempC != null) {
+        setTempHistory((prev) => [...prev.slice(-79), ev.payload.gpuTempC as number]);
+      }
     }).then((fn) => {
       unlisten = fn;
     });
@@ -71,11 +86,14 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
     setRunning(true);
     onRunningChange(true);
     setProgress(null);
+    setFpsHistory([]);
+    setTempHistory([]);
     try {
       const res = await invoke<GpuStressResult>("run_gpu_stress", {
         adapterIndex: selectedAdapter,
         preset,
         resolution,
+        extremeMode,
         thermalCutoffC: cutoffC,
       });
       onComplete(res);
@@ -100,7 +118,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
               {stepNumber}
             </span>
             <h1 className="text-xl font-black text-black tracking-tight">
-              Gaming GPU Stress (FurMark 2 wgpu Engine)
+              Gaming GPU Durability Burn-In (FurMark 2 wgpu Engine)
             </h1>
             <StatusBadge status={status} />
             {isGamingCapable && (
@@ -110,7 +128,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
             )}
           </div>
           <p className="text-xs text-zinc-600 mt-1">
-            Native Rust wgpu (DX12 / Vulkan / Metal) procedural 3D furry-torus shader thermal burn-in with adapter picker &amp; auto thermal cutoff.
+            Sustained native wgpu shader burn-in with live FPS &amp; Temperature graphs, 1% Low stability, thermal throttle drop %, and GPU-class normal baseline rating.
           </p>
         </div>
         {!isGamingCapable && !running && (
@@ -124,77 +142,91 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
       </div>
 
       {/* Controls */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-        <div className="md:col-span-2">
-          <label className="block text-[11px] font-bold text-zinc-600 mb-1">Target GPU Adapter</label>
-          <select
-            value={selectedAdapter}
-            disabled={running}
-            onChange={(e) => setSelectedAdapter(Number(e.target.value))}
-            className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-2 text-xs text-black font-medium"
-          >
-            {adapters.map((a) => (
-              <option key={a.index} value={a.index}>
-                {a.name} ({a.deviceType} • {a.backend})
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold text-zinc-600 mb-1">Resolution</label>
-          <select
-            value={resolution}
-            disabled={running}
-            onChange={(e) => setResolution(e.target.value as "720p" | "1080p" | "1440p" | "4k")}
-            className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-2 text-xs text-black font-medium"
-          >
-            <option value="720p">1280×720 (Balanced)</option>
-            <option value="1080p">1920×1080 (FHD Heavy)</option>
-            <option value="1440p">2560×1440 (QHD Extreme)</option>
-            <option value="4k">3840×2160 (4K Ultra)</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold text-zinc-600 mb-1">Preset / Cutoff ({cutoffC}°C)</label>
-          <div className="flex gap-1.5">
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+          <div className="md:col-span-2">
+            <label className="block text-[11px] font-bold text-zinc-600 mb-1">Target GPU Adapter</label>
             <select
-              value={preset}
+              value={selectedAdapter}
               disabled={running}
-              onChange={(e) => setPreset(e.target.value as StressPreset)}
-              className="flex-1 bg-white border border-zinc-300 rounded-lg px-2 py-2 text-xs text-black font-medium"
+              onChange={(e) => setSelectedAdapter(Number(e.target.value))}
+              className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-2 text-xs text-black font-medium"
             >
-              <option value="quick">Quick (90s)</option>
-              <option value="standard">Std (5m)</option>
-              <option value="burnin">Burn (15m)</option>
+              {adapters.map((a) => (
+                <option key={a.index} value={a.index}>
+                  {a.name} ({a.deviceType} • {a.backend})
+                </option>
+              ))}
             </select>
-            <input
-              type="number"
-              min={75}
-              max={105}
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-zinc-600 mb-1">Resolution</label>
+            <select
+              value={resolution}
               disabled={running}
-              value={cutoffC}
-              onChange={(e) => setCutoffC(Number(e.target.value))}
-              className="w-16 bg-white border border-zinc-300 rounded-lg px-2 py-2 text-xs font-mono font-bold text-blue-700"
-            />
+              onChange={(e) => setResolution(e.target.value as "720p" | "1080p" | "1440p" | "4k")}
+              className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-2 text-xs text-black font-medium"
+            >
+              <option value="720p">1280×720 (Balanced)</option>
+              <option value="1080p">1920×1080 (FHD Heavy)</option>
+              <option value="1440p">2560×1440 (QHD Extreme)</option>
+              <option value="4k">3840×2160 (4K Ultra)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-zinc-600 mb-1">Duration / Cutoff ({cutoffC}°C)</label>
+            <div className="flex gap-1.5">
+              <select
+                value={preset}
+                disabled={running}
+                onChange={(e) => setPreset(e.target.value as "quick" | "standard" | "burnin" | "extended")}
+                className="flex-1 bg-white border border-zinc-300 rounded-lg px-2 py-2 text-xs text-black font-medium"
+              >
+                <option value="quick">Shop QC (2m)</option>
+                <option value="standard">Durability (5m)</option>
+                <option value="burnin">Burn-In (15m)</option>
+                <option value="extended">Extended (30m)</option>
+              </select>
+              <input
+                type="number"
+                min={75}
+                max={105}
+                disabled={running}
+                value={cutoffC}
+                onChange={(e) => setCutoffC(Number(e.target.value))}
+                className="w-16 bg-white border border-zinc-300 rounded-lg px-2 py-2 text-xs font-mono font-bold text-blue-700"
+              />
+            </div>
+          </div>
+          <div>
+            {running ? (
+              <button
+                onClick={() => invoke("cancel_gpu_stress").catch(() => {})}
+                className="w-full py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Square className="w-4 h-4" /> Stop Stress
+              </button>
+            ) : (
+              <button
+                onClick={startStress}
+                className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Play className="w-4 h-4" /> Start GPU Burn-In
+              </button>
+            )}
           </div>
         </div>
-        <div>
-          {running ? (
-            <button
-              onClick={() => invoke("cancel_gpu_stress").catch(() => {})}
-              className="w-full py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Square className="w-4 h-4" /> Stop Stress
-            </button>
-          ) : (
-            <button
-              onClick={startStress}
-              className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Play className="w-4 h-4" /> Start GPU Stress
-            </button>
-          )}
-        </div>
+
+        <label className="inline-flex items-center gap-2 text-xs font-semibold text-black cursor-pointer">
+          <input
+            type="checkbox"
+            disabled={running}
+            checked={extremeMode}
+            onChange={(e) => setExtremeMode(e.target.checked)}
+            className="accent-blue-600 w-4 h-4"
+          />
+          Extreme Burn-In Shader Mode (128-Step Heavy Raymarch — Maximum Thermal &amp; Power Load)
+        </label>
       </div>
 
       {error && <div className="rounded-xl bg-black text-white px-4 py-2.5 text-xs">{error}</div>}
@@ -207,9 +239,9 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           ) : (
             <div className="text-center space-y-2 p-6">
               <Flame className="w-10 h-10 text-blue-500 mx-auto" />
-              <div className="text-sm font-bold text-white">Native wgpu FurMark-Style 3D Shader Stress</div>
+              <div className="text-sm font-bold text-white">Native wgpu FurMark-Style 3D Shader Burn-In</div>
               <div className="text-xs text-zinc-400 max-w-md">
-                Executes uncapped raymarched frames directly on the selected DX12 / Vulkan / Metal adapter.
+                Executes uncapped raymarched frames directly on the selected DX12 / Vulkan / Metal adapter for the full timer duration.
               </div>
             </div>
           )}
@@ -217,10 +249,10 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           {running && progress && (
             <div className="absolute top-3 left-3 right-3 flex items-center justify-between text-xs font-mono">
               <span className="px-2.5 py-1 rounded-lg bg-black/85 border border-white/20 text-blue-400 font-bold">
-                {progress.fps.toFixed(1)} FPS • {progress.frameTimeMs.toFixed(1)} ms
+                {progress.fps.toFixed(1)} FPS • 1% Low {progress.low1pctFps.toFixed(1)} • {progress.frameTimeMs.toFixed(1)} ms
               </span>
-              <span className="px-2.5 py-1 rounded-lg bg-black/85 border border-white/20 text-white">
-                {progress.elapsedSecs.toFixed(0)}s / {progress.durationSecs}s ({pct}%)
+              <span className="px-2.5 py-1 rounded-lg bg-black/85 border border-white/20 text-white font-bold">
+                {fmtTime(progress.elapsedSecs)} / {fmtTime(progress.durationSecs)} ({pct}%)
               </span>
             </div>
           )}
@@ -236,14 +268,14 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 flex flex-col justify-between space-y-3 font-mono text-xs">
           <div className="space-y-2.5">
             <div className="text-zinc-500 font-sans font-bold text-xs uppercase tracking-wider">
-              Live GPU Telemetry
+              Live GPU Durability Telemetry
             </div>
             <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-[10px] text-zinc-500">Average / Min FPS</div>
-              <div className="text-xl font-black text-blue-600 mt-0.5">
+              <div className="text-[10px] text-zinc-500">Avg / 1% Low / Min FPS</div>
+              <div className="text-lg font-black text-blue-600 mt-0.5">
                 {(progress?.avgFps ?? result?.avgFps ?? 0).toFixed(1)}{" "}
-                <span className="text-xs text-zinc-500">
-                  / min {(progress?.minFps ?? result?.minFps ?? 0).toFixed(1)}
+                <span className="text-xs text-black">
+                  / {(progress?.low1pctFps ?? result?.low1pctFps ?? 0).toFixed(1)} / {(progress?.minFps ?? result?.minFps ?? 0).toFixed(1)}
                 </span>
               </div>
             </div>
@@ -260,32 +292,42 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
             </div>
             <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3 flex items-center justify-between">
               <div>
-                <div className="text-[10px] text-zinc-500">GPU Power / Load</div>
-                <div className="text-base font-black text-black mt-0.5">
+                <div className="text-[10px] text-zinc-500">Power / Thermal Throttle Drop</div>
+                <div className="text-sm font-black text-black mt-0.5">
                   {(progress?.gpuPowerW ?? result?.peakPowerW) != null
                     ? `${(progress?.gpuPowerW ?? result?.peakPowerW)?.toFixed(1)} W`
                     : "N/A"}
-                  {progress?.gpuLoadPct != null ? ` • ${progress.gpuLoadPct.toFixed(0)}%` : ""}
+                  {result ? ` • Drop: ${result.fpsDropPct.toFixed(1)}%` : ""}
                 </div>
               </div>
               <Zap className="w-5 h-5 text-blue-600" />
             </div>
           </div>
 
-          {result && !running && (
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3 font-sans text-xs text-zinc-700">
-              {result.summary}
-            </div>
-          )}
+          <div className="text-[11px] font-sans text-zinc-500">
+            Frames Rendered: <strong className="font-mono text-black">{(progress?.framesRendered ?? result?.framesRendered ?? 0).toLocaleString()}</strong>
+          </div>
         </div>
       </div>
+
+      {/* Live FPS & Temp Sparkline Charts */}
+      {fpsHistory.length > 0 && (
+        <div className={`grid grid-cols-1 ${tempHistory.length > 0 ? "md:grid-cols-2" : ""} gap-3`}>
+          <LiveChart title="Real-Time GPU FPS Stability" unit="FPS" data={fpsHistory} />
+          {tempHistory.length > 0 && (
+            <LiveChart title="Real-Time GPU Temperature" unit="°C" data={tempHistory} maxSuggested={100} />
+          )}
+        </div>
+      )}
+
+      {result && !running && <BaselineCard baseline={result.baseline} />}
 
       <StepActionBar
         stepNumber={stepNumber}
         totalSteps={totalSteps}
         status={status}
         canProceed={Boolean(result && !running) || status === "notApplicable"}
-        requirementHint="Run the wgpu GPU Stress Test or mark N/A for office laptops (or click Skip Step)."
+        requirementHint="Run the FurMark 2 GPU Durability Test or mark N/A for office laptops (or click Skip Step)."
         onNext={onNext}
         onSkip={onSkip}
       />

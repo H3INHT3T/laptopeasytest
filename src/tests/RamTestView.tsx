@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { MemoryStick, Play, Square } from "lucide-react";
+import { Clock, MemoryStick, Play, Square } from "lucide-react";
 import type { RamTestProgress, RamTestResult, StressPreset, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { LiveChart } from "../components/LiveChart";
+import { BaselineCard } from "../components/BaselineCard";
 
 interface RamTestViewProps {
+  memoryTypeHint: string;
   result: RamTestResult | null;
   status: TestStatus;
   stepNumber: number;
@@ -26,7 +29,15 @@ const TM5_STAGES = [
   "Test5: RefreshStable Inv",
 ];
 
+function fmtTime(secs: number): string {
+  const s = Math.max(0, Math.round(secs));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
 export const RamTestView: React.FC<RamTestViewProps> = ({
+  memoryTypeHint,
   result,
   status,
   stepNumber,
@@ -37,15 +48,17 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
   onSkip,
 }) => {
   const [preset, setPreset] = useState<StressPreset>("quick");
-  const [memPct, setMemPct] = useState(60);
+  const [memPct, setMemPct] = useState(65);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<RamTestProgress | null>(null);
+  const [bwHistory, setBwHistory] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<RamTestProgress>("ram:progress", (ev) => {
       setProgress(ev.payload);
+      setBwHistory((prev) => [...prev.slice(-79), ev.payload.bandwidthGbS]);
     }).then((fn) => {
       unlisten = fn;
     });
@@ -59,10 +72,13 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
     setRunning(true);
     onRunningChange(true);
     setProgress(null);
+    setBwHistory([]);
     try {
       const res = await invoke<RamTestResult>("run_ram_stress", {
         preset,
         memoryPercent: memPct,
+        customDurationSecs: null,
+        memoryTypeHint,
       });
       onComplete(res);
     } catch (e) {
@@ -73,6 +89,9 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
     }
   };
 
+  const livePasses = progress?.perTestPasses ?? result?.perTestPasses ?? [0, 0, 0, 0, 0, 0];
+  const liveErrors = progress?.perTestErrors ?? result?.perTestErrors ?? [0, 0, 0, 0, 0, 0];
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
@@ -82,12 +101,12 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
               {stepNumber}
             </span>
             <h1 className="text-xl font-black text-black tracking-tight">
-              RAM Deep Stress Test (TestMem5 Engine)
+              RAM Continuous Durability Test (TestMem5 Engine)
             </h1>
             <StatusBadge status={status} />
           </div>
           <p className="text-xs text-zinc-600 mt-1">
-            Native Rust implementation of TestMem5 profiles (Default @ serj, Absolut @ anta777, Extreme @ anta777) running RefreshStable, SimpleTest, MirrorMove &amp; MirrorMove128.
+            Sustained time-enforced TestMem5 profiles (Default @ serj, Absolut @ anta777, Extreme @ anta777) continuously cycling RefreshStable, SimpleTest, MirrorMove &amp; MirrorMove128.
           </p>
         </div>
       </div>
@@ -96,16 +115,16 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
       <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div>
-            <label className="block text-xs font-bold text-black mb-1.5">TestMem5 Profile Preset</label>
+            <label className="block text-xs font-bold text-black mb-1.5">TestMem5 Durability Profile</label>
             <select
               value={preset}
               disabled={running}
               onChange={(e) => setPreset(e.target.value as StressPreset)}
               className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black font-medium"
             >
-              <option value="quick">Default @ serj — Quick QC (3 cycles / ~90s)</option>
-              <option value="standard">Absolut @ anta777 — Standard (6 cycles / ~5m)</option>
-              <option value="burnin">Extreme @ anta777 — Burn-in (15 cycles / ~15m)</option>
+              <option value="quick">Default @ serj — Shop QC (2 Full Minutes)</option>
+              <option value="standard">Absolut @ anta777 — Durability (5 Full Minutes)</option>
+              <option value="burnin">Extreme @ anta777 — Deep Burn-In (15 Full Minutes)</option>
             </select>
           </div>
           <div>
@@ -114,7 +133,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
             </label>
             <input
               type="range"
-              min={25}
+              min={30}
               max={75}
               step={5}
               disabled={running}
@@ -136,100 +155,122 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
                 onClick={startTest}
                 className="w-full md:w-auto px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Play className="w-4 h-4" /> Start TestMem5 Stress
+                <Play className="w-4 h-4" /> Start Continuous RAM Test
               </button>
             )}
           </div>
         </div>
 
-        {/* TM5 Test Sequence Matrix */}
+        {/* Live TM5 6-Stage Pass & Error Matrix */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-2 border-t border-zinc-100">
           {TM5_STAGES.map((stage, i) => {
             const isCurrent = running && progress?.testIndex === i;
-            const isDone = result && !running && !result.cancelled;
+            const passes = livePasses[i] ?? 0;
+            const errs = liveErrors[i] ?? 0;
             return (
               <div
                 key={stage}
-                className={`rounded-lg border px-2.5 py-2 text-[10px] font-mono font-bold ${
-                  isCurrent
+                className={`rounded-lg border px-2.5 py-2 text-[10px] font-mono ${
+                  errs > 0
+                    ? "bg-black text-white border-black"
+                    : isCurrent
                     ? "bg-blue-600 text-white border-blue-600 animate-pulse"
-                    : isDone
-                    ? "bg-blue-50 text-blue-800 border-blue-300"
+                    : passes > 0
+                    ? "bg-blue-50 text-blue-900 border-blue-300"
                     : "bg-zinc-50 text-zinc-600 border-zinc-200"
                 }`}
               >
-                {stage}
+                <div className="font-bold truncate">{stage}</div>
+                <div className="mt-1 opacity-85">
+                  Pass: <strong>{passes}</strong> • Err: <strong>{errs}</strong>
+                </div>
               </div>
             );
           })}
         </div>
 
-        {running && progress && (
+        {(running || bwHistory.length > 0) && (
           <div className="space-y-3 pt-3 border-t border-zinc-200">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-blue-700 font-bold">
-                {progress.profileName} • Cycle {progress.cycle}/{progress.totalCycles} • {progress.patternName}
-              </span>
-              <span className="text-black font-bold">
-                {progress.elapsedSecs.toFixed(1)}s • {progress.percent.toFixed(0)}%
-              </span>
-            </div>
-            <div className="h-2.5 rounded-full bg-zinc-200 overflow-hidden">
-              <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress.percent}%` }} />
-            </div>
-            <div className="grid grid-cols-3 gap-3 font-mono text-xs">
-              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-                <div className="text-zinc-500">Memory Window</div>
-                <div className="text-lg font-black text-black">{progress.allocatedMb} MB</div>
-              </div>
-              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-                <div className="text-zinc-500">Throughput</div>
-                <div className="text-lg font-black text-blue-600">{progress.bandwidthGbS.toFixed(1)} GB/s</div>
-              </div>
-              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-                <div className="text-zinc-500">Bit Errors Found</div>
-                <div className={`text-lg font-black ${progress.errorsFound > 0 ? "text-black underline" : "text-blue-600"}`}>
-                  {progress.errorsFound}
+            {running && progress && (
+              <>
+                <div className="flex items-center justify-between text-xs font-mono flex-wrap gap-2">
+                  <span className="text-blue-700 font-bold">
+                    {progress.profileName} • Cycle #{progress.cycle} • {progress.patternName}
+                  </span>
+                  <span className="text-black font-black flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" />
+                    {fmtTime(progress.elapsedSecs)} / {fmtTime(progress.durationSecs)} ({progress.percent.toFixed(0)}%)
+                  </span>
                 </div>
-              </div>
-            </div>
+                <div className="h-2.5 rounded-full bg-zinc-200 overflow-hidden">
+                  <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress.percent}%` }} />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
+                  <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                    <div className="text-zinc-500">Active Window</div>
+                    <div className="text-lg font-black text-black">{progress.allocatedMb} MB</div>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                    <div className="text-zinc-500">Total Data Verified</div>
+                    <div className="text-lg font-black text-blue-600">{progress.totalGbVerified.toFixed(1)} GB</div>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                    <div className="text-zinc-500">Live Bandwidth</div>
+                    <div className="text-lg font-black text-black">{progress.bandwidthGbS.toFixed(1)} GB/s</div>
+                  </div>
+                  <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                    <div className="text-zinc-500">Bit Errors</div>
+                    <div className={`text-lg font-black ${progress.errorsFound > 0 ? "text-black underline" : "text-blue-600"}`}>
+                      {progress.errorsFound}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+            <LiveChart title="Real-Time RAM Verification Throughput" unit="GB/s" data={bwHistory} />
           </div>
         )}
 
-        {error && (
-          <div className="rounded-lg bg-black text-white px-3 py-2 text-xs">{error}</div>
-        )}
+        {error && <div className="rounded-lg bg-black text-white px-3 py-2 text-xs">{error}</div>}
       </div>
 
       {result && !running && (
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-bold text-black">
-              <MemoryStick className="w-4 h-4 text-blue-600" />
-              {result.profileName} — Verification Result
-            </div>
-            <StatusBadge status={result.status} />
-          </div>
-          <div className="text-xs text-zinc-700 font-medium">{result.summary}</div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-zinc-500">Window Verified</div>
-              <div className="text-lg font-black text-black">{result.allocatedMb} MB</div>
-            </div>
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-zinc-500">Bit Errors</div>
-              <div className={`text-lg font-black ${result.errorsFound > 0 ? "text-black underline" : "text-blue-600"}`}>
-                {result.errorsFound}
+        <div className="space-y-4">
+          <BaselineCard baseline={result.baseline} />
+          <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-bold text-black">
+                <MemoryStick className="w-4 h-4 text-blue-600" />
+                {result.profileName} — Durability Summary
               </div>
+              <StatusBadge status={result.status} />
             </div>
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-zinc-500">Peak Bandwidth</div>
-              <div className="text-lg font-black text-blue-600">{result.peakBandwidthGbS.toFixed(1)} GB/s</div>
-            </div>
-            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
-              <div className="text-zinc-500">Cycles / Time</div>
-              <div className="text-lg font-black text-black">
-                {result.cyclesCompleted}x / {result.elapsedSecs.toFixed(1)}s
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 font-mono text-xs">
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Total Verified</div>
+                <div className="text-lg font-black text-blue-600">{result.totalGbVerified.toFixed(1)} GB</div>
+              </div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Bit Errors</div>
+                <div className={`text-lg font-black ${result.errorsFound > 0 ? "text-black underline" : "text-blue-600"}`}>
+                  {result.errorsFound}
+                </div>
+              </div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Peak / Avg BW</div>
+                <div className="text-sm font-black text-black mt-1">
+                  {result.peakBandwidthGbS.toFixed(1)} / {result.avgBandwidthGbS.toFixed(1)} GB/s
+                </div>
+              </div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Window</div>
+                <div className="text-lg font-black text-black">{result.allocatedMb} MB</div>
+              </div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Cycles / Time</div>
+                <div className="text-lg font-black text-black">
+                  {result.cyclesCompleted}x / {fmtTime(result.elapsedSecs)}
+                </div>
               </div>
             </div>
           </div>
@@ -241,7 +282,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
         totalSteps={totalSteps}
         status={status}
         canProceed={Boolean(result && !running)}
-        requirementHint="Run the TestMem5 RAM stress test to unlock Step 11 (or click Skip Step)."
+        requirementHint="Run the continuous TestMem5 RAM durability test to unlock Step 11 (or click Skip Step)."
         onNext={onNext}
         onSkip={onSkip}
       />

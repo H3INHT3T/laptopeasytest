@@ -1,6 +1,8 @@
-use crate::types::{PerfBenchProgress, PerfBenchResult, TestStatus};
+use crate::modules::baselines;
+use crate::types::{BaselineRating, PerfBenchProgress, PerfBenchResult, TestStatus};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::hint::black_box;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -10,10 +12,12 @@ use std::time::Instant;
 use sysinfo::{Components, System};
 use tauri::{AppHandle, Emitter};
 
-fn read_cpu_telemetry(sys: &mut System, components: &mut Components) -> (f32, Option<f32>) {
+fn read_cpu_telemetry(sys: &mut System, components: &mut Components) -> (f32, u64, Option<f32>) {
     sys.refresh_cpu_usage();
+    sys.refresh_cpu_frequency();
     components.refresh(true);
     let usage = sys.global_cpu_usage();
+    let clock_mhz = sys.cpus().first().map(|c| c.frequency()).unwrap_or(0);
     let mut best_temp: Option<f32> = None;
     for comp in components.list() {
         let label = comp.label().to_lowercase();
@@ -30,7 +34,7 @@ fn read_cpu_telemetry(sys: &mut System, components: &mut Components) -> (f32, Op
             }
         }
     }
-    (usage, best_temp)
+    (usage, clock_mhz, best_temp)
 }
 
 fn count_primes_up_to(limit: usize) -> usize {
@@ -138,7 +142,6 @@ fn physics_nbody_workload(bodies: usize, steps: usize) -> f64 {
 }
 
 fn compression_workload(size: usize) -> usize {
-    // Simple LZ-style dictionary hash compression pass over realistic semi-structured data
     let mut input = vec![0u8; size];
     for (i, b) in input.iter_mut().enumerate() {
         *b = ((i * 7 + (i >> 4) * 13) & 0x3F) as u8;
@@ -161,11 +164,26 @@ fn compression_workload(size: usize) -> usize {
     black_box(out_tokens)
 }
 
+fn database_ops_workload(seed: u64) -> u64 {
+    let mut map: HashMap<u64, u64> = HashMap::with_capacity(32768);
+    let mut rng = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    for i in 0..24_000u64 {
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+        map.insert(rng & 0xFFFF, i ^ rng);
+    }
+    let mut hits = 0u64;
+    for _ in 0..48_000u64 {
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+        if let Some(v) = map.get(&(rng & 0xFFFF)) {
+            hits = hits.wrapping_add(*v);
+        }
+    }
+    black_box(hits)
+}
+
 fn measure_memory_latency_ns() -> f64 {
-    // 32 MB shuffled pointer-chase ring (exceeds typical laptop L3 cache to measure true DRAM latency)
-    let count: usize = 4 * 1024 * 1024; // 4M * 8 bytes = 32 MB
+    let count: usize = 4 * 1024 * 1024; // 32 MB exceeds laptop L3 cache
     let mut next = vec![0usize; count];
-    // Sattolo cycle guarantees a single cycle visiting all indices randomly
     let mut perm: Vec<usize> = (0..count).collect();
     let mut rng: u64 = 0x1234_5678_9ABC_DEF0;
     for i in (1..count).rev() {
@@ -178,7 +196,7 @@ fn measure_memory_latency_ns() -> f64 {
     }
     drop(perm);
 
-    let hops: usize = 1_500_000;
+    let hops: usize = 2_000_000;
     let mut cur = 0usize;
     let t0 = Instant::now();
     for _ in 0..hops {
@@ -189,25 +207,66 @@ fn measure_memory_latency_ns() -> f64 {
     (ns * 10.0).round() / 10.0
 }
 
+/// Runs a calibrated workload repeatedly until `stage_secs` elapses so thermal/turbo behavior is truly measured!
+fn run_timed_stage<F>(
+    stage_secs: f64,
+    cancel: &Arc<AtomicBool>,
+    mut on_tick: impl FnMut(f64),
+    mut unit_work: F,
+) -> Option<f64>
+where
+    F: FnMut(u64),
+{
+    let t0 = Instant::now();
+    let mut last_tick = Instant::now();
+    let mut units: u64 = 0;
+    while t0.elapsed().as_secs_f64() < stage_secs {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        unit_work(units);
+        units += 1;
+        if last_tick.elapsed().as_millis() >= 350 {
+            on_tick((t0.elapsed().as_secs_f64() / stage_secs).min(1.0));
+            last_tick = Instant::now();
+        }
+    }
+    let elapsed = t0.elapsed().as_secs_f64().max(0.001);
+    Some(units as f64 / elapsed)
+}
+
 pub fn run_performance_benchmark(
     app: &AppHandle,
     preset: &str,
     cancel: Arc<AtomicBool>,
 ) -> Result<PerfBenchResult, String> {
-    let rounds: usize = match preset {
-        "standard" => 3,
-        "burnin" => 6,
-        _ => 1,
+    // Sustained time-calibrated stages so the CPU truly warms up and exposes thermal throttling!
+    // Quick Shop QC: ~3.5s x 12 stages ≈ 45-50s
+    // Standard Durability: ~10s x 12 stages ≈ 2 min
+    // Thermal Burn-in: ~20s x 12 stages ≈ 4 min
+    let stage_secs: f64 = match preset {
+        "standard" => 10.0,
+        "burnin" => 20.0,
+        _ => 3.5,
     };
 
     let mut sys = System::new_all();
+    sys.refresh_all();
+    let cpu_brand = sys
+        .cpus()
+        .first()
+        .map(|c| c.brand().trim().to_string())
+        .unwrap_or_else(|| "Unknown CPU".to_string());
+    let phys_cores = sys.physical_core_count().unwrap_or_else(|| sys.cpus().len());
+    let log_cores = sys.cpus().len();
+
     let mut components = Components::new_with_refreshed_list();
     let mut peak_temp: Option<f32> = None;
     let started = Instant::now();
     let threads = rayon::current_num_threads().max(1);
 
-    let mut emit_progress = |phase: &str, pct: f64, sys: &mut System, comps: &mut Components| {
-        let (usage, temp) = read_cpu_telemetry(sys, comps);
+    let mut emit = |phase: &str, pct: f64, sys: &mut System, comps: &mut Components| {
+        let (usage, clock_mhz, temp) = read_cpu_telemetry(sys, comps);
         if let Some(t) = temp {
             peak_temp = Some(peak_temp.map_or(t, |p| p.max(t)));
         }
@@ -215,172 +274,287 @@ pub fn run_performance_benchmark(
             "perf:progress",
             PerfBenchProgress {
                 phase: phase.to_string(),
-                percent: pct,
+                percent: (pct * 10.0).round() / 10.0,
+                elapsed_secs: (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
                 cpu_usage_pct: (usage * 10.0).round() / 10.0,
+                cpu_clock_mhz: clock_mhz,
                 cpu_temp_c: temp.map(|t| (t * 10.0).round() / 10.0),
             },
         );
     };
 
-    // 1. CPU Single-Threaded
-    emit_progress("1/10 Single-Threaded Integer & Prime", 8.0, &mut sys, &mut components);
-    let t_sc = Instant::now();
-    for r in 0..rounds {
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
+    // Stage 1: Single-Core Sustained
+    let sc_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("1/12 CPU Single-Threaded (Primes + ALU)", f * 8.0, &mut sys, &mut components),
+        |u| {
+            black_box(count_primes_up_to(500_000 + (u as usize % 17)));
+            black_box(integer_math_workload(4_000_000, u));
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let single_core_score = (sc_rate * 850.0).round() as u64;
+
+    // Stage 2: Integer Math Multi-Core (ALSO captures early-thermal reference throughput!)
+    let mut early_int_rate = 0.0f64;
+    let int_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("2/12 CPU Integer Math (All Cores)", 8.0 + f * 8.0, &mut sys, &mut components),
+        |u| {
+            let t_u = Instant::now();
+            let _: u64 = (0..threads * 2)
+                .into_par_iter()
+                .map(|i| integer_math_workload(8_000_000, u.wrapping_add(i as u64)))
+                .sum();
+            if u == 0 {
+                early_int_rate = 1.0 / t_u.elapsed().as_secs_f64().max(0.001);
+            }
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let integer_math_score = (int_rate * 2600.0).round() as u64;
+
+    // Stage 3: Floating Point FP64 Matrix
+    let fp_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("3/12 CPU Floating-Point FP64 Matrix", 16.0 + f * 8.0, &mut sys, &mut components),
+        |_| {
+            let _: f64 = (0..threads)
+                .into_par_iter()
+                .map(|_| float_fma_workload(176))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let float_math_score = (fp_rate * 1900.0).round() as u64;
+
+    // Stage 4: Prime Numbers Multi-Core
+    let pr_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("4/12 CPU Prime Numbers Sieve", 24.0 + f * 8.0, &mut sys, &mut components),
+        |u| {
+            let _: usize = (0..threads * 2)
+                .into_par_iter()
+                .map(|i| count_primes_up_to(450_000 + ((i + u as usize) % 19)))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let prime_score = (pr_rate * 2200.0).round() as u64;
+
+    // Stage 5: Extended Instructions / Vector Math
+    let vec_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("5/12 CPU Extended Vector / SIMD", 32.0 + f * 8.0, &mut sys, &mut components),
+        |_| {
+            let _: f32 = (0..threads * 2)
+                .into_par_iter()
+                .map(|_| vector_extended_workload(65536, 30))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let vector_score = (vec_rate * 1800.0).round() as u64;
+
+    // Stage 6: Data Compression (LZ)
+    let cmp_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("6/12 CPU Data Compression (LZ)", 40.0 + f * 8.0, &mut sys, &mut components),
+        |_| {
+            let _: usize = (0..threads * 2)
+                .into_par_iter()
+                .map(|_| compression_workload(384 * 1024))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let compression_score = (cmp_rate * 2100.0).round() as u64;
+
+    // Stage 7: SHA-256 Encryption
+    let enc_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("7/12 CPU SHA-256 Encryption", 48.0 + f * 8.0, &mut sys, &mut components),
+        |u| {
+            let _: usize = (0..threads * 2)
+                .into_par_iter()
+                .map(|idx| {
+                    let mut buf = vec![((idx + u as usize) & 0xFF) as u8; 65536];
+                    let mut hasher = Sha256::new();
+                    for iter in 0..40u8 {
+                        buf[0] = iter;
+                        hasher.update(&buf);
+                        let out = hasher.finalize_reset();
+                        buf[1..33].copy_from_slice(&out);
+                    }
+                    buf[1] as usize
+                })
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let encryption_score = (enc_rate * 2000.0).round() as u64;
+
+    // Stage 8: 3D N-Body Physics Simulation
+    let phy_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("8/12 CPU 3D Physics Simulation", 56.0 + f * 8.0, &mut sys, &mut components),
+        |_| {
+            let _: f64 = (0..threads)
+                .into_par_iter()
+                .map(|_| physics_nbody_workload(160, 10))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let physics_score = (phy_rate * 2300.0).round() as u64;
+
+    // Stage 9: Parallel Sorting
+    let sort_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("9/12 CPU Parallel Sorting", 64.0 + f * 8.0, &mut sys, &mut components),
+        |u| {
+            let _: u64 = (0..threads * 2)
+                .into_par_iter()
+                .map(|s| {
+                    let mut arr: Vec<u64> = (0..120_000u64)
+                        .map(|i| i.wrapping_mul(6364136223846793005).wrapping_add(u + s as u64))
+                        .collect();
+                    arr.sort_unstable();
+                    arr[0]
+                })
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let sorting_score = (sort_rate * 1950.0).round() as u64;
+
+    // Stage 10: Database Operations (PassMark Memory/CPU Mixed HashMap Workload)
+    let db_rate = match run_timed_stage(
+        stage_secs,
+        &cancel,
+        |f| emit("10/12 Database Operations (Insert/Query)", 72.0 + f * 8.0, &mut sys, &mut components),
+        |u| {
+            let _: u64 = (0..threads)
+                .into_par_iter()
+                .map(|s| database_ops_workload(u.wrapping_add(s as u64)))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+    let database_score = (db_rate * 1450.0).round() as u64;
+
+    // Stage 11: Memory Suite — Cached Read, Uncached Read/Copy, Write & DRAM Pointer-Chase Latency
+    emit("11/12 Memory Cached / Uncached / Write / Latency", 82.0, &mut sys, &mut components);
+    // Cached (256 KB stays inside L2/L3 cache)
+    let cache_buf = vec![0xA5u64; 32768]; // 256 KB
+    let t_c = Instant::now();
+    let mut c_sum = 0u64;
+    let c_iters = 4000usize;
+    for _ in 0..c_iters {
+        for &x in &cache_buf {
+            c_sum = c_sum.wrapping_add(x);
         }
-        black_box(count_primes_up_to(1_200_000 + r * 7));
-        black_box(integer_math_workload(8_000_000, r as u64));
     }
-    let single_core_score = ((rounds as f64 / t_sc.elapsed().as_secs_f64().max(0.001)) * 2200.0).round() as u64;
+    black_box(c_sum);
+    let memory_cached_gb_s = (((c_iters as f64 * 256.0 * 1024.0) / (1024.0 * 1024.0 * 1024.0))
+        / t_c.elapsed().as_secs_f64().max(0.0001)
+        * 10.0)
+        .round()
+        / 10.0;
 
-    // 2. Integer Math (Multi-Core)
-    emit_progress("2/10 Integer Math (Multi-Core)", 18.0, &mut sys, &mut components);
-    let int_jobs = threads * 4 * rounds;
-    let t_int = Instant::now();
-    let _: u64 = (0..int_jobs)
-        .into_par_iter()
-        .map(|i| if cancel.load(Ordering::Relaxed) { 0 } else { integer_math_workload(12_000_000, i as u64) })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let integer_math_score = ((int_jobs as f64 / t_int.elapsed().as_secs_f64().max(0.001)) * 450.0).round() as u64;
-
-    // 3. Floating-Point Math (FP64 FMA Matrix)
-    emit_progress("3/10 Floating-Point Math (FP64 Matrix)", 28.0, &mut sys, &mut components);
-    let fp_jobs = threads * 2 * rounds;
-    let t_fp = Instant::now();
-    let _: f64 = (0..fp_jobs)
-        .into_par_iter()
-        .map(|_| if cancel.load(Ordering::Relaxed) { 0.0 } else { float_fma_workload(200) })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let float_math_score = ((fp_jobs as f64 / t_fp.elapsed().as_secs_f64().max(0.001)) * 880.0).round() as u64;
-
-    // 4. Prime Numbers (Multi-Core)
-    emit_progress("4/10 Prime Numbers Sieve", 38.0, &mut sys, &mut components);
-    let pr_jobs = threads * 3 * rounds;
-    let t_pr = Instant::now();
-    let _: usize = (0..pr_jobs)
-        .into_par_iter()
-        .map(|i| if cancel.load(Ordering::Relaxed) { 0 } else { count_primes_up_to(650_000 + (i % 13)) })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let prime_score = ((pr_jobs as f64 / t_pr.elapsed().as_secs_f64().max(0.001)) * 600.0).round() as u64;
-
-    // 5. Extended Instructions / Vector FMA
-    emit_progress("5/10 Extended Vector / SIMD Math", 48.0, &mut sys, &mut components);
-    let vec_jobs = threads * 4 * rounds;
-    let t_vec = Instant::now();
-    let _: f32 = (0..vec_jobs)
-        .into_par_iter()
-        .map(|_| if cancel.load(Ordering::Relaxed) { 0.0 } else { vector_extended_workload(65536, 40) })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let vector_score = ((vec_jobs as f64 / t_vec.elapsed().as_secs_f64().max(0.001)) * 520.0).round() as u64;
-
-    // 6. Compression (LZ Dictionary)
-    emit_progress("6/10 Data Compression", 58.0, &mut sys, &mut components);
-    let cmp_jobs = threads * 3 * rounds;
-    let t_cmp = Instant::now();
-    let _: usize = (0..cmp_jobs)
-        .into_par_iter()
-        .map(|_| if cancel.load(Ordering::Relaxed) { 0 } else { compression_workload(512 * 1024) })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let compression_score = ((cmp_jobs as f64 / t_cmp.elapsed().as_secs_f64().max(0.001)) * 650.0).round() as u64;
-
-    // 7. Encryption (SHA-256)
-    emit_progress("7/10 SHA-256 Encryption", 68.0, &mut sys, &mut components);
-    let cr_jobs = threads * 5 * rounds;
-    let t_cr = Instant::now();
-    let _: usize = (0..cr_jobs)
-        .into_par_iter()
-        .map(|idx| {
-            if cancel.load(Ordering::Relaxed) {
-                return 0;
-            }
-            let mut buf = vec![(idx & 0xFF) as u8; 65536];
-            let mut hasher = Sha256::new();
-            for iter in 0..64u8 {
-                buf[0] = iter;
-                hasher.update(&buf);
-                let out = hasher.finalize_reset();
-                buf[1..33].copy_from_slice(&out);
-            }
-            buf[1] as usize
-        })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let encryption_score = ((cr_jobs as f64 / t_cr.elapsed().as_secs_f64().max(0.001)) * 490.0).round() as u64;
-
-    // 8. Physics (3D N-Body Simulation)
-    emit_progress("8/10 Physics Simulation (3D N-Body)", 78.0, &mut sys, &mut components);
-    let phy_jobs = threads * 2 * rounds;
-    let t_phy = Instant::now();
-    let _: f64 = (0..phy_jobs)
-        .into_par_iter()
-        .map(|_| if cancel.load(Ordering::Relaxed) { 0.0 } else { physics_nbody_workload(180, 12) })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let physics_score = ((phy_jobs as f64 / t_phy.elapsed().as_secs_f64().max(0.001)) * 820.0).round() as u64;
-
-    // 9. Sorting
-    emit_progress("9/10 Parallel Sorting", 86.0, &mut sys, &mut components);
-    let sort_jobs = threads * 2 * rounds;
-    let t_sort = Instant::now();
-    let _: u64 = (0..sort_jobs)
-        .into_par_iter()
-        .map(|s| {
-            if cancel.load(Ordering::Relaxed) {
-                return 0;
-            }
-            let mut arr: Vec<u64> = (0..180_000u64)
-                .map(|i| i.wrapping_mul(6364136223846793005).wrapping_add(s as u64))
-                .collect();
-            arr.sort_unstable();
-            arr[0]
-        })
-        .sum();
-    if cancel.load(Ordering::Relaxed) {
-        return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
-    }
-    let sorting_score = ((sort_jobs as f64 / t_sort.elapsed().as_secs_f64().max(0.001)) * 760.0).round() as u64;
-
-    // 10. Memory Bandwidth + Real DRAM Latency (ns)
-    emit_progress("10/10 Memory Bandwidth & DRAM Latency", 94.0, &mut sys, &mut components);
+    // Uncached Threaded Read/Copy & Write (64 MB > L3 cache)
     let bytes_len = 64 * 1024 * 1024;
     let src = vec![0x5Au8; bytes_len];
     let mut dst = vec![0u8; bytes_len];
-    let mem_passes = 6 * rounds;
-    let t_mem = Instant::now();
-    for _ in 0..mem_passes {
+    let mut mem_passes = 0u64;
+    let t_mw = Instant::now();
+    while t_mw.elapsed().as_secs_f64() < (stage_secs * 0.45).max(1.2) {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
+        }
+        dst.par_chunks_mut(1024 * 1024).for_each(|d| d.fill(0x3C));
+        mem_passes += 1;
+    }
+    let memory_write_gb_s = (((mem_passes as f64 * bytes_len as f64) / (1024.0 * 1024.0 * 1024.0))
+        / t_mw.elapsed().as_secs_f64().max(0.001)
+        * 10.0)
+        .round()
+        / 10.0;
+
+    let mut copy_passes = 0u64;
+    let t_mc = Instant::now();
+    while t_mc.elapsed().as_secs_f64() < (stage_secs * 0.55).max(1.5) {
         if cancel.load(Ordering::Relaxed) {
             return Ok(cancelled_result(preset, started.elapsed().as_secs_f64()));
         }
         dst.par_chunks_mut(1024 * 1024)
             .zip(src.par_chunks(1024 * 1024))
             .for_each(|(d, s)| d.copy_from_slice(s));
+        copy_passes += 1;
     }
-    let total_gb = (mem_passes as f64 * (bytes_len as f64 * 2.0)) / (1024.0 * 1024.0 * 1024.0);
-    let memory_bandwidth_gb_s = ((total_gb / t_mem.elapsed().as_secs_f64().max(0.001)) * 10.0).round() / 10.0;
-    let memory_latency_ns = measure_memory_latency_ns();
-    let memory_mark = (memory_bandwidth_gb_s * 95.0 + (12000.0 / memory_latency_ns.max(12.0))).round() as u64;
+    let memory_bandwidth_gb_s = (((copy_passes as f64 * (bytes_len as f64 * 2.0))
+        / (1024.0 * 1024.0 * 1024.0))
+        / t_mc.elapsed().as_secs_f64().max(0.001)
+        * 10.0)
+        .round()
+        / 10.0;
 
-    emit_progress("Completed", 100.0, &mut sys, &mut components);
+    let memory_latency_ns = measure_memory_latency_ns();
+    let memory_mark = (memory_bandwidth_gb_s * 90.0
+        + memory_write_gb_s * 35.0
+        + (14000.0 / memory_latency_ns.max(12.0)))
+        .round() as u64;
+
+    // Stage 12: Sustained Thermal Throttle Check (re-runs Stage 2 ALU workload while CPU is hot!)
+    let late_int_rate = match run_timed_stage(
+        (stage_secs * 0.9).max(2.5),
+        &cancel,
+        |f| emit("12/12 Thermal Throttle Verification (Hot CPU)", 90.0 + f * 9.0, &mut sys, &mut components),
+        |u| {
+            let _: u64 = (0..threads * 2)
+                .into_par_iter()
+                .map(|i| integer_math_workload(8_000_000, u.wrapping_add(i as u64)))
+                .sum();
+        },
+    ) {
+        Some(r) => r,
+        None => return Ok(cancelled_result(preset, started.elapsed().as_secs_f64())),
+    };
+
+    let ref_rate = early_int_rate.max(int_rate).max(0.001);
+    let throttle_drop_pct = (((ref_rate - late_int_rate) / ref_rate) * 100.0).clamp(0.0, 99.0);
+    let throttle_drop_pct = (throttle_drop_pct * 10.0).round() / 10.0;
+
+    emit("Completed", 100.0, &mut sys, &mut components);
 
     let multi_core_score = ((integer_math_score
         + float_math_score
@@ -389,27 +563,39 @@ pub fn run_performance_benchmark(
         + compression_score
         + encryption_score
         + physics_score
-        + sorting_score) as f64
-        / 8.0)
+        + sorting_score
+        + database_score) as f64
+        / 9.0)
         .round() as u64;
 
-    let composite_score = (single_core_score as f64 * 0.20
-        + multi_core_score as f64 * 0.60
+    let composite_score = (single_core_score as f64 * 0.22
+        + multi_core_score as f64 * 0.58
         + memory_mark as f64 * 0.20)
         .round() as u64;
+
+    let baseline = baselines::rate_cpu_performance(
+        &cpu_brand,
+        phys_cores,
+        log_cores,
+        composite_score,
+        throttle_drop_pct,
+    );
 
     let tier = if composite_score >= 16000 {
         "High-Performance / Gaming"
     } else if composite_score >= 9500 {
         "Workstation / Pro Notebook"
-    } else if composite_score >= 4500 {
+    } else if composite_score >= 5200 {
         "Office / Productivity"
     } else {
         "Entry / Light Use"
     }
     .to_string();
 
-    let status = if peak_temp.map(|t| t >= 100.0).unwrap_or(false) {
+    let status = if peak_temp.map(|t| t >= 100.0).unwrap_or(false)
+        || throttle_drop_pct >= 25.0
+        || baseline.percent_of_normal < 60.0
+    {
         TestStatus::Warn
     } else {
         TestStatus::Pass
@@ -427,19 +613,30 @@ pub fn run_performance_benchmark(
         encryption_score,
         physics_score,
         sorting_score,
+        database_score,
         single_core_score,
         multi_core_score,
+        memory_cached_gb_s,
         memory_bandwidth_gb_s,
+        memory_write_gb_s,
         memory_latency_ns,
         memory_mark,
         composite_score,
+        throttle_drop_pct,
         tier: tier.clone(),
         peak_cpu_temp_c: peak_temp.map(|t| (t * 10.0).round() / 10.0),
         elapsed_secs: elapsed,
         cancelled: false,
+        baseline: baseline.clone(),
         summary: format!(
-            "Mark {} ({}) — CPU MC: {} | SC: {} | Mem: {:.1} GB/s ({:.1} ns)",
-            composite_score, tier, multi_core_score, single_core_score, memory_bandwidth_gb_s, memory_latency_ns
+            "[{} — {:.0}% of Normal] Mark {} ({}) | Throttle Drop: {:.1}% | Mem {:.1} GB/s ({:.1} ns)",
+            baseline.grade,
+            baseline.percent_of_normal,
+            composite_score,
+            tier,
+            throttle_drop_pct,
+            memory_bandwidth_gb_s,
+            memory_latency_ns
         ),
     })
 }
@@ -456,16 +653,27 @@ fn cancelled_result(preset: &str, elapsed: f64) -> PerfBenchResult {
         encryption_score: 0,
         physics_score: 0,
         sorting_score: 0,
+        database_score: 0,
         single_core_score: 0,
         multi_core_score: 0,
+        memory_cached_gb_s: 0.0,
         memory_bandwidth_gb_s: 0.0,
+        memory_write_gb_s: 0.0,
         memory_latency_ns: 0.0,
         memory_mark: 0,
         composite_score: 0,
+        throttle_drop_pct: 0.0,
         tier: "Cancelled".to_string(),
         peak_cpu_temp_c: None,
         elapsed_secs: (elapsed * 10.0).round() / 10.0,
         cancelled: true,
+        baseline: BaselineRating {
+            detected_class: "Cancelled".into(),
+            expected_normal: "—".into(),
+            percent_of_normal: 0.0,
+            grade: "CANCELLED".into(),
+            verdict_note: "Benchmark was stopped early by technician.".into(),
+        },
         summary: "Performance benchmark was cancelled.".to_string(),
     }
 }
