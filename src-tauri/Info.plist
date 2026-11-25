@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>LaptopBench QC accesses the built-in or external camera to verify video quality and frame rate during laptop diagnostics.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>LaptopBench QC accesses the microphone to measure audio input levels and perform a record/playback check during laptop diagnostics.</string>
+  <key>NSInputMonitoringUsageDescription</key>
+  <string>LaptopBench QC optionally monitors keyboard events so special keys can be verified during the interactive keyboard diagnostic.</string>
+</dict>
+</plist>

@@ -1,0 +1,12 @@
+pub mod battery;
+pub mod biometrics;
+pub mod error_logs;
+pub mod gpu_stress;
+pub mod keyboard_hook;
+pub mod pdf_gen;
+pub mod perf_bench;
+pub mod ram_test;
+pub mod report;
+pub mod security_audit;
+pub mod specs;
+pub mod storage;

@@ -1,0 +1,45 @@
+[package]
+name = "laptopbench-qc"
+version = "1.0.0"
+description = "LaptopBench QC — Offline Cross-Platform Laptop Hardware Diagnostics & Certification"
+authors = ["LaptopBench QC"]
+edition = "2021"
+
+[lib]
+name = "laptopbench_qc_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.33"
+chrono = { version = "0.4", features = ["serde"] }
+rayon = "1.10"
+sha2 = "0.10"
+wgpu = "24"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+dirs = "6"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
+] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
