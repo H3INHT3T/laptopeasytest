@@ -1,10 +1,13 @@
-use crate::types::{BatteryHealthReport, BatteryLiveSample, TestStatus};
+use crate::modules::simd_kernels;
+use crate::types::{
+    BatteryHealthReport, BatteryLiveSample, BatterySagProgress, BatterySagResult, TestStatus,
+};
 use chrono::Utc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 pub fn get_battery_health() -> BatteryHealthReport {
@@ -71,6 +74,139 @@ pub fn spawn_battery_monitor(app: AppHandle, stop_flag: Arc<AtomicBool>) {
             }
         }
     });
+}
+
+/// 15-Second Battery Voltage-Sag Load Pulse:
+/// Applies a controlled multi-core SIMD CPU load while sampling live battery voltage (mV),
+/// discharge wattage (W), and State-of-Charge (%) to catch worn cells that collapse under load.
+pub fn run_battery_sag_pulse(
+    app: &AppHandle,
+    duration_secs: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<BatterySagResult, String> {
+    let dur = duration_secs.clamp(10, 45);
+    let init = sample_battery_live()
+        .ok_or_else(|| "No internal battery detected for voltage-sag pulse test.".to_string())?;
+
+    let start_pct = init.charge_percent;
+    let start_mv = init.voltage_mv;
+    let was_on_battery = !init.ac_plugged;
+
+    // Spawn controlled multi-core SIMD load threads
+    let worker_stop = Arc::new(AtomicBool::new(false));
+    let n_threads = std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(1).max(2))
+        .unwrap_or(2);
+    let mut handles = Vec::with_capacity(n_threads);
+    for idx in 0..n_threads {
+        let st = worker_stop.clone();
+        let cn = cancel.clone();
+        handles.push(std::thread::spawn(move || {
+            let mut k = 0u32;
+            while !st.load(Ordering::Relaxed) && !cn.load(Ordering::Relaxed) {
+                let _ = simd_kernels::simd_ai_gemm_step(96, (idx as f32) + (k as f32) * 0.01);
+                k = k.wrapping_add(1);
+            }
+        }));
+    }
+
+    let started = Instant::now();
+    let mut min_mv = start_mv;
+    let mut end_pct = start_pct;
+    let mut peak_discharge_w: Option<f64> = None;
+
+    while started.elapsed().as_secs() < dur {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        if let Some(s) = sample_battery_live() {
+            end_pct = s.charge_percent;
+            if let Some(v) = s.voltage_mv {
+                min_mv = Some(min_mv.map_or(v, |m| m.min(v)));
+            }
+            if let Some(w) = s.watts {
+                let abs_w = w.abs();
+                peak_discharge_w = Some(peak_discharge_w.map_or(abs_w, |p| p.max(abs_w)));
+            }
+            let v_drop = match (start_mv, s.voltage_mv) {
+                (Some(a), Some(b)) => (a as i64) - (b as i64),
+                _ => 0,
+            };
+            let _ = app.emit(
+                "battery:sag",
+                BatterySagProgress {
+                    running: true,
+                    elapsed_secs: (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+                    duration_secs: dur,
+                    charge_percent: s.charge_percent,
+                    voltage_mv: s.voltage_mv,
+                    watts: s.watts,
+                    ac_plugged: s.ac_plugged,
+                    voltage_drop_mv: v_drop,
+                    charge_drop_pct: ((start_pct - s.charge_percent) * 10.0).round() / 10.0,
+                },
+            );
+        }
+        std::thread::sleep(Duration::from_millis(900));
+    }
+
+    worker_stop.store(true, Ordering::SeqCst);
+    for h in handles {
+        let _ = h.join();
+    }
+
+    let charge_drop_pct = (((start_pct - end_pct).max(0.0)) * 10.0).round() / 10.0;
+    let max_voltage_sag_mv = match (start_mv, min_mv) {
+        (Some(a), Some(b)) => ((a as i64) - (b as i64)).max(0),
+        _ => 0,
+    };
+
+    let status = if charge_drop_pct >= 8.0 || max_voltage_sag_mv >= 1200 {
+        TestStatus::Fail
+    } else if !was_on_battery || charge_drop_pct >= 4.0 || max_voltage_sag_mv >= 750 {
+        TestStatus::Warn
+    } else {
+        TestStatus::Pass
+    };
+
+    let summary = if !was_on_battery {
+        format!(
+            "Pulse ran while AC plugged in (unplug AC for true cell sag test). Voltage sag: {} mV, Charge delta: -{:.1}%.",
+            max_voltage_sag_mv, charge_drop_pct
+        )
+    } else if status == TestStatus::Fail {
+        format!(
+            "FAIL: Severe battery cell collapse under {}s load! Charge dropped {:.1}%, Voltage sagged {} mV — replace battery.",
+            dur, charge_drop_pct, max_voltage_sag_mv
+        )
+    } else if status == TestStatus::Warn {
+        format!(
+            "WARN: Elevated internal cell resistance under {}s load (Charge -{:.1}%, Voltage sag {} mV).",
+            dur, charge_drop_pct, max_voltage_sag_mv
+        )
+    } else {
+        format!(
+            "PASS: Stable cells under {}s CPU load pulse — Charge -{:.1}%, Voltage sag {} mV{}.",
+            dur,
+            charge_drop_pct,
+            max_voltage_sag_mv,
+            peak_discharge_w.map(|w| format!(", Peak {:.1}W", w)).unwrap_or_default()
+        )
+    };
+
+    Ok(BatterySagResult {
+        status,
+        duration_secs: dur,
+        was_on_battery,
+        start_charge_pct: start_pct,
+        end_charge_pct: end_pct,
+        charge_drop_pct,
+        start_voltage_mv: start_mv,
+        min_voltage_mv: min_mv,
+        max_voltage_sag_mv,
+        peak_discharge_w,
+        summary,
+    })
 }
 
 #[cfg(target_os = "windows")]

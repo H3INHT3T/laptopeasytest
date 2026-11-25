@@ -4,8 +4,8 @@ mod types;
 
 use modules::{
     battery, biometrics, error_logs, gpu_stress, keyboard_hook, perf_bench, power_torture,
-    ram_test, raytracer, report, security_audit, shop_history, simd_kernels, specs, storage,
-    telemetry, vram_test,
+    ram_test, raytracer, report, security_audit, session, shop_history, simd_kernels, specs,
+    storage, telemetry, usb_ports, vram_test,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -13,15 +13,17 @@ use std::sync::{
 };
 use tauri::{AppHandle, State};
 use types::{
-    BatteryHealthReport, BiometricAuthResult, BiometricsHardwareReport, BurnInResult,
-    ErrorLogsReport, ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
-    LiveTelemetrySnapshot, PerfBenchResult, PowerTortureResult, RamTestResult, SecurityAuditReport,
-    ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, StorageBenchResult,
-    StorageSmartReport, SystemSpecs, VramTestResult,
+    BatteryHealthReport, BatterySagResult, BiometricAuthResult, BiometricsHardwareReport,
+    BurnInResult, ErrorLogsReport, ExportReportPayload, ExportedReportPaths, GpuAdapterInfo,
+    GpuStressResult, LiveTelemetrySnapshot, PerfBenchResult, PowerTortureResult, RamTestResult,
+    SavedSessionPayload, SecurityAuditReport, ShopModelBenchmarkAvg, ShopModelComparison,
+    ShopProfile, StorageBenchResult, StorageSmartReport, SystemSpecs, UsbDeviceInfo, VramTestResult,
 };
 
 pub struct CancelRegistry {
     pub battery_stop: Mutex<Option<Arc<AtomicBool>>>,
+    pub battery_sag_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub usb_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub keyboard_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub storage_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub ram_cancel: Mutex<Option<Arc<AtomicBool>>>,
@@ -36,6 +38,8 @@ impl Default for CancelRegistry {
     fn default() -> Self {
         Self {
             battery_stop: Mutex::new(None),
+            battery_sag_cancel: Mutex::new(None),
+            usb_stop: Mutex::new(None),
             keyboard_stop: Mutex::new(None),
             storage_cancel: Mutex::new(None),
             ram_cancel: Mutex::new(None),
@@ -99,6 +103,63 @@ fn stop_battery_monitor(state: State<'_, CancelRegistry>) {
 }
 
 #[tauri::command]
+async fn run_battery_sag_pulse(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    duration_secs: Option<u64>,
+) -> Result<BatterySagResult, String> {
+    let cancel = replace_flag(&state.battery_sag_cancel);
+    let dur = duration_secs.unwrap_or(15).clamp(10, 45);
+    tauri::async_runtime::spawn_blocking(move || battery::run_battery_sag_pulse(&app, dur, cancel))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_battery_sag_pulse(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.battery_sag_cancel);
+}
+
+#[tauri::command]
+async fn list_usb_devices() -> Result<Vec<UsbDeviceInfo>, String> {
+    tauri::async_runtime::spawn_blocking(usb_ports::list_usb_devices)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn start_usb_monitor(app: AppHandle, state: State<'_, CancelRegistry>) {
+    let flag = replace_flag(&state.usb_stop);
+    usb_ports::spawn_usb_monitor(app, flag);
+}
+
+#[tauri::command]
+fn stop_usb_monitor(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.usb_stop);
+}
+
+#[tauri::command]
+fn save_qc_session(
+    app: AppHandle,
+    serial: String,
+    model: String,
+    active_stress_stage: Option<String>,
+    state_json: String,
+) -> Result<(), String> {
+    session::save_qc_session(&app, &serial, &model, active_stress_stage, &state_json)
+}
+
+#[tauri::command]
+fn load_qc_session(app: AppHandle, serial: String) -> Option<SavedSessionPayload> {
+    session::load_qc_session(&app, &serial)
+}
+
+#[tauri::command]
+fn clear_qc_session(app: AppHandle, serial: String) -> Result<(), String> {
+    session::clear_qc_session(&app, &serial)
+}
+
+#[tauri::command]
 async fn scan_error_logs(days: Option<u32>) -> Result<ErrorLogsReport, String> {
     let d = days.unwrap_or(30).clamp(1, 90);
     tauri::async_runtime::spawn_blocking(move || error_logs::scan_error_logs(d))
@@ -120,10 +181,11 @@ async fn run_storage_benchmark(
     preset: String,
     interface_hint: Option<String>,
     media_hint: Option<String>,
+    target_mount: Option<String>,
 ) -> Result<StorageBenchResult, String> {
     let cancel = replace_flag(&state.storage_cancel);
     tauri::async_runtime::spawn_blocking(move || {
-        storage::run_storage_benchmark(&app, &preset, interface_hint, media_hint, cancel)
+        storage::run_storage_benchmark(&app, &preset, interface_hint, media_hint, target_mount, cancel)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -461,9 +523,12 @@ pub fn run_self_test() -> Result<(), String> {
 
     let sp = specs::collect_system_specs();
     println!(
-        "[PASS] Specs: {} {} | {} ({}C/{}T) | {:.1} GB RAM | Gaming={}",
-        sp.manufacturer, sp.model, sp.cpu_brand, sp.cpu_physical_cores, sp.cpu_logical_cores, sp.total_ram_gb, sp.is_gaming_capable
+        "[PASS] Specs: {} {} | {} ({}C/{}T) | {:.1} GB RAM ({:?}) | Wi-Fi={:?}% ({:?} dBm) | Gaming={}",
+        sp.manufacturer, sp.model, sp.cpu_brand, sp.cpu_physical_cores, sp.cpu_logical_cores, sp.total_ram_gb, sp.ram_channel_mode, sp.wifi_signal_pct, sp.wifi_rssi_dbm, sp.is_gaming_capable
     );
+
+    let usb_devs = usb_ports::list_usb_devices();
+    println!("[PASS] USB Hot-Plug Speed Enumerator: {} device(s) detected", usb_devs.len());
 
     let sec = security_audit::run_security_audit();
     println!("[PASS] Security Audit ({:?}): {}", sec.overall_status, sec.summary);
@@ -505,6 +570,14 @@ pub fn run() {
             get_battery_health,
             start_battery_monitor,
             stop_battery_monitor,
+            run_battery_sag_pulse,
+            cancel_battery_sag_pulse,
+            list_usb_devices,
+            start_usb_monitor,
+            stop_usb_monitor,
+            save_qc_session,
+            load_qc_session,
+            clear_qc_session,
             scan_error_logs,
             scan_storage_smart,
             run_storage_benchmark,

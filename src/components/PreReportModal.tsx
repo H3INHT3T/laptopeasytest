@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import type {
   BatteryHealthReport,
+  BatterySagResult,
+  ErrorLogsReport,
   ExportReportPayload,
   ExportedReportPaths,
   GpuStressResult,
@@ -21,9 +23,11 @@ import type {
   PortsSpeakerSignoff,
   PowerTortureResult,
   RamTestResult,
+  SecurityAuditReport,
   ShopProfile,
   StepModuleId,
   StorageBenchResult,
+  StorageSmartReport,
   SubsystemScoreBar,
   SystemSpecs,
   VramTestResult,
@@ -38,7 +42,11 @@ interface PreReportModalProps {
   stepOrder: StepModuleId[];
   modules: Record<StepModuleId, ModuleRecord>;
   signoff: PortsSpeakerSignoff;
+  securityReport?: SecurityAuditReport | null;
   batteryReport?: BatteryHealthReport | null;
+  batterySagResult?: BatterySagResult | null;
+  errorLogsReport?: ErrorLogsReport | null;
+  smartReport?: StorageSmartReport | null;
   storageBench?: StorageBenchResult | null;
   ramResult?: RamTestResult | null;
   perfResult?: PerfBenchResult | null;
@@ -56,7 +64,11 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   stepOrder,
   modules,
   signoff,
+  securityReport,
   batteryReport,
+  batterySagResult,
+  errorLogsReport,
+  smartReport,
   storageBench,
   ramResult,
   perfResult,
@@ -182,6 +194,63 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
     }
   };
 
+  const buildStageMetrics = (id: StepModuleId): [string, string][] => {
+    const out: [string, string][] = [];
+    if (id === "specs" && specs) {
+      out.push(["CPU", `${specs.cpuPhysicalCores}C/${specs.cpuLogicalCores}T`]);
+      out.push(["RAM", `${specs.totalRamGb.toFixed(0)} GB${specs.ramChannelMode ? ` (${specs.ramChannelMode})` : ""}`]);
+      if (specs.wifiSignalPct != null) out.push(["Wi-Fi RSSI", `${specs.wifiSignalPct}% (${specs.wifiRssiDbm ?? "—"} dBm)`]);
+    } else if (id === "security" && securityReport) {
+      out.push(["MDM", securityReport.mdmEnrolled === true ? "ENROLLED" : "Clean"]);
+      if (securityReport.activationLocked != null) {
+        out.push(["Activation Lock", securityReport.activationLocked ? "LOCKED" : "Clean"]);
+      }
+    } else if (id === "battery" && batteryReport?.present) {
+      if (batteryReport.healthPercent != null) out.push(["Health", `${batteryReport.healthPercent.toFixed(1)}%`]);
+      if (batteryReport.cycleCount != null) out.push(["Cycles", `${batteryReport.cycleCount}`]);
+      if (batterySagResult) {
+        out.push(["15s Sag", `${batterySagResult.maxVoltageSagMv} mV (-${batterySagResult.chargeDropPct.toFixed(1)}%)`]);
+      }
+    } else if (id === "logs" && errorLogsReport) {
+      out.push(["BSOD/Panics", `${errorLogsReport.bsodOrPanicCount}`]);
+      out.push(["WHEA HW", `${errorLogsReport.wheaOrHwCount}`]);
+      out.push(["Disk Err", `${errorLogsReport.diskErrorCount}`]);
+      out.push(["GPU TDR", `${errorLogsReport.gpuResetCount}`]);
+    } else if (id === "storage") {
+      const d = smartReport?.drives[0];
+      if (d?.healthPercent != null) out.push(["SMART Health", `${d.healthPercent}%`]);
+      if (d?.tbwGb != null) out.push(["TBW", `${(d.tbwGb / 1000).toFixed(1)} TB`]);
+      if (storageBench) {
+        out.push(["Seq Read", `${storageBench.seqReadMbS.toFixed(0)} MB/s`]);
+        out.push(["Seq Write", `${storageBench.seqWriteMbS.toFixed(0)} MB/s`]);
+        out.push(["4K P99", `${storageBench.p994kLatencyMs.toFixed(2)} ms`]);
+        out.push(["Verify Err", `${storageBench.integrityErrors}`]);
+      }
+    } else if (id === "ram" && ramResult) {
+      out.push(["Verified", `${ramResult.totalGbVerified.toFixed(1)} GB`]);
+      out.push(["Peak BW", `${ramResult.peakBandwidthGbS.toFixed(1)} GB/s`]);
+      out.push(["Bit Errors", `${ramResult.errorsFound}`]);
+    } else if (id === "performance" && perfResult) {
+      out.push(["Composite", `${perfResult.compositeScore}`]);
+      out.push(["Office", `${perfResult.officeScore}`]);
+      out.push(["Creator", `${perfResult.creatorScore} (${perfResult.creatorMegaRaysS.toFixed(1)} MRays/s)`]);
+      out.push(["Memory", `${perfResult.memoryMark} (${perfResult.memoryLatencyNs.toFixed(1)} ns)`]);
+      out.push(["Throttle", `-${perfResult.throttleDropPct.toFixed(1)}%`]);
+    } else if (id === "gpu") {
+      if (gpuResult) {
+        out.push(["FurMark", `${gpuResult.avgFps.toFixed(1)} FPS (1% Low ${gpuResult.low1pctFps.toFixed(1)})`]);
+        out.push(["GPU Drop", `-${gpuResult.fpsDropPct.toFixed(1)}%`]);
+      }
+      if (vramResult) {
+        out.push(["VRAM", `${vramResult.errorsFound} err (${vramResult.totalGbVerified.toFixed(1)} GB)`]);
+      }
+      if (tortureResult) {
+        out.push(["AC Drain", tortureResult.batteryDrainWhilePlugged ? "ALERT" : "Stable"]);
+      }
+    }
+    return out;
+  };
+
   const handleExport = async () => {
     if (!profile.shopName.trim() && !profile.technicianName.trim()) {
       setError("Please enter at least a Shop Name or Technician Username.");
@@ -205,7 +274,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
           category: m.category,
           status: m.status,
           summary: m.summary || "Not run",
-          metrics: [],
+          metrics: buildStageMetrics(m.id),
           notes: m.notes,
         })),
         signoff,

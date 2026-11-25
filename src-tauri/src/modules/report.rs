@@ -1,4 +1,6 @@
-use crate::modules::pdf_gen::{compute_certificate_id, render_qc_certificate_pdf};
+use crate::modules::pdf_gen::{
+    build_qr_payload, compute_certificate_id, render_qc_certificate_pdf, render_qr_svg,
+};
 use crate::types::{ExportReportPayload, ExportedReportPaths, ShopProfile, TestStatus};
 use chrono::Local;
 use std::fs;
@@ -53,6 +55,7 @@ fn html_escape(s: &str) -> String {
 
 fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
     let cert_id = compute_certificate_id(payload, generated_at);
+    let qr_svg = render_qr_svg(&build_qr_payload(payload, &cert_id));
     let shop = if payload.shop_profile.shop_name.trim().is_empty() {
         "LAPTOPBENCH QC LAB"
     } else {
@@ -185,6 +188,23 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
             TestStatus::Running => ("RUN", "st-pass"),
             TestStatus::Pending => ("WAIT", "st-na"),
         };
+        let metrics_html = if t.metrics.is_empty() {
+            String::new()
+        } else {
+            let chips = t
+                .metrics
+                .iter()
+                .map(|(k, v)| {
+                    format!(
+                        r#"<span class="m-chip"><em>{}</em> {}</span>"#,
+                        html_escape(k),
+                        html_escape(v)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            format!(r#"<div class="m-row mono">{}</div>"#, chips)
+        };
         let note_html = if t.notes.trim().is_empty() {
             String::new()
         } else {
@@ -194,13 +214,14 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
             r#"<tr>
               <td><strong>{}</strong><div class="cat">{}</div></td>
               <td><span class="stamp {}">{}</span></td>
-              <td>{}{}</td>
+              <td>{}{}{}</td>
             </tr>"#,
             html_escape(&t.name),
             html_escape(&t.category),
             cls,
             lbl,
             html_escape(&t.summary),
+            metrics_html,
             note_html
         ));
     }
@@ -248,8 +269,15 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
   .badge-inline {{ font-size: 10px; font-weight: 800; }}
   .track {{ height: 6px; background: #e4e4e7; }}
   .fill {{ height: 100%; }}
-  .sign-box {{ border: 1px solid #d4d4d8; background: #f8fafc; padding: 12px 14px; font-size: 11.5px; }}
-  .sig-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 26px; }}
+  .sign-box {{ border: 1px solid #d4d4d8; background: #f8fafc; padding: 12px 14px; font-size: 11.5px; display: flex; justify-content: space-between; align-items: stretch; gap: 18px; }}
+  .sign-left {{ flex: 1; display: flex; flex-direction: column; justify-content: space-between; }}
+  .qr-wrap {{ width: 102px; shrink: 0; text-align: center; }}
+  .qr-svg {{ width: 96px; height: 96px; border: 1px solid #09090b; display: block; margin: 0 auto; }}
+  .qr-cap {{ font-size: 8px; letter-spacing: .08em; color: #52525b; margin-top: 4px; font-weight: 700; }}
+  .m-row {{ display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }}
+  .m-chip {{ font-size: 10px; border: 1px solid #d4d4d8; background: #fff; padding: 1px 6px; }}
+  .m-chip em {{ font-style: normal; color: #1d4ed8; font-weight: 700; margin-right: 3px; }}
+  .sig-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 22px; }}
   .sig-line {{ border-top: 1px solid #09090b; padding-top: 5px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }}
   table {{ width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #d4d4d8; }}
   th {{ text-align: left; font-family: ui-monospace, Consolas, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #fff; background: #09090b; padding: 8px 10px; }}
@@ -298,14 +326,22 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
     {bars_html}
 
     <section class="sec">
-      <div class="sec-title">03 // PHYSICAL INSPECTION SIGN-OFF &amp; AUTHORIZATION</div>
+      <div class="sec-title">03 // PHYSICAL SIGN-OFF, OFFLINE QR VERIFICATION &amp; AUTHORIZATION</div>
       <div class="sign-box">
-        <div class="mono"><strong>PHYSICAL PORTS (USB/HDMI/DC/JACK):</strong> {ports_ok} {ports_notes}</div>
-        <div class="mono" style="margin-top:4px"><strong>STEREO SPEAKERS (L/R CLARITY):</strong> {spk_ok} {spk_notes}</div>
-        <div style="margin-top:8px"><strong>Technician Notes:</strong> {notes_esc}</div>
-        <div class="sig-grid mono">
-          <div class="sig-line">Technician: {tech_esc} ({shop_esc})</div>
-          <div class="sig-line">Customer / Buyer Acceptance &amp; Date</div>
+        <div class="sign-left">
+          <div>
+            <div class="mono"><strong>PHYSICAL PORTS (USB/HDMI/DC/JACK):</strong> {ports_ok} {ports_notes}</div>
+            <div class="mono" style="margin-top:4px"><strong>STEREO SPEAKERS (L/R CLARITY):</strong> {spk_ok} {spk_notes}</div>
+            <div style="margin-top:8px"><strong>Technician Notes:</strong> {notes_esc}</div>
+          </div>
+          <div class="sig-grid mono">
+            <div class="sig-line">Technician: {tech_esc} ({shop_esc})</div>
+            <div class="sig-line">Customer / Buyer Acceptance &amp; Date</div>
+          </div>
+        </div>
+        <div class="qr-wrap mono">
+          {qr_svg}
+          <div class="qr-cap">OFFLINE QR SEAL</div>
         </div>
       </div>
     </section>
@@ -359,6 +395,7 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
             html_escape(payload.technician_notes.trim())
         },
         tech_esc = html_escape(tech),
+        qr_svg = qr_svg,
         rows_html = rows_html,
     )
 }

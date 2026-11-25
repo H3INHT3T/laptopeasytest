@@ -134,6 +134,13 @@ export interface SystemSpecs {
   displays: DisplaySpecInfo[];
   networkAdapters: NetworkAdapterInfo[];
   peripherals: PeripheralDeviceInfo[];
+  wifiSsid?: string | null;
+  wifiSignalPct?: number | null;
+  wifiRssiDbm?: number | null;
+  wifiRadioType?: string | null;
+  wifiAntennaWarning?: string | null;
+  ramChannelMode?: string | null;
+  ramConfigWarning?: string | null;
   isGamingCapable: boolean;
   isElevated: boolean;
   uptimeSeconds: number;
@@ -183,6 +190,55 @@ export interface BatteryLiveSample {
   voltageMv: number | null;
   rateMw: number | null;
   watts: number | null;
+}
+
+export interface BatterySagProgress {
+  running: boolean;
+  elapsedSecs: number;
+  durationSecs: number;
+  chargePercent: number;
+  voltageMv: number | null;
+  watts: number | null;
+  acPlugged: boolean;
+  voltageDropMv: number;
+  chargeDropPct: number;
+}
+
+export interface BatterySagResult {
+  status: TestStatus;
+  durationSecs: number;
+  wasOnBattery: boolean;
+  startChargePct: number;
+  endChargePct: number;
+  chargeDropPct: number;
+  startVoltageMv: number | null;
+  minVoltageMv: number | null;
+  maxVoltageSagMv: number;
+  peakDischargeW: number | null;
+  summary: string;
+}
+
+export interface UsbDeviceInfo {
+  instanceId: string;
+  name: string;
+  speedClass: string;
+  isSuperspeed: boolean;
+  status: string;
+}
+
+export interface UsbHotplugEvent {
+  eventKind: "CONNECTED" | "DISCONNECTED" | "SNAPSHOT";
+  timestamp: string;
+  device: UsbDeviceInfo | null;
+  devices: UsbDeviceInfo[];
+}
+
+export interface SavedSessionPayload {
+  serialNumber: string;
+  model: string;
+  savedAt: string;
+  activeStressStage: string | null;
+  stateJson: string;
 }
 
 export interface ErrorLogEntry {

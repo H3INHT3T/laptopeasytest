@@ -85,6 +85,10 @@ pub fn collect_system_specs() -> SystemSpecs {
     let hw = DetailedHw::default();
 
     let is_gaming_capable = detect_gaming_capable(&hw.gpus, &cpu_brand);
+    let (wifi_ssid, wifi_signal_pct, wifi_rssi_dbm, wifi_radio_type, wifi_antenna_warning) =
+        probe_wifi_antenna_rssi();
+    let (ram_channel_mode, ram_config_warning) =
+        audit_ram_configuration(&hw.ram_modules, hw.ram_slots_total);
 
     SystemSpecs {
         os_family,
@@ -124,10 +128,156 @@ pub fn collect_system_specs() -> SystemSpecs {
         displays: hw.displays,
         network_adapters: hw.network_adapters,
         peripherals: hw.peripherals,
+        wifi_ssid,
+        wifi_signal_pct,
+        wifi_rssi_dbm,
+        wifi_radio_type,
+        wifi_antenna_warning,
+        ram_channel_mode,
+        ram_config_warning,
         is_gaming_capable,
         is_elevated: is_elevated(),
         uptime_seconds,
     }
+}
+
+/// Audits installed RAM DIMMs for single-channel bottlenecks, mismatched speeds (downclocking),
+/// or asymmetric capacities (Flex Mode) — common issues in refurbished/upgraded second-hand laptops.
+fn audit_ram_configuration(
+    modules: &[RamModuleInfo],
+    slots_total: Option<u32>,
+) -> (Option<String>, Option<String>) {
+    if modules.is_empty() {
+        return (Some("Unified / Integrated Memory".into()), None);
+    }
+    if modules.len() == 1 {
+        let m = &modules[0];
+        let is_unified = m.form_factor.to_lowercase().contains("unified")
+            || m.memory_type.to_lowercase().contains("lpddr");
+        if !is_unified && slots_total.unwrap_or(2) >= 2 {
+            return (
+                Some(format!("Single-Channel (1 of {} slots)", slots_total.unwrap_or(2))),
+                Some(format!(
+                    "SINGLE-CHANNEL BOTTLENECK: Only 1 DIMM ({} GB) installed across {} slots — adding a matched second stick increases iGPU & memory bandwidth up to 40%.",
+                    m.capacity_gb,
+                    slots_total.unwrap_or(2)
+                )),
+            );
+        }
+        return (Some("On-Board / Soldered".into()), None);
+    }
+
+    let speeds: Vec<u32> = modules.iter().filter_map(|m| m.speed_mhz).filter(|&s| s > 0).collect();
+    let min_spd = speeds.iter().copied().min();
+    let max_spd = speeds.iter().copied().max();
+    let caps: Vec<u64> = modules.iter().map(|m| m.capacity_gb.round() as u64).collect();
+    let asymmetric_cap = caps.windows(2).any(|w| w[0] != w[1]);
+    let mismatched_spd = match (min_spd, max_spd) {
+        (Some(a), Some(b)) => b.saturating_sub(a) >= 200,
+        _ => false,
+    };
+
+    let mut warnings = Vec::new();
+    if mismatched_spd {
+        warnings.push(format!(
+            "MISMATCHED RAM SPEEDS ({} MHz vs {} MHz) — faster stick is forced to downclock to {} MHz.",
+            max_spd.unwrap_or(0),
+            min_spd.unwrap_or(0),
+            min_spd.unwrap_or(0)
+        ));
+    }
+    if asymmetric_cap {
+        let cap_str = caps.iter().map(|c| format!("{}GB", c)).collect::<Vec<_>>().join(" + ");
+        warnings.push(format!(
+            "ASYMMETRIC RAM CAPACITY ({}) — running in partial Flex Mode instead of full symmetric Dual-Channel.",
+            cap_str
+        ));
+    }
+
+    let mode = if asymmetric_cap {
+        format!("Flex Mode ({}x DIMM)", modules.len())
+    } else {
+        format!("Dual-Channel Matched ({}x DIMM)", modules.len())
+    };
+
+    let warn_opt = if warnings.is_empty() {
+        None
+    } else {
+        Some(warnings.join(" | "))
+    };
+    (Some(mode), warn_opt)
+}
+
+/// Probes connected Wi-Fi RSSI / Signal % to catch disconnected internal M.2 antenna coax cables
+/// left unplugged after prior repair or thermal repaste.
+fn probe_wifi_antenna_rssi() -> (Option<String>, Option<u32>, Option<i32>, Option<String>, Option<String>) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(out) = crate::cmd_util::run_cmd_stdout("netsh", &["wlan", "show", "interfaces"]) {
+            let mut ssid: Option<String> = None;
+            let mut signal_pct: Option<u32> = None;
+            let mut radio: Option<String> = None;
+            for line in out.lines() {
+                let t = line.trim();
+                if let Some((k, v)) = t.split_once(':') {
+                    let key = k.trim().to_lowercase();
+                    let val = v.trim();
+                    if key == "ssid" && !val.is_empty() {
+                        ssid = Some(val.to_string());
+                    } else if key == "signal" {
+                        let digits: String = val.chars().take_while(|c| c.is_ascii_digit()).collect();
+                        if let Ok(p) = digits.parse::<u32>() {
+                            signal_pct = Some(p.min(100));
+                        }
+                    } else if key == "radio type" && !val.is_empty() {
+                        radio = Some(val.to_string());
+                    }
+                }
+            }
+            let rssi_dbm = signal_pct.map(|p| (p as i32 / 2) - 100);
+            let warn = match signal_pct {
+                Some(p) if p < 45 => Some(format!(
+                    "WEAK WI-FI SIGNAL ({}% / {} dBm) — inspect internal M.2 Wi-Fi antenna coax connectors (MAIN/AUX) for loose or disconnected cable!",
+                    p,
+                    rssi_dbm.unwrap_or(-85)
+                )),
+                _ => None,
+            };
+            return (ssid, signal_pct, rssi_dbm, radio, warn);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = crate::cmd_util::run_cmd_stdout(
+            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
+            &["-I"],
+        ) {
+            let mut ssid: Option<String> = None;
+            let mut rssi: Option<i32> = None;
+            for line in out.lines() {
+                let t = line.trim();
+                if let Some((k, v)) = t.split_once(':') {
+                    match k.trim() {
+                        "SSID" => ssid = Some(v.trim().to_string()),
+                        "agrCtlRSSI" => rssi = v.trim().parse::<i32>().ok(),
+                        _ => {}
+                    }
+                }
+            }
+            let pct = rssi.map(|r| (((r + 100) * 2).clamp(0, 100)) as u32);
+            let warn = match rssi {
+                Some(r) if r < -77 => Some(format!(
+                    "WEAK WI-FI RSSI ({} dBm) — inspect internal AirPort antenna cable!",
+                    r
+                )),
+                _ => None,
+            };
+            return (ssid, pct, rssi, Some("Apple AirPort 802.11".into()), warn);
+        }
+    }
+
+    (None, None, None, None, None)
 }
 
 #[derive(Default)]

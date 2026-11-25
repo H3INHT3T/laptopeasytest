@@ -9,6 +9,7 @@ import type {
   StorageSmartReport,
   StressPreset,
   TestStatus,
+  VolumeSpecInfo,
 } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
@@ -19,6 +20,7 @@ import { EngineeringConsole, ThresholdAuditTable, type ThresholdAuditRow } from 
 
 interface StorageViewProps {
   telemetry: LiveTelemetrySnapshot | null;
+  volumes?: VolumeSpecInfo[];
   smartReport: StorageSmartReport | null;
   benchResult: StorageBenchResult | null;
   loadingSmart: boolean;
@@ -26,6 +28,7 @@ interface StorageViewProps {
   stepNumber: number;
   totalSteps: number;
   onRefreshSmart: () => void;
+  onRunningChange?: (running: boolean) => void;
   onBenchComplete: (res: StorageBenchResult) => void;
   onNext: () => void;
   onSkip: () => void;
@@ -33,6 +36,7 @@ interface StorageViewProps {
 
 export const StorageView: React.FC<StorageViewProps> = ({
   telemetry,
+  volumes = [],
   smartReport,
   benchResult,
   loadingSmart,
@@ -40,11 +44,13 @@ export const StorageView: React.FC<StorageViewProps> = ({
   stepNumber,
   totalSteps,
   onRefreshSmart,
+  onRunningChange,
   onBenchComplete,
   onNext,
   onSkip,
 }) => {
   const [preset, setPreset] = useState<StressPreset>("quick");
+  const [targetMount, setTargetMount] = useState<string>("");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<StorageBenchProgress | null>(null);
   const [speedHistory, setSpeedHistory] = useState<number[]>([]);
@@ -79,10 +85,11 @@ export const StorageView: React.FC<StorageViewProps> = ({
   const startBench = async () => {
     setError(null);
     setRunning(true);
+    onRunningChange?.(true);
     setSpeedHistory([]);
     lastPhaseRef.current = "";
     setConsoleLog([
-      `[0.0s] Initializing Direct-IO SSD durability suite (preset=${preset}, target=${primaryDrive?.model ?? "System Drive"})`,
+      `[0.0s] Initializing Direct-IO SSD durability suite (preset=${preset}, target=${targetMount || "System Temp Volume"}, drive=${primaryDrive?.model ?? "System Drive"})`,
       `[0.0s] OS Page Cache Bypass requested (FILE_FLAG_NO_BUFFERING / F_NOCACHE)`,
     ]);
     setProgress({
@@ -97,6 +104,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
         preset,
         interfaceHint: primaryDrive?.interfaceType ?? null,
         mediaHint: primaryDrive?.mediaType ?? null,
+        targetMount: targetMount || null,
       });
       setConsoleLog((prev) => [
         ...prev,
@@ -107,6 +115,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
       setError(String(e));
     } finally {
       setRunning(false);
+      onRunningChange?.(false);
     }
   };
 
@@ -256,7 +265,25 @@ export const StorageView: React.FC<StorageViewProps> = ({
               Writes uncached random blocks directly to NAND, verifies every byte on read-back, and captures 4K P99 tail latency.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {volumes.length > 1 && (
+              <select
+                value={targetMount}
+                disabled={running}
+                onChange={(e) => setTargetMount(e.target.value)}
+                className="bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black font-bold"
+                title="Target Drive / Volume for Multi-NVMe Laptops"
+              >
+                <option value="">Auto (System Drive)</option>
+                {volumes
+                  .filter((v) => v.freeGb >= 2)
+                  .map((v) => (
+                    <option key={v.mount} value={v.mount}>
+                      {v.mount} {v.label ? `(${v.label})` : ""} — {v.freeGb.toFixed(0)} GB free
+                    </option>
+                  ))}
+              </select>
+            )}
             <select
               value={preset}
               disabled={running}

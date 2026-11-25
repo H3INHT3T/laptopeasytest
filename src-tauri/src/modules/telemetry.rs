@@ -1,13 +1,28 @@
 use crate::modules::battery;
 use crate::types::LiveTelemetrySnapshot;
+use std::time::Instant;
 use sysinfo::{Components, System};
 
-/// Zero-driver native hardware telemetry collector with automatic HWiNFO/LibreHardwareMonitor
-/// WMI bridge detection on Windows and native IOKit/SMC sensor reading on macOS.
+/// Zero-driver native hardware telemetry collector (v2.2):
+/// - Real Windows Turbo Boost MHz via PDH `% Processor Performance` * MaxClockSpeed
+/// - Zero-driver Windows CPU Temperature via `MSAcpi_ThermalZoneTemperature` & `ThermalZoneInformation`
+/// - Automatic HWiNFO / LibreHardwareMonitor / OpenHardwareMonitor WMI bridge
+/// - NVIDIA NVML (`nvidia-smi`) GPU temp/load/wattage
+/// - Native macOS IOKit/SMC sensors via `sysinfo`
 pub struct TelemetryReader {
     sys: System,
     components: Components,
     lhm_available: Option<bool>,
+    #[cfg(target_os = "windows")]
+    cached_max_clock_mhz: u64,
+    #[cfg(target_os = "windows")]
+    last_wmi_probe: Option<Instant>,
+    #[cfg(target_os = "windows")]
+    cached_wmi_temp: Option<f32>,
+    #[cfg(target_os = "windows")]
+    cached_wmi_turbo_mhz: Option<u64>,
+    #[cfg(target_os = "windows")]
+    cached_wmi_source: Option<String>,
 }
 
 impl TelemetryReader {
@@ -15,10 +30,22 @@ impl TelemetryReader {
         let mut sys = System::new_all();
         sys.refresh_all();
         let components = Components::new_with_refreshed_list();
+        #[cfg(target_os = "windows")]
+        let cached_max_clock_mhz = sys.cpus().first().map(|c| c.frequency()).unwrap_or(0);
         Self {
             sys,
             components,
             lhm_available: None,
+            #[cfg(target_os = "windows")]
+            cached_max_clock_mhz,
+            #[cfg(target_os = "windows")]
+            last_wmi_probe: None,
+            #[cfg(target_os = "windows")]
+            cached_wmi_temp: None,
+            #[cfg(target_os = "windows")]
+            cached_wmi_turbo_mhz: None,
+            #[cfg(target_os = "windows")]
+            cached_wmi_source: None,
         }
     }
 
@@ -28,7 +55,7 @@ impl TelemetryReader {
         self.components.refresh(true);
 
         let cpu_usage_pct = (self.sys.global_cpu_usage() * 10.0).round() / 10.0;
-        let cpu_clock_mhz = self.sys.cpus().first().map(|c| c.frequency()).unwrap_or(0);
+        let mut cpu_clock_mhz = self.sys.cpus().first().map(|c| c.frequency()).unwrap_or(0);
 
         let mut cpu_temp_c: Option<f32> = None;
         let mut gpu_temp_c: Option<f32> = None;
@@ -38,12 +65,17 @@ impl TelemetryReader {
         let mut cpu_power_w: Option<f32> = None;
         let mut sensor_source = "OS Native".to_string();
 
-        // 1. Cross-platform sysinfo thermal components (great on macOS Apple Silicon/Intel & Linux)
+        // 1. Cross-platform sysinfo thermal components (macOS Apple Silicon/Intel & Linux)
         for comp in self.components.list() {
             let lbl = comp.label().to_lowercase();
             if let Some(t) = comp.temperature() {
                 if t > 15.0 && t < 120.0 {
-                    if lbl.contains("cpu") || lbl.contains("core") || lbl.contains("package") || lbl.contains("soc") || lbl.contains("tdie") {
+                    if lbl.contains("cpu")
+                        || lbl.contains("core")
+                        || lbl.contains("package")
+                        || lbl.contains("soc")
+                        || lbl.contains("tdie")
+                    {
                         cpu_temp_c = Some(cpu_temp_c.map_or(t, |p| p.max(t)));
                     } else if lbl.contains("gpu") || lbl.contains("radeon") {
                         gpu_temp_c = Some(gpu_temp_c.map_or(t, |p| p.max(t)));
@@ -52,9 +84,45 @@ impl TelemetryReader {
             }
         }
 
-        // 2. Windows NVIDIA NVML CLI + Optional LibreHardwareMonitor/OpenHardwareMonitor WMI Auto-Link
+        // 2. Windows Native Turbo Clock (PDH) + ACPI Thermal Zone + NVML + Optional LHM/OHM Bridge
         #[cfg(target_os = "windows")]
         {
+            let should_probe_wmi = self
+                .last_wmi_probe
+                .map(|t| t.elapsed().as_secs_f64() >= 2.2)
+                .unwrap_or(true);
+
+            if should_probe_wmi {
+                self.last_wmi_probe = Some(Instant::now());
+                if let Some((turbo_mhz, acpi_temp, base_max)) =
+                    read_windows_native_perf_and_thermal(self.cached_max_clock_mhz)
+                {
+                    if base_max > 0 {
+                        self.cached_max_clock_mhz = base_max;
+                    }
+                    self.cached_wmi_turbo_mhz = turbo_mhz;
+                    if acpi_temp.is_some() {
+                        self.cached_wmi_temp = acpi_temp;
+                        self.cached_wmi_source = Some("Windows ACPI + PDH".to_string());
+                    } else if turbo_mhz.is_some() {
+                        self.cached_wmi_source = Some("Windows PDH Turbo".to_string());
+                    }
+                }
+            }
+
+            if let Some(tmhz) = self.cached_wmi_turbo_mhz {
+                if tmhz >= 400 {
+                    cpu_clock_mhz = tmhz;
+                }
+            }
+            if cpu_temp_c.is_none() {
+                cpu_temp_c = self.cached_wmi_temp;
+            }
+            if let Some(ref src) = self.cached_wmi_source {
+                sensor_source = src.clone();
+            }
+
+            // NVIDIA NVML CLI for discrete NVIDIA GPUs
             if let Ok(out) = crate::cmd_util::run_cmd_stdout(
                 "nvidia-smi",
                 &[
@@ -75,7 +143,7 @@ impl TelemetryReader {
                 }
             }
 
-            // Probe LibreHardwareMonitor / OpenHardwareMonitor WMI once (zero-driver auto-link!)
+            // Optional LibreHardwareMonitor / OpenHardwareMonitor WMI auto-link
             if self.lhm_available != Some(false) {
                 if let Some((ct, cp, fr, gt)) = read_lhm_wmi_sensors() {
                     self.lhm_available = Some(true);
@@ -98,7 +166,7 @@ impl TelemetryReader {
             }
         }
 
-        // 3. Optional Battery & AC Wattage sample (catches charger drain during Combined Power Torture!)
+        // 3. Optional Battery & AC Wattage sample
         let (ac_plugged, battery_percent, battery_watts) = if include_battery {
             if let Some(b) = battery::sample_battery_live() {
                 (Some(b.ac_plugged), Some(b.charge_percent), b.watts)
@@ -124,6 +192,50 @@ impl TelemetryReader {
             sensor_source,
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_native_perf_and_thermal(cached_base_mhz: u64) -> Option<(Option<u64>, Option<f32>, u64)> {
+    use crate::cmd_util::run_powershell;
+    use serde_json::Value;
+
+    let ps = format!(
+        r#"
+$base = {base}
+if ($base -le 0) {{
+    $proc = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($proc -and $proc.MaxClockSpeed -gt 0) {{ $base = [uint64]$proc.MaxClockSpeed }}
+}}
+$perf = Get-CimInstance Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" -ErrorAction SilentlyContinue | Select-Object -First 1
+$turbo = $null
+if ($perf -and $base -gt 0 -and $perf.PercentProcessorPerformance -gt 0) {{
+    $turbo = [uint64][math]::Round($base * ([double]$perf.PercentProcessorPerformance / 100.0))
+}}
+$tempC = $null
+$tz1 = Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue | Where-Object {{ $_.Temperature -gt 285 -and $_.Temperature -lt 395 }} | Sort-Object Temperature -Descending | Select-Object -First 1
+if ($tz1) {{
+    $tempC = [math]::Round(([double]$tz1.Temperature - 273.15), 1)
+}}
+if ($null -eq $tempC) {{
+    $tz2 = Get-CimInstance -Namespace root\wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Where-Object {{ $_.CurrentTemperature -gt 2850 -and $_.CurrentTemperature -lt 3950 }} | Sort-Object CurrentTemperature -Descending | Select-Object -First 1
+    if ($tz2) {{
+        $tempC = [math]::Round((([double]$tz2.CurrentTemperature - 2732.0) / 10.0), 1)
+    }}
+}}
+@{{ turbo = $turbo; tempC = $tempC; base = $base }} | ConvertTo-Json -Compress
+"#,
+        base = cached_base_mhz
+    );
+
+    let raw = run_powershell(&ps).ok()?;
+    let v: Value = serde_json::from_str(&raw).ok()?;
+    let turbo = v["turbo"].as_u64().filter(|&m| m >= 400 && m <= 8000);
+    let temp = v["tempC"]
+        .as_f64()
+        .map(|t| t as f32)
+        .filter(|&t| t > 15.0 && t < 120.0);
+    let base = v["base"].as_u64().unwrap_or(cached_base_mhz);
+    Some((turbo, temp, base))
 }
 
 #[cfg(target_os = "windows")]

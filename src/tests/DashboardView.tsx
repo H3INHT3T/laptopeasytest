@@ -21,6 +21,7 @@ import type {
   BurnInProgress,
   BurnInResult,
   ModuleRecord,
+  SavedSessionPayload,
   ShopModelBenchmarkAvg,
   StepModuleId,
   SystemSpecs,
@@ -35,6 +36,10 @@ interface DashboardViewProps {
   modules: Record<StepModuleId, ModuleRecord>;
   autoRunning: boolean;
   allStepsDone: boolean;
+  savedSession: SavedSessionPayload | null;
+  crashAlert: string | null;
+  onResumeSession: () => void;
+  onDiscardSession: () => void;
   onRunAutoChecks: () => void;
   onStartOrResume: () => void;
   onSelectModule: (id: TestModuleId) => void;
@@ -48,6 +53,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   modules,
   autoRunning,
   allStepsDone,
+  savedSession,
+  crashAlert,
+  onResumeSession,
+  onDiscardSession,
   onRunAutoChecks,
   onStartOrResume,
   onSelectModule,
@@ -145,6 +154,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Crash-Safe Session Resume / Unexpected Reboot Detection Banner */}
+      {savedSession && (
+        <div className={`rounded-[2px] border-2 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+          savedSession.activeStressStage
+            ? "border-black bg-black text-white"
+            : "border-blue-600 bg-blue-50/60 text-black"
+        }`}>
+          <div className="flex items-start gap-2.5 text-xs">
+            <ShieldAlert className={`w-4 h-4 shrink-0 mt-0.5 ${savedSession.activeStressStage ? "text-blue-400" : "text-blue-600"}`} />
+            <div>
+              <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-blue-500">
+                {savedSession.activeStressStage
+                  ? `CRITICAL: UNEXPECTED SHUTDOWN / REBOOT DETECTED DURING ${savedSession.activeStressStage.toUpperCase()}`
+                  : `SAVED QC SESSION FOUND FOR S/N ${savedSession.serialNumber}`}
+              </div>
+              <div className="mt-0.5">
+                Last checkpoint saved at <strong className="font-mono">{savedSession.savedAt}</strong>. Resume to restore all completed steps
+                {savedSession.activeStressStage ? " and log the hard-crash failure automatically into the QC Certificate." : "."}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onResumeSession}
+              className="px-3.5 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-[11px] font-bold uppercase cursor-pointer"
+            >
+              Resume Session
+            </button>
+            <button
+              onClick={onDiscardSession}
+              className={`px-3 py-1.5 rounded-[2px] border font-mono text-[11px] font-bold uppercase cursor-pointer ${
+                savedSession.activeStressStage
+                  ? "border-zinc-600 bg-zinc-900 hover:bg-zinc-800 text-white"
+                  : "border-black bg-white hover:bg-zinc-100 text-black"
+              }`}
+            >
+              Start Fresh
+            </button>
+          </div>
+        </div>
+      )}
+
+      {crashAlert && !savedSession && (
+        <div className="rounded-[2px] border-2 border-black bg-black text-white px-4 py-2.5 flex items-center gap-2.5 font-mono text-xs">
+          <ShieldAlert className="w-4 h-4 text-blue-400 shrink-0" />
+          <span>{crashAlert}</span>
+        </div>
+      )}
+
       {/* Swiss Architectural Header Bar */}
       <div className="rounded-[2px] border border-zinc-300 bg-white overflow-hidden">
         <div className="px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-200">

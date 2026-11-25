@@ -132,11 +132,44 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
             </div>
           </div>
 
+          {/* RAM Mismatch / Single-Channel & Wi-Fi Antenna RSSI Audit Alerts */}
+          {(specs.ramConfigWarning || specs.wifiAntennaWarning) && (
+            <div className="space-y-2">
+              {specs.ramConfigWarning && (
+                <div className="rounded-[2px] border-2 border-black bg-white px-4 py-3 flex items-start gap-3 text-xs">
+                  <ShieldAlert className="w-4 h-4 shrink-0 text-blue-600 mt-0.5" />
+                  <div>
+                    <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-blue-700">
+                      RAM CONFIGURATION AUDIT ({specs.ramChannelMode ?? "DETECTED"})
+                    </div>
+                    <div className="font-semibold text-black mt-0.5">{specs.ramConfigWarning}</div>
+                  </div>
+                </div>
+              )}
+              {specs.wifiAntennaWarning && (
+                <div className="rounded-[2px] border-2 border-black bg-black text-white px-4 py-3 flex items-start gap-3 text-xs">
+                  <Wifi className="w-4 h-4 shrink-0 text-blue-400 mt-0.5" />
+                  <div>
+                    <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-blue-400">
+                      WI-FI ANTENNA / COAX RSSI ALERT
+                    </div>
+                    <div className="mt-0.5">{specs.wifiAntennaWarning}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Memory (RAM) Full DIMM Table */}
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
                 <MemoryStick className="w-4 h-4" /> Memory (RAM) — {specs.totalRamGb.toFixed(1)} GB Installed
+                {specs.ramChannelMode && (
+                  <span className="px-1.5 py-0.5 rounded-[2px] bg-[#F8FAFC] border border-zinc-300 text-black font-mono text-[10px]">
+                    {specs.ramChannelMode}
+                  </span>
+                )}
               </div>
               <div className="text-xs font-mono text-zinc-600">
                 Slots Used: <strong className="text-black">{specs.ramModules.length}</strong>
@@ -302,10 +335,29 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
 
           {/* Network & Peripherals */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2.5">
-              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
-                <Wifi className="w-4 h-4" /> Network Adapters (Wi-Fi / Ethernet / BT)
+            <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+                  <Wifi className="w-4 h-4" /> Network Adapters &amp; Wi-Fi Antenna RSSI
+                </div>
+                {specs.wifiSignalPct != null && (
+                  <span
+                    className={`px-2 py-0.5 rounded-[2px] font-mono text-[10px] font-bold border ${
+                      specs.wifiSignalPct < 45
+                        ? "bg-black text-white border-black"
+                        : "bg-blue-50 text-blue-700 border-blue-600"
+                    }`}
+                  >
+                    RSSI {specs.wifiSignalPct}% ({specs.wifiRssiDbm ?? "—"} dBm)
+                  </span>
+                )}
               </div>
+              {specs.wifiSsid && (
+                <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] px-3 py-1.5 font-mono text-[11px] flex items-center justify-between">
+                  <span>SSID: <strong className="text-black">{specs.wifiSsid}</strong></span>
+                  <span className="text-zinc-600">{specs.wifiRadioType ?? "802.11"}</span>
+                </div>
+              )}
               {specs.networkAdapters.length === 0 ? (
                 <div className="text-xs text-zinc-500">No physical network adapters enumerated.</div>
               ) : (

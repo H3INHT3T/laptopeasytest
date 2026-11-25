@@ -33,6 +33,175 @@ pub fn scan_storage_smart() -> StorageSmartReport {
 }
 
 #[cfg(target_os = "windows")]
+struct NvmeHealthLog {
+    temperature_c: Option<i32>,
+    available_spare_pct: Option<u32>,
+    wear_percent: Option<u32>,
+    tbw_gb: Option<f64>,
+    power_cycles: Option<u64>,
+    power_on_hours: Option<u64>,
+    unsafe_shutdowns: Option<u64>,
+    media_errors: Option<u64>,
+    critical_warning: u8,
+}
+
+/// Queries Windows' native `IOCTL_STORAGE_QUERY_PROPERTY` (`StorageAdapterProtocolSpecificProperty`)
+/// for the 512-byte NVMe SMART / Health Information Log (Log Page 0x02) directly in Rust!
+#[cfg(target_os = "windows")]
+fn query_windows_nvme_smart_ioctl(drive_index: u32) -> Option<NvmeHealthLog> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateFileW(
+            lpFileName: *const u16,
+            dwDesiredAccess: u32,
+            dwShareMode: u32,
+            lpSecurityAttributes: *const std::ffi::c_void,
+            dwCreationDisposition: u32,
+            dwFlagsAndAttributes: u32,
+            hTemplateFile: isize,
+        ) -> isize;
+        fn DeviceIoControl(
+            hDevice: isize,
+            dwIoControlCode: u32,
+            lpInBuffer: *const u8,
+            nInBufferSize: u32,
+            lpOutBuffer: *mut u8,
+            nOutBufferSize: u32,
+            lpBytesReturned: *mut u32,
+            lpOverlapped: *mut std::ffi::c_void,
+        ) -> i32;
+        fn CloseHandle(hObject: isize) -> i32;
+    }
+
+    const INVALID_HANDLE_VALUE: isize = -1;
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const OPEN_EXISTING: u32 = 3;
+    const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002D_1400;
+
+    let path_str = format!(r"\\.\PhysicalDrive{}", drive_index);
+    let wide: Vec<u16> = OsStr::new(&path_str)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            0,
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE || handle == 0 {
+        return None;
+    }
+
+    // Build STORAGE_PROPERTY_QUERY (8 bytes) + STORAGE_PROTOCOL_SPECIFIC_DATA (40 bytes) + 512-byte log buffer
+    // Offset 0..4: PropertyId = 49 (StorageAdapterProtocolSpecificProperty)
+    // Offset 4..8: QueryType = 0 (PropertyStandardQuery)
+    // Offset 8..48: STORAGE_PROTOCOL_SPECIFIC_DATA:
+    //   [8..12]  ProtocolType = 3 (ProtocolTypeNvme)
+    //   [12..16] DataType = 2 (NVMeDataTypeLogPage)
+    //   [16..20] ProtocolDataRequestValue = 2 (NVME_LOG_PAGE_HEALTH_INFO)
+    //   [20..24] ProtocolDataRequestSubValue = 0
+    //   [24..28] ProtocolDataOffset = 40 (sizeof STORAGE_PROTOCOL_SPECIFIC_DATA)
+    //   [28..32] ProtocolDataLength = 512
+    //   [32..36] FixedProtocolReturnData = 0
+    //   [36..48] SubValue2/3/4 = 0
+    let mut buf = vec![0u8; 8 + 40 + 512];
+    buf[0..4].copy_from_slice(&49u32.to_le_bytes());
+    buf[4..8].copy_from_slice(&0u32.to_le_bytes());
+    buf[8..12].copy_from_slice(&3u32.to_le_bytes());
+    buf[12..16].copy_from_slice(&2u32.to_le_bytes());
+    buf[16..20].copy_from_slice(&2u32.to_le_bytes());
+    buf[24..28].copy_from_slice(&40u32.to_le_bytes());
+    buf[28..32].copy_from_slice(&512u32.to_le_bytes());
+
+    let mut returned: u32 = 0;
+    let ok = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_QUERY_PROPERTY,
+            buf.as_ptr(),
+            buf.len() as u32,
+            buf.as_mut_ptr(),
+            buf.len() as u32,
+            &mut returned,
+            std::ptr::null_mut(),
+        )
+    };
+    unsafe {
+        CloseHandle(handle);
+    }
+
+    if ok == 0 || returned < 8 + 40 + 180 {
+        return None;
+    }
+
+    // Output starts with STORAGE_PROTOCOL_DATA_DESCRIPTOR (Version u32, Size u32, STORAGE_PROTOCOL_SPECIFIC_DATA 40B)
+    let data_offset = u32::from_le_bytes([buf[24], buf[25], buf[26], buf[27]]) as usize;
+    let log_start = 8 + data_offset;
+    if log_start + 180 > buf.len() {
+        return None;
+    }
+    let log = &buf[log_start..];
+
+    let read_u64 = |off: usize| -> u64 {
+        u64::from_le_bytes([
+            log[off],
+            log[off + 1],
+            log[off + 2],
+            log[off + 3],
+            log[off + 4],
+            log[off + 5],
+            log[off + 6],
+            log[off + 7],
+        ])
+    };
+
+    let critical_warning = log[0];
+    let temp_k = u16::from_le_bytes([log[1], log[2]]) as i32;
+    let temperature_c = if temp_k > 250 && temp_k < 420 {
+        Some(temp_k - 273)
+    } else {
+        None
+    };
+    let available_spare_pct = Some(log[3] as u32).filter(|&s| s <= 100);
+    let wear_percent = Some((log[5] as u32).min(100));
+
+    let duw = read_u64(48);
+    let tbw_gb = if duw > 0 {
+        Some(((duw as f64 * 512_000.0) / 1_000_000_000.0 * 10.0).round() / 10.0)
+    } else {
+        None
+    };
+    let power_cycles = Some(read_u64(112));
+    let power_on_hours = Some(read_u64(128));
+    let unsafe_shutdowns = Some(read_u64(144));
+    let media_errors = Some(read_u64(160));
+
+    Some(NvmeHealthLog {
+        temperature_c,
+        available_spare_pct,
+        wear_percent,
+        tbw_gb,
+        power_cycles,
+        power_on_hours,
+        unsafe_shutdowns,
+        media_errors,
+        critical_warning,
+    })
+}
+
+#[cfg(target_os = "windows")]
 fn scan_windows_smart() -> StorageSmartReport {
     use crate::cmd_util::run_powershell;
     use serde_json::Value;
@@ -72,18 +241,51 @@ $smartFail = @(Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_Fa
 
             if let Some(arr) = v["disks"].as_array() {
                 for d in arr {
+                    let dev_id_str = d["deviceId"].as_str().unwrap_or("0").to_string();
+                    let dev_idx = dev_id_str.parse::<u32>().ok();
                     let model = d["model"].as_str().unwrap_or("Disk").trim().to_string();
                     let health_str = d["health"].as_str().unwrap_or("Unknown").to_string();
-                    let wear = d["wear"].as_u64().map(|w| w.min(100) as u32);
-                    let health_pct = wear.map(|w| 100u32.saturating_sub(w));
-                    let temp = d["temp"].as_i64().filter(|&t| t > 0 && t < 130).map(|t| t as i32);
-                    let poh = d["poh"].as_u64();
+                    let mut wear = d["wear"].as_u64().map(|w| w.min(100) as u32);
+                    let mut temp = d["temp"].as_i64().filter(|&t| t > 0 && t < 130).map(|t| t as i32);
+                    let mut poh = d["poh"].as_u64();
                     let read_err = d["readErr"].as_u64();
-                    let read_uncorr = d["readUncorr"].as_u64();
+                    let mut media_errors = d["readUncorr"].as_u64();
                     let write_err = d["writeErr"].as_u64();
-                    let media_errors = read_uncorr;
+                    let mut power_cycles: Option<u64> = None;
+                    let mut unsafe_shutdowns: Option<u64> = None;
+                    let mut tbw_gb: Option<f64> = None;
+                    let mut available_spare_pct: Option<u32> = None;
+                    let mut nvme_crit = 0u8;
+                    let mut ioctl_used = false;
+
+                    // Enrich with Native Windows NVMe SMART IOCTL (DriveDx-grade counters!)
+                    if let Some(idx) = dev_idx {
+                        if let Some(nvme) = query_windows_nvme_smart_ioctl(idx) {
+                            ioctl_used = true;
+                            nvme_crit = nvme.critical_warning;
+                            if nvme.wear_percent.is_some() {
+                                wear = nvme.wear_percent;
+                            }
+                            if nvme.temperature_c.is_some() {
+                                temp = nvme.temperature_c;
+                            }
+                            if nvme.power_on_hours.is_some() {
+                                poh = nvme.power_on_hours;
+                            }
+                            if nvme.media_errors.is_some() {
+                                media_errors = nvme.media_errors;
+                            }
+                            power_cycles = nvme.power_cycles;
+                            unsafe_shutdowns = nvme.unsafe_shutdowns;
+                            tbw_gb = nvme.tbw_gb;
+                            available_spare_pct = nvme.available_spare_pct;
+                        }
+                    }
+
+                    let health_pct = wear.map(|w| 100u32.saturating_sub(w));
 
                     let status = if predict_any_fail
+                        || nvme_crit != 0
                         || health_str.eq_ignore_ascii_case("Unhealthy")
                         || media_errors.unwrap_or(0) > 0
                         || health_pct.map(|h| h < 50).unwrap_or(false)
@@ -91,6 +293,7 @@ $smartFail = @(Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_Fa
                         TestStatus::Fail
                     } else if health_str.eq_ignore_ascii_case("Warning")
                         || health_pct.map(|h| h < 80).unwrap_or(false)
+                        || available_spare_pct.map(|s| s < 20).unwrap_or(false)
                         || temp.map(|t| t >= 70).unwrap_or(false)
                     {
                         TestStatus::Warn
@@ -99,10 +302,20 @@ $smartFail = @(Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_Fa
                     };
 
                     let notes = if status == TestStatus::Fail {
-                        "Drive reported unhealthy SMART status, media errors, or critical wear."
-                            .to_string()
+                        format!(
+                            "CRITICAL: Drive reported unhealthy SMART status, media errors, or critical warning (0x{:02X}).",
+                            nvme_crit
+                        )
+                    } else if ioctl_used {
+                        format!(
+                            "Native NVMe IOCTL SMART OK — {}% health remaining{}{}{}",
+                            health_pct.map(|h| h.to_string()).unwrap_or_else(|| "N/A".into()),
+                            temp.map(|t| format!(", {}°C", t)).unwrap_or_default(),
+                            tbw_gb.map(|g| format!(", {:.1} TBW", g / 1000.0)).unwrap_or_default(),
+                            unsafe_shutdowns.map(|u| format!(", {} unsafe shutdowns", u)).unwrap_or_default(),
+                        )
                     } else if wear.is_none() && poh.is_none() {
-                        "Basic health OK (run as Administrator for full NVMe/SATA reliability counters)."
+                        "Basic health OK (run as Administrator for native NVMe SMART IOCTL counters)."
                             .to_string()
                     } else {
                         format!(
@@ -113,7 +326,7 @@ $smartFail = @(Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_Fa
                     };
 
                     drives.push(DriveSmartInfo {
-                        device_id: d["deviceId"].as_str().unwrap_or("0").to_string(),
+                        device_id: dev_id_str,
                         model,
                         serial_number: d["serial"].as_str().unwrap_or("").trim().to_string(),
                         interface_type: d["bus"].as_str().unwrap_or("NVMe/SATA").to_string(),
@@ -127,13 +340,13 @@ $smartFail = @(Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_Fa
                         wear_percent: wear,
                         temperature_c: temp,
                         power_on_hours: poh,
-                        power_cycles: None,
-                        unsafe_shutdowns: None,
+                        power_cycles,
+                        unsafe_shutdowns,
                         media_errors,
                         read_errors: read_err,
                         write_errors: write_err,
-                        tbw_gb: None,
-                        available_spare_pct: None,
+                        tbw_gb,
+                        available_spare_pct,
                         notes,
                     });
                 }
@@ -367,6 +580,7 @@ pub fn run_storage_benchmark(
     preset: &str,
     interface_hint: Option<String>,
     media_hint: Option<String>,
+    target_mount: Option<String>,
     cancel: Arc<AtomicBool>,
 ) -> Result<StorageBenchResult, String> {
     // True second-hand shop durability sizes (bypassing RAM cache!)
@@ -376,10 +590,24 @@ pub fn run_storage_benchmark(
         _ => (1024, 4096),          // 1 GB real Direct-IO Quick Shop QC
     };
 
-    let tmp_path = std::env::temp_dir().join(format!(
-        "laptopbench_qc_ssd_durability_{}.tmp",
-        std::process::id()
-    ));
+    let filename = format!("laptopbench_qc_ssd_durability_{}.tmp", std::process::id());
+    let chosen_path = if let Some(ref mount) = target_mount {
+        let m = mount.trim();
+        if !m.is_empty() {
+            let candidate = PathBuf::from(m).join(&filename);
+            if open_direct_bench_file(&candidate).is_ok() {
+                let _ = fs::remove_file(&candidate);
+                candidate
+            } else {
+                std::env::temp_dir().join(&filename)
+            }
+        } else {
+            std::env::temp_dir().join(&filename)
+        }
+    } else {
+        std::env::temp_dir().join(&filename)
+    };
+    let tmp_path = chosen_path;
     let _guard = TempFileGuard(tmp_path.clone());
 
     let (mut file, direct_io) = open_direct_bench_file(&tmp_path)?;

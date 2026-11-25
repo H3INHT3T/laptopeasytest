@@ -1,4 +1,5 @@
 use crate::types::{ExportReportPayload, TestStatus};
+use qrcodegen::{QrCode, QrCodeEcc};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -39,6 +40,60 @@ pub fn compute_certificate_id(payload: &ExportReportPayload, generated_at: &str)
     let digest = h.finalize();
     let hex: String = digest.iter().take(6).map(|b| format!("{:02X}", b)).collect();
     format!("LBQC-{}-{}-{}", &hex[0..4], &hex[4..8], &hex[8..12])
+}
+
+pub fn build_qr_payload(payload: &ExportReportPayload, cert_id: &str) -> String {
+    let shop = if payload.shop_profile.shop_name.trim().is_empty() {
+        "LaptopBenchQC"
+    } else {
+        payload.shop_profile.shop_name.trim()
+    };
+    let model = payload
+        .specs
+        .as_ref()
+        .map(|s| format!("{} {}", s.manufacturer, s.model))
+        .unwrap_or_else(|| "Laptop".into());
+    let sn = payload
+        .specs
+        .as_ref()
+        .map(|s| s.serial_number.as_str())
+        .unwrap_or("N/A");
+    let grade = payload
+        .durability_grade
+        .as_deref()
+        .unwrap_or(if payload.overall_verdict == "FAILED" { "FAIL" } else { "A" });
+    format!(
+        "LBQC|Shop={}|Model={}|SN={}|Grade={}|Verdict={}|ID={}",
+        shop.chars().take(28).collect::<String>(),
+        model.chars().take(36).collect::<String>(),
+        sn.chars().take(28).collect::<String>(),
+        grade,
+        payload.overall_verdict,
+        cert_id
+    )
+}
+
+pub fn render_qr_svg(data: &str) -> String {
+    if let Ok(qr) = QrCode::encode_text(data, QrCodeEcc::Medium) {
+        let sz = qr.size();
+        let border = 2;
+        let full = sz + border * 2;
+        let mut rects = String::new();
+        for y in 0..sz {
+            for x in 0..sz {
+                if qr.get_module(x, y) {
+                    let _ = write!(rects, r#"<rect x="{}" y="{}" width="1" height="1"/>"#, x + border, y + border);
+                }
+            }
+        }
+        format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {full} {full}" shape-rendering="crispEdges" class="qr-svg"><rect width="100%" height="100%" fill="#ffffff"/><g fill="#09090b">{rects}</g></svg>"##,
+            full = full,
+            rects = rects
+        )
+    } else {
+        String::new()
+    }
 }
 
 fn pdf_escape(s: &str) -> String {
@@ -166,6 +221,33 @@ impl PageBuilder {
             "{:.2} w {:.3} {:.3} {:.3} RG {:.2} {:.2} {:.2} {:.2} re S",
             lw, rgb.0, rgb.1, rgb.2, x, y_bottom, w, h
         );
+    }
+
+    fn draw_qr(&mut self, x: f32, y_bottom: f32, size_pt: f32, data: &str) {
+        if let Ok(qr) = QrCode::encode_text(data, QrCodeEcc::Medium) {
+            let n = qr.size();
+            let pad = 4.0;
+            self.rect_fill(x, y_bottom, size_pt, size_pt, COL_WHITE);
+            self.rect_stroke(x, y_bottom, size_pt, size_pt, 0.7, COL_BLACK);
+            let cell = (size_pt - pad * 2.0) / (n as f32);
+            let _ = writeln!(self.cur, "{:.3} {:.3} {:.3} rg", COL_BLACK.0, COL_BLACK.1, COL_BLACK.2);
+            for row in 0..n {
+                for col in 0..n {
+                    if qr.get_module(col, row) {
+                        let rx = x + pad + (col as f32) * cell;
+                        let ry = y_bottom + size_pt - pad - ((row + 1) as f32) * cell;
+                        let _ = writeln!(
+                            self.cur,
+                            "{:.2} {:.2} {:.2} {:.2} re f",
+                            rx,
+                            ry,
+                            cell + 0.08,
+                            cell + 0.08
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn text(&mut self, font: &str, size: f32, x: f32, y: f32, rgb: (f32, f32, f32), s: &str) {
@@ -456,29 +538,38 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         pb.y -= 10.0;
     }
 
-    // 4. Physical Inspection Sign-Off & Dual Signature Block (Page 1 Bottom)
-    pb.ensure_space(132.0);
-    pb.text("F4", 9.0, MARGIN, pb.y, COL_BLACK, "03 // PHYSICAL INSPECTION SIGN-OFF & AUTHORIZATION");
+    // 4. Physical Inspection Sign-Off, Offline Verification QR & Dual Signature Block (Page 1 Bottom)
+    pb.ensure_space(136.0);
+    pb.text("F4", 9.0, MARGIN, pb.y, COL_BLACK, "03 // PHYSICAL SIGN-OFF, OFFLINE QR SEAL & AUTHORIZATION");
     pb.line(MARGIN, pb.y - 4.0, MARGIN + content_w, pb.y - 4.0, 0.8, COL_BLACK);
     pb.y -= 10.0;
 
-    let box_h = 104.0;
+    let box_h = 110.0;
     let box_y = pb.y - box_h;
     pb.rect_fill(MARGIN, box_y, content_w, box_h, COL_PAPER);
     pb.rect_stroke(MARGIN, box_y, content_w, box_h, 0.7, COL_RULE);
 
+    // Offline Vector QR Code anchored cleanly on the right inside the Sign-Off Box
+    let qr_sz = 84.0;
+    let qr_x = MARGIN + content_w - qr_sz - 10.0;
+    let qr_y = box_y + 18.0;
+    let qr_payload = build_qr_payload(payload, &cert_id);
+    pb.draw_qr(qr_x, qr_y, qr_sz, &qr_payload);
+    pb.text("F4", 6.5, qr_x + 4.0, box_y + 7.5, COL_INK_MUTED, "SCAN OFFLINE VERIFY");
+
+    let text_area_w = content_w - qr_sz - 28.0;
     let ports_s = format!(
-        "PHYSICAL PORTS (USB/HDMI/DC/JACK): {}  {}",
-        if payload.signoff.ports_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
+        "PORTS (USB/HDMI/DC): {} {}",
+        if payload.signoff.ports_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.ports_notes.trim()
     );
     let spk_s = format!(
-        "STEREO SPEAKERS (L/R CLARITY):     {}  {}",
-        if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
+        "SPEAKERS (L/R):      {} {}",
+        if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     );
     let notes_s = format!(
-        "TECHNICIAN NOTES: {}",
+        "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
             "Unit inspected per 13-stage LaptopBench QC protocol."
         } else {
@@ -486,26 +577,26 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         }
     );
 
-    pb.text("F3", 8.0, MARGIN + 10.0, pb.y - 16.0, COL_BLACK, &ports_s.chars().take(84).collect::<String>());
-    pb.text("F3", 8.0, MARGIN + 10.0, pb.y - 29.0, COL_BLACK, &spk_s.chars().take(84).collect::<String>());
-    pb.text("F1", 8.2, MARGIN + 10.0, pb.y - 44.0, COL_INK_MUTED, &notes_s.chars().take(92).collect::<String>());
+    pb.text("F3", 7.8, MARGIN + 10.0, pb.y - 16.0, COL_BLACK, &ports_s.chars().take(66).collect::<String>());
+    pb.text("F3", 7.8, MARGIN + 10.0, pb.y - 29.0, COL_BLACK, &spk_s.chars().take(66).collect::<String>());
+    pb.text("F1", 8.0, MARGIN + 10.0, pb.y - 44.0, COL_INK_MUTED, &notes_s.chars().take(74).collect::<String>());
 
-    // Dual Signature Lines
+    // Dual Signature Lines inside the left text area
     let sig_y = box_y + 24.0;
-    let half = (content_w - 40.0) / 2.0;
+    let half = (text_area_w - 18.0) / 2.0;
     pb.line(MARGIN + 10.0, sig_y, MARGIN + 10.0 + half, sig_y, 0.7, COL_BLACK);
     pb.text(
         "F4",
-        7.5,
+        7.0,
         MARGIN + 10.0,
         sig_y - 11.0,
         COL_BLACK,
-        &format!("TECHNICIAN: {} ({})", tech, shop_title).chars().take(44).collect::<String>(),
+        &format!("TECH: {} ({})", tech, shop_title).chars().take(34).collect::<String>(),
     );
 
-    let right_x = MARGIN + 26.0 + half;
+    let right_x = MARGIN + 22.0 + half;
     pb.line(right_x, sig_y, right_x + half, sig_y, 0.7, COL_BLACK);
-    pb.text("F4", 7.5, right_x, sig_y - 11.0, COL_INK_MUTED, "CUSTOMER / BUYER ACCEPTANCE & DATE");
+    pb.text("F4", 7.0, right_x, sig_y - 11.0, COL_INK_MUTED, "BUYER ACCEPTANCE & DATE");
 
     // ==================== PAGE 2+: FULL 13-STEP TECHNICAL AUDIT LEDGER ====================
     pb.finish_page();

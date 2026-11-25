@@ -138,6 +138,20 @@ pub struct SystemSpecs {
     pub displays: Vec<DisplaySpecInfo>,
     pub network_adapters: Vec<NetworkAdapterInfo>,
     pub peripherals: Vec<PeripheralDeviceInfo>,
+    #[serde(default)]
+    pub wifi_ssid: Option<String>,
+    #[serde(default)]
+    pub wifi_signal_pct: Option<u32>,
+    #[serde(default)]
+    pub wifi_rssi_dbm: Option<i32>,
+    #[serde(default)]
+    pub wifi_radio_type: Option<String>,
+    #[serde(default)]
+    pub wifi_antenna_warning: Option<String>,
+    #[serde(default)]
+    pub ram_channel_mode: Option<String>,
+    #[serde(default)]
+    pub ram_config_warning: Option<String>,
     pub is_gaming_capable: bool,
     pub is_elevated: bool,
     pub uptime_seconds: u64,
@@ -195,6 +209,65 @@ pub struct BatteryLiveSample {
     pub voltage_mv: Option<u64>,
     pub rate_mw: Option<i64>,
     pub watts: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatterySagProgress {
+    pub running: bool,
+    pub elapsed_secs: f64,
+    pub duration_secs: u64,
+    pub charge_percent: f64,
+    pub voltage_mv: Option<u64>,
+    pub watts: Option<f64>,
+    pub ac_plugged: bool,
+    pub voltage_drop_mv: i64,
+    pub charge_drop_pct: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatterySagResult {
+    pub status: TestStatus,
+    pub duration_secs: u64,
+    pub was_on_battery: bool,
+    pub start_charge_pct: f64,
+    pub end_charge_pct: f64,
+    pub charge_drop_pct: f64,
+    pub start_voltage_mv: Option<u64>,
+    pub min_voltage_mv: Option<u64>,
+    pub max_voltage_sag_mv: i64,
+    pub peak_discharge_w: Option<f64>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsbDeviceInfo {
+    pub instance_id: String,
+    pub name: String,
+    pub speed_class: String,
+    pub is_superspeed: bool,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsbHotplugEvent {
+    pub event_kind: String, // "CONNECTED" | "DISCONNECTED" | "SNAPSHOT"
+    pub timestamp: String,
+    pub device: Option<UsbDeviceInfo>,
+    pub devices: Vec<UsbDeviceInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSessionPayload {
+    pub serial_number: String,
+    pub model: String,
+    pub saved_at: String,
+    pub active_stress_stage: Option<String>,
+    pub state_json: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

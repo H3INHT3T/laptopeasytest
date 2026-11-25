@@ -1,6 +1,6 @@
 [package]
 name = "laptopbench-qc"
-version = "2.1.0"
+version = "2.2.0"
 description = "LaptopBench QC — Created by Hein Htet Zaw (@ich8g92)"
 authors = ["Hein Htet Zaw (@ich8g92)"]
 edition = "2021"
@@ -28,6 +28,7 @@ bytemuck = { version = "1", features = ["derive"] }
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 dirs = "6"
+qrcodegen = "1.8"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
