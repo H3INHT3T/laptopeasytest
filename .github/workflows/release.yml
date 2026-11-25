@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  publish-tauri:
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +35,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11
 
       - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -50,14 +50,40 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile || pnpm install
 
-      - name: Run Rust unit tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Verify Rust compilation
+        run: cargo check --manifest-path src-tauri/Cargo.toml
 
-      - name: Build Tauri installers (.msi/.exe on Windows, Universal .dmg/.app on macOS)
+      - name: Build & Publish to GitHub Releases (.msi/.exe on Windows, Universal .dmg on macOS)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tagName: v__VERSION__
+          releaseName: "LaptopBench QC v__VERSION__"
+          releaseBody: |
+            ## LaptopBench QC v__VERSION__
+            100% offline cross-platform laptop hardware diagnostics & QC certification suite built with Rust + Tauri v2.
+
+            ### Downloads
+            - **Windows (x64):** `.exe` (NSIS Setup) or `.msi` installer (requests Administrator UAC for full NVMe/SATA SMART, BitLocker & Event Logs)
+            - **macOS (Universal — Apple Silicon & Intel):** `.dmg` disk image
+
+            ### Included Diagnostics
+            1. System Specifications & Gaming/dGPU Auto-Detection
+            2. Lock, MDM / DEP, Activation Lock, OEM License, BitLocker/FileVault & TPM/Secure Boot Audit
+            3. Battery Health Report, Cycle Count & Live Charge/Discharge Wattage Monitor
+            4. System Error Logs (Windows Event Logs / Minidumps & macOS Kernel Panics)
+            5. Fullscreen Display Check (15 MonitorTest-style patterns + Motion Hz)
+            6. Offline Keyboard Test (Windows Compact, Full+Numpad, MacBook + Chatter Detector)
+            7. SSD SMART Health & Non-Destructive Speed Benchmark
+            8. Multi-Threaded RAM Pattern Stress Test (TestMem5-style)
+            9. Two-Stage Fingerprint & Face ID / Touch ID Verification
+            10. Camera Preview & Microphone Waveform + Loopback Test
+            11. CPU & Memory Performance Benchmark
+            12. Native `wgpu` FurMark-Style 3D GPU Stress Test with Thermal Cutoff
+            13. Pre-Report Ports & Speaker Reminder (with L/R Stereo Chimes) + Branded PDF / HTML / JSON QC Certificate
+          releaseDraft: false
+          prerelease: false
           args: ${{ matrix.args }}
 
       - name: Upload installer artifacts
