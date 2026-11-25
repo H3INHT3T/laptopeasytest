@@ -8,6 +8,7 @@ pub enum TestStatus {
     Pass,
     Warn,
     Fail,
+    Skipped,
     NotApplicable,
 }
 
@@ -18,8 +19,10 @@ pub struct RamModuleInfo {
     pub capacity_gb: f64,
     pub speed_mhz: Option<u32>,
     pub memory_type: String,
+    pub form_factor: String,
     pub manufacturer: String,
     pub part_number: String,
+    pub serial_number: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +32,8 @@ pub struct GpuSpecInfo {
     pub vendor: String,
     pub vram_mb: Option<u64>,
     pub driver_version: String,
+    pub driver_date: String,
+    pub pnp_device_id: String,
     pub is_discrete: bool,
 }
 
@@ -40,14 +45,47 @@ pub struct DiskSpecInfo {
     pub media_type: String,
     pub size_gb: f64,
     pub serial_number: String,
+    pub firmware: String,
+    pub partition_style: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeSpecInfo {
+    pub mount: String,
+    pub label: String,
+    pub file_system: String,
+    pub total_gb: f64,
+    pub free_gb: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplaySpecInfo {
     pub name: String,
+    pub manufacturer: String,
     pub resolution: String,
     pub refresh_rate_hz: Option<u32>,
+    pub diagonal_inches: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkAdapterInfo {
+    pub name: String,
+    pub kind: String, // "Wi-Fi" | "Ethernet" | "Bluetooth" | "Other"
+    pub mac_address: String,
+    pub link_speed: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeripheralDeviceInfo {
+    pub category: String, // "Audio" | "Camera" | "USB / Thunderbolt" | "Bluetooth" | "Input"
+    pub name: String,
+    pub manufacturer: String,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,21 +94,40 @@ pub struct SystemSpecs {
     pub os_family: String,
     pub os_name: String,
     pub os_version: String,
+    pub os_build: String,
     pub architecture: String,
     pub hostname: String,
     pub manufacturer: String,
     pub model: String,
+    pub system_sku: String,
+    pub chassis_type: String,
     pub serial_number: String,
+    pub system_uuid: String,
+    pub motherboard_vendor: String,
+    pub motherboard_product: String,
+    pub motherboard_serial: String,
+    pub bios_vendor: String,
     pub bios_version: String,
+    pub bios_date: String,
     pub cpu_brand: String,
+    pub cpu_socket: String,
     pub cpu_physical_cores: usize,
     pub cpu_logical_cores: usize,
     pub cpu_base_mhz: u64,
+    pub cpu_max_mhz: Option<u64>,
+    pub cpu_l2_kb: Option<u64>,
+    pub cpu_l3_kb: Option<u64>,
+    pub cpu_virtualization: Option<bool>,
     pub total_ram_gb: f64,
+    pub ram_slots_total: Option<u32>,
+    pub ram_max_capacity_gb: Option<f64>,
     pub ram_modules: Vec<RamModuleInfo>,
     pub gpus: Vec<GpuSpecInfo>,
     pub disks: Vec<DiskSpecInfo>,
+    pub volumes: Vec<VolumeSpecInfo>,
     pub displays: Vec<DisplaySpecInfo>,
+    pub network_adapters: Vec<NetworkAdapterInfo>,
+    pub peripherals: Vec<PeripheralDeviceInfo>,
     pub is_gaming_capable: bool,
     pub is_elevated: bool,
     pub uptime_seconds: u64,
@@ -218,6 +275,8 @@ pub struct StorageBenchProgress {
 #[serde(rename_all = "camelCase")]
 pub struct RamTestProgress {
     pub running: bool,
+    pub profile_name: String,
+    pub test_index: usize,
     pub pattern_name: String,
     pub cycle: u32,
     pub total_cycles: u32,
@@ -233,6 +292,7 @@ pub struct RamTestProgress {
 pub struct RamTestResult {
     pub status: TestStatus,
     pub preset: String,
+    pub profile_name: String,
     pub allocated_mb: u64,
     pub total_ram_mb: u64,
     pub cycles_completed: u32,
@@ -247,7 +307,7 @@ pub struct RamTestResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BiometricSensorInfo {
-    pub kind: String, // "Fingerprint" | "Face ID / IR Camera" | "Touch ID"
+    pub kind: String,
     pub name: String,
     pub driver_ok: bool,
     pub error_code: Option<u32>,
@@ -267,7 +327,7 @@ pub struct BiometricsHardwareReport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BiometricAuthResult {
-    pub outcome: String, // "Verified" | "NotEnrolled" | "NotPresent" | "Canceled" | "Error"
+    pub outcome: String,
     pub status: TestStatus,
     pub message: String,
 }
@@ -286,11 +346,19 @@ pub struct PerfBenchProgress {
 pub struct PerfBenchResult {
     pub status: TestStatus,
     pub preset: String,
+    pub integer_math_score: u64,
+    pub float_math_score: u64,
+    pub prime_score: u64,
+    pub vector_score: u64,
+    pub compression_score: u64,
+    pub encryption_score: u64,
+    pub physics_score: u64,
+    pub sorting_score: u64,
     pub single_core_score: u64,
     pub multi_core_score: u64,
-    pub crypto_score: u64,
-    pub matrix_score: u64,
     pub memory_bandwidth_gb_s: f64,
+    pub memory_latency_ns: f64,
+    pub memory_mark: u64,
     pub composite_score: u64,
     pub tier: String,
     pub peak_cpu_temp_c: Option<f32>,
@@ -398,7 +466,7 @@ pub struct ExportReportPayload {
     pub shop_profile: ShopProfile,
     pub customer_or_sku: String,
     pub technician_notes: String,
-    pub overall_verdict: String, // "PASSED" | "PASSED WITH WARNINGS" | "FAILED" | "INCOMPLETE"
+    pub overall_verdict: String,
     pub specs: Option<SystemSpecs>,
     pub tests: Vec<ReportTestEntry>,
     pub signoff: PortsSpeakerSignoff,

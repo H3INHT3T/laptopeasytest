@@ -1,6 +1,8 @@
 # LaptopBench QC
 
-**LaptopBench QC** is a 100% offline, native-Rust-powered cross-platform laptop hardware diagnostics and Quality Control (QC) desktop suite for **Windows** and **macOS**, built with **Tauri v2**, **Rust**, **wgpu**, and **React + TypeScript**.
+> **Created by Hein Htet Zaw** • Telegram: `@ich8g92`
+
+**LaptopBench QC** is a 100% offline, native-Rust-powered cross-platform laptop hardware diagnostics and Quality Control (QC) desktop suite for **Windows** and **macOS**, built with **Tauri v2**, **Rust**, **wgpu**, and **React + TypeScript** using a clean **White, Black & Blue** sequential step-by-step interface.
 
 ## Included Diagnostic Modules (Windows & macOS Parity)
 

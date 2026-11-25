@@ -86,7 +86,7 @@ impl PageBuilder {
             let page_num = self.pages.len() + 1;
             let _ = writeln!(
                 self.cur,
-                "0.45 0.50 0.58 rg BT /F1 8 Tf {} 22 Td (Generated offline by LaptopBench QC  |  Page {}) Tj ET",
+                "0.35 0.35 0.38 rg BT /F1 8 Tf {} 22 Td (LaptopBench QC  |  Created by Hein Htet Zaw (Telegram: @ich8g92)  |  Page {}) Tj ET",
                 MARGIN, page_num
             );
             self.pages.push(std::mem::take(&mut self.cur));
@@ -209,21 +209,22 @@ impl PageBuilder {
 
 fn verdict_rgb(verdict: &str) -> (f32, f32, f32) {
     match verdict {
-        "PASSED" => (0.06, 0.58, 0.36),
-        "PASSED WITH WARNINGS" => (0.82, 0.52, 0.05),
-        "FAILED" => (0.82, 0.16, 0.20),
-        _ => (0.35, 0.42, 0.52),
+        "PASSED" => (0.145, 0.388, 0.922),          // Cobalt Blue #2563EB
+        "PASSED WITH WARNINGS" => (0.114, 0.306, 0.847), // Deep Blue #1D4ED8
+        "FAILED" => (0.04, 0.04, 0.05),             // Stark Black
+        _ => (0.28, 0.28, 0.32),
     }
 }
 
 fn status_badge(st: &TestStatus) -> (&'static str, (f32, f32, f32)) {
     match st {
-        TestStatus::Pass => ("PASS", (0.06, 0.58, 0.36)),
-        TestStatus::Warn => ("WARN", (0.82, 0.52, 0.05)),
-        TestStatus::Fail => ("FAIL", (0.82, 0.16, 0.20)),
-        TestStatus::NotApplicable => ("N/A", (0.45, 0.50, 0.58)),
-        TestStatus::Running => ("RUN", (0.10, 0.48, 0.80)),
-        TestStatus::Pending => ("SKIP", (0.50, 0.55, 0.62)),
+        TestStatus::Pass => ("PASS", (0.145, 0.388, 0.922)),
+        TestStatus::Warn => ("WARN", (0.114, 0.306, 0.847)),
+        TestStatus::Fail => ("FAIL", (0.04, 0.04, 0.05)),
+        TestStatus::Skipped => ("SKIP", (0.42, 0.42, 0.46)),
+        TestStatus::NotApplicable => ("N/A", (0.48, 0.48, 0.52)),
+        TestStatus::Running => ("RUN", (0.145, 0.388, 0.922)),
+        TestStatus::Pending => ("WAIT", (0.55, 0.55, 0.58)),
     }
 }
 

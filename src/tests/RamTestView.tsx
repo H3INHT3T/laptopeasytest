@@ -4,24 +4,40 @@ import { listen } from "@tauri-apps/api/event";
 import { MemoryStick, Play, Square } from "lucide-react";
 import type { RamTestProgress, RamTestResult, StressPreset, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
+import { StepActionBar } from "../components/StepActionBar";
 
 interface RamTestViewProps {
   result: RamTestResult | null;
   status: TestStatus;
+  stepNumber: number;
+  totalSteps: number;
   onComplete: (res: RamTestResult) => void;
   onRunningChange: (running: boolean) => void;
-  onNext?: () => void;
+  onNext: () => void;
+  onSkip: () => void;
 }
+
+const TM5_STAGES = [
+  "Test0: RefreshStable",
+  "Test1: SimpleTest (0x45357354)",
+  "Test2: MirrorMove (64-bit)",
+  "Test3: SimpleTest PRNG",
+  "Test4: MirrorMove128",
+  "Test5: RefreshStable Inv",
+];
 
 export const RamTestView: React.FC<RamTestViewProps> = ({
   result,
   status,
+  stepNumber,
+  totalSteps,
   onComplete,
   onRunningChange,
   onNext,
+  onSkip,
 }) => {
   const [preset, setPreset] = useState<StressPreset>("quick");
-  const [memPct, setMemPct] = useState(55);
+  const [memPct, setMemPct] = useState(60);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<RamTestProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,51 +73,44 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
     }
   };
 
-  const stopTest = () => {
-    invoke("cancel_ram_stress").catch(() => {});
-  };
-
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-white">RAM Stress Test (TestMem5 Engine)</h1>
+            <span className="px-2 py-0.5 rounded bg-black text-white font-mono text-xs font-bold">
+              {stepNumber}
+            </span>
+            <h1 className="text-xl font-black text-black tracking-tight">
+              RAM Deep Stress Test (TestMem5 Engine)
+            </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Multi-threaded deterministic memory verifier (Checkerboard, Walking Bits, Moving Inversion, SplitMix64 PRNG) for Windows &amp; macOS.
+          <p className="text-xs text-zinc-600 mt-1">
+            Native Rust implementation of TestMem5 profiles (Default @ serj, Absolut @ anta777, Extreme @ anta777) running RefreshStable, SimpleTest, MirrorMove &amp; MirrorMove128.
           </p>
         </div>
-        {onNext && (
-          <button
-            onClick={onNext}
-            className="px-3.5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold"
-          >
-            Next Test →
-          </button>
-        )}
       </div>
 
       {/* Controls */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5 space-y-4">
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">Test Duration Preset</label>
+            <label className="block text-xs font-bold text-black mb-1.5">TestMem5 Profile Preset</label>
             <select
               value={preset}
               disabled={running}
               onChange={(e) => setPreset(e.target.value as StressPreset)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200"
+              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black font-medium"
             >
-              <option value="quick">Quick QC (~1–2 min / 2 cycles)</option>
-              <option value="standard">Standard (~5 min / 6 cycles)</option>
-              <option value="burnin">Burn-in (~15 min / 18 cycles)</option>
+              <option value="quick">Default @ serj — Quick QC (3 cycles / ~90s)</option>
+              <option value="standard">Absolut @ anta777 — Standard (6 cycles / ~5m)</option>
+              <option value="burnin">Extreme @ anta777 — Burn-in (15 cycles / ~15m)</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Safe Free-RAM Allocation: <span className="text-cyan-300 font-mono">{memPct}%</span>
+            <label className="block text-xs font-bold text-black mb-1.5">
+              Safe Free-RAM Window: <span className="text-blue-600 font-mono">{memPct}%</span>
             </label>
             <input
               type="range"
@@ -111,56 +120,75 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
               disabled={running}
               value={memPct}
               onChange={(e) => setMemPct(Number(e.target.value))}
-              className="w-full accent-cyan-500"
+              className="w-full accent-blue-600"
             />
           </div>
           <div className="flex justify-end">
             {running ? (
               <button
-                onClick={stopTest}
-                className="w-full md:w-auto px-5 py-2.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50 text-rose-200 font-bold text-xs flex items-center justify-center gap-2"
+                onClick={() => invoke("cancel_ram_stress").catch(() => {})}
+                className="w-full md:w-auto px-5 py-2.5 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Square className="w-4 h-4" /> Stop RAM Test
               </button>
             ) : (
               <button
                 onClick={startTest}
-                className="w-full md:w-auto px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2"
+                className="w-full md:w-auto px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Play className="w-4 h-4" /> Start RAM Stress Test
+                <Play className="w-4 h-4" /> Start TestMem5 Stress
               </button>
             )}
           </div>
         </div>
 
+        {/* TM5 Test Sequence Matrix */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-2 border-t border-zinc-100">
+          {TM5_STAGES.map((stage, i) => {
+            const isCurrent = running && progress?.testIndex === i;
+            const isDone = result && !running && !result.cancelled;
+            return (
+              <div
+                key={stage}
+                className={`rounded-lg border px-2.5 py-2 text-[10px] font-mono font-bold ${
+                  isCurrent
+                    ? "bg-blue-600 text-white border-blue-600 animate-pulse"
+                    : isDone
+                    ? "bg-blue-50 text-blue-800 border-blue-300"
+                    : "bg-zinc-50 text-zinc-600 border-zinc-200"
+                }`}
+              >
+                {stage}
+              </div>
+            );
+          })}
+        </div>
+
         {running && progress && (
-          <div className="space-y-3 pt-3 border-t border-slate-800">
+          <div className="space-y-3 pt-3 border-t border-zinc-200">
             <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-cyan-300 font-bold">
-                Cycle {progress.cycle}/{progress.totalCycles} • {progress.patternName}
+              <span className="text-blue-700 font-bold">
+                {progress.profileName} • Cycle {progress.cycle}/{progress.totalCycles} • {progress.patternName}
               </span>
-              <span className="text-slate-300">
+              <span className="text-black font-bold">
                 {progress.elapsedSecs.toFixed(1)}s • {progress.percent.toFixed(0)}%
               </span>
             </div>
-            <div className="h-2.5 rounded-full bg-slate-950 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-violet-500 via-cyan-500 to-emerald-500 transition-all"
-                style={{ width: `${progress.percent}%` }}
-              />
+            <div className="h-2.5 rounded-full bg-zinc-200 overflow-hidden">
+              <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress.percent}%` }} />
             </div>
             <div className="grid grid-cols-3 gap-3 font-mono text-xs">
-              <div className="rounded-lg bg-slate-950 border border-slate-800 p-3">
-                <div className="text-slate-400">Tested Block</div>
-                <div className="text-lg font-bold text-white">{progress.allocatedMb} MB</div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Memory Window</div>
+                <div className="text-lg font-black text-black">{progress.allocatedMb} MB</div>
               </div>
-              <div className="rounded-lg bg-slate-950 border border-slate-800 p-3">
-                <div className="text-slate-400">Throughput</div>
-                <div className="text-lg font-bold text-cyan-300">{progress.bandwidthGbS.toFixed(1)} GB/s</div>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Throughput</div>
+                <div className="text-lg font-black text-blue-600">{progress.bandwidthGbS.toFixed(1)} GB/s</div>
               </div>
-              <div className="rounded-lg bg-slate-950 border border-slate-800 p-3">
-                <div className="text-slate-400">Bit Errors Found</div>
-                <div className={`text-lg font-bold ${progress.errorsFound > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+                <div className="text-zinc-500">Bit Errors Found</div>
+                <div className={`text-lg font-black ${progress.errorsFound > 0 ? "text-black underline" : "text-blue-600"}`}>
                   {progress.errorsFound}
                 </div>
               </div>
@@ -169,47 +197,54 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
         )}
 
         {error && (
-          <div className="rounded-lg bg-rose-500/15 border border-rose-500/40 px-3 py-2 text-xs text-rose-200">
-            {error}
-          </div>
+          <div className="rounded-lg bg-black text-white px-3 py-2 text-xs">{error}</div>
         )}
       </div>
 
-      {/* Completed Result */}
       {result && !running && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5 space-y-4">
+        <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-bold text-white">
-              <MemoryStick className="w-4 h-4 text-violet-400" />
-              Latest RAM Stress Summary
+            <div className="flex items-center gap-2 text-sm font-bold text-black">
+              <MemoryStick className="w-4 h-4 text-blue-600" />
+              {result.profileName} — Verification Result
             </div>
             <StatusBadge status={result.status} />
           </div>
-          <div className="text-xs text-slate-300">{result.summary}</div>
+          <div className="text-xs text-zinc-700 font-medium">{result.summary}</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
-            <div className="rounded-lg bg-slate-950 border border-slate-800 p-3">
-              <div className="text-slate-400">Memory Verified</div>
-              <div className="text-lg font-bold text-white">{result.allocatedMb} MB</div>
+            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+              <div className="text-zinc-500">Window Verified</div>
+              <div className="text-lg font-black text-black">{result.allocatedMb} MB</div>
             </div>
-            <div className="rounded-lg bg-slate-950 border border-slate-800 p-3">
-              <div className="text-slate-400">Errors Detected</div>
-              <div className={`text-lg font-bold ${result.errorsFound > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+              <div className="text-zinc-500">Bit Errors</div>
+              <div className={`text-lg font-black ${result.errorsFound > 0 ? "text-black underline" : "text-blue-600"}`}>
                 {result.errorsFound}
               </div>
             </div>
-            <div className="rounded-lg bg-slate-950 border border-slate-800 p-3">
-              <div className="text-slate-400">Peak Bandwidth</div>
-              <div className="text-lg font-bold text-cyan-300">{result.peakBandwidthGbS.toFixed(1)} GB/s</div>
+            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+              <div className="text-zinc-500">Peak Bandwidth</div>
+              <div className="text-lg font-black text-blue-600">{result.peakBandwidthGbS.toFixed(1)} GB/s</div>
             </div>
-            <div className="rounded-lg bg-slate-950 border border-slate-800 p-3">
-              <div className="text-slate-400">Cycles / Time</div>
-              <div className="text-lg font-bold text-white">
+            <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3">
+              <div className="text-zinc-500">Cycles / Time</div>
+              <div className="text-lg font-black text-black">
                 {result.cyclesCompleted}x / {result.elapsedSecs.toFixed(1)}s
               </div>
             </div>
           </div>
         </div>
       )}
+
+      <StepActionBar
+        stepNumber={stepNumber}
+        totalSteps={totalSteps}
+        status={status}
+        canProceed={Boolean(result && !running)}
+        requirementHint="Run the TestMem5 RAM stress test to unlock Step 11 (or click Skip Step)."
+        onNext={onNext}
+        onSkip={onSkip}
+      />
     </div>
   );
 };

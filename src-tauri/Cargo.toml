@@ -1,8 +1,8 @@
 [package]
 name = "laptopbench-qc"
-version = "1.0.0"
-description = "LaptopBench QC — Offline Cross-Platform Laptop Hardware Diagnostics & Certification"
-authors = ["LaptopBench QC"]
+version = "1.1.0"
+description = "LaptopBench QC — Created by Hein Htet Zaw (@ich8g92)"
+authors = ["Hein Htet Zaw (@ich8g92)"]
 edition = "2021"
 
 [lib]

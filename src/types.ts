@@ -4,22 +4,25 @@ export type TestStatus =
   | "pass"
   | "warn"
   | "fail"
+  | "skipped"
   | "notApplicable";
 
-export type TestModuleId =
-  | "dashboard"
+export type StepModuleId =
   | "specs"
   | "security"
   | "battery"
   | "logs"
+  | "storage"
   | "display"
   | "keyboard"
-  | "storage"
-  | "ram"
   | "biometrics"
   | "media"
+  | "ram"
   | "performance"
-  | "gpu";
+  | "gpu"
+  | "ports_speakers";
+
+export type TestModuleId = "dashboard" | StepModuleId;
 
 export type StressPreset = "quick" | "standard" | "burnin";
 
@@ -28,8 +31,10 @@ export interface RamModuleInfo {
   capacityGb: number;
   speedMhz: number | null;
   memoryType: string;
+  formFactor: string;
   manufacturer: string;
   partNumber: string;
+  serialNumber: string;
 }
 
 export interface GpuSpecInfo {
@@ -37,6 +42,8 @@ export interface GpuSpecInfo {
   vendor: string;
   vramMb: number | null;
   driverVersion: string;
+  driverDate: string;
+  pnpDeviceId: string;
   isDiscrete: boolean;
 }
 
@@ -46,33 +53,79 @@ export interface DiskSpecInfo {
   mediaType: string;
   sizeGb: number;
   serialNumber: string;
+  firmware: string;
+  partitionStyle: string;
+}
+
+export interface VolumeSpecInfo {
+  mount: string;
+  label: string;
+  fileSystem: string;
+  totalGb: number;
+  freeGb: number;
 }
 
 export interface DisplaySpecInfo {
   name: string;
+  manufacturer: string;
   resolution: string;
   refreshRateHz: number | null;
+  diagonalInches: number | null;
+}
+
+export interface NetworkAdapterInfo {
+  name: string;
+  kind: string;
+  macAddress: string;
+  linkSpeed: string;
+  status: string;
+}
+
+export interface PeripheralDeviceInfo {
+  category: string;
+  name: string;
+  manufacturer: string;
+  status: string;
 }
 
 export interface SystemSpecs {
   osFamily: string;
   osName: string;
   osVersion: string;
+  osBuild: string;
   architecture: string;
   hostname: string;
   manufacturer: string;
   model: string;
+  systemSku: string;
+  chassisType: string;
   serialNumber: string;
+  systemUuid: string;
+  motherboardVendor: string;
+  motherboardProduct: string;
+  motherboardSerial: string;
+  biosVendor: string;
   biosVersion: string;
+  biosDate: string;
   cpuBrand: string;
+  cpuSocket: string;
   cpuPhysicalCores: number;
   cpuLogicalCores: number;
   cpuBaseMhz: number;
+  cpuMaxMhz: number | null;
+  cpuL2Kb: number | null;
+  cpuL3Kb: number | null;
+  cpuVirtualization: boolean | null;
   totalRamGb: number;
+  ramSlotsTotal: number | null;
+  ramMaxCapacityGb: number | null;
   ramModules: RamModuleInfo[];
   gpus: GpuSpecInfo[];
   disks: DiskSpecInfo[];
+  volumes: VolumeSpecInfo[];
   displays: DisplaySpecInfo[];
+  networkAdapters: NetworkAdapterInfo[];
+  peripherals: PeripheralDeviceInfo[];
   isGamingCapable: boolean;
   isElevated: boolean;
   uptimeSeconds: number;
@@ -198,6 +251,8 @@ export interface StorageBenchResult {
 
 export interface RamTestProgress {
   running: boolean;
+  profileName: string;
+  testIndex: number;
   patternName: string;
   cycle: number;
   totalCycles: number;
@@ -211,6 +266,7 @@ export interface RamTestProgress {
 export interface RamTestResult {
   status: TestStatus;
   preset: string;
+  profileName: string;
   allocatedMb: number;
   totalRamMb: number;
   cyclesCompleted: number;
@@ -254,11 +310,19 @@ export interface PerfBenchProgress {
 export interface PerfBenchResult {
   status: TestStatus;
   preset: string;
+  integerMathScore: number;
+  floatMathScore: number;
+  primeScore: number;
+  vectorScore: number;
+  compressionScore: number;
+  encryptionScore: number;
+  physicsScore: number;
+  sortingScore: number;
   singleCoreScore: number;
   multiCoreScore: number;
-  cryptoScore: number;
-  matrixScore: number;
   memoryBandwidthGbS: number;
+  memoryLatencyNs: number;
+  memoryMark: number;
   compositeScore: number;
   tier: string;
   peakCpuTempC: number | null;
@@ -321,9 +385,10 @@ export interface ShopProfile {
 }
 
 export interface ModuleRecord {
-  id: Exclude<TestModuleId, "dashboard">;
+  id: StepModuleId;
+  stepNumber: number;
   name: string;
-  category: "Automated" | "Interactive" | "Stress";
+  category: "System" | "Interactive" | "Deep Stress" | "Final Verification";
   status: TestStatus;
   summary: string;
   notes: string;

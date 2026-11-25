@@ -1,196 +1,367 @@
 import React from "react";
-import { Cpu, HardDrive, Laptop, MemoryStick, Monitor, RefreshCw, ShieldAlert } from "lucide-react";
+import {
+  Cpu,
+  HardDrive,
+  Laptop,
+  MemoryStick,
+  Monitor,
+  RefreshCw,
+  ShieldAlert,
+  Usb,
+  Wifi,
+} from "lucide-react";
 import type { SystemSpecs, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
+import { StepActionBar } from "../components/StepActionBar";
 
 interface SpecsViewProps {
   specs: SystemSpecs | null;
   loading: boolean;
   status: TestStatus;
+  stepNumber: number;
+  totalSteps: number;
   onRefresh: () => void;
-  onNext?: () => void;
+  onNext: () => void;
+  onSkip: () => void;
 }
+
+const Row: React.FC<{ label: string; value: string | number | null | undefined }> = ({
+  label,
+  value,
+}) => (
+  <div className="flex items-start justify-between gap-4 py-1.5 border-b border-zinc-100 last:border-0 text-xs">
+    <span className="text-zinc-500 shrink-0">{label}</span>
+    <span className="font-mono font-semibold text-black text-right break-all">
+      {value !== null && value !== undefined && String(value).trim() !== "" ? String(value) : "—"}
+    </span>
+  </div>
+);
 
 export const SpecsView: React.FC<SpecsViewProps> = ({
   specs,
   loading,
   status,
+  stepNumber,
+  totalSteps,
   onRefresh,
   onNext,
+  onSkip,
 }) => {
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-white">System Specification Details</h1>
+            <span className="px-2 py-0.5 rounded bg-black text-white font-mono text-xs font-bold">
+              0{stepNumber}
+            </span>
+            <h1 className="text-xl font-black text-black tracking-tight">
+              Complete Hardware Specifications
+            </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Verify exact CPU, RAM DIMM slots, GPU(s), NVMe/SATA storage, display panel, and serial number.
+          <p className="text-xs text-zinc-600 mt-1">
+            Deep inventory of Chassis, Motherboard, BIOS, CPU Cache/Clocks, RAM DIMMs, 64-bit GPU VRAM, Physical Disks, Volumes, Displays, Network &amp; Peripherals.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            Re-scan Specs
-          </button>
-          {onNext && (
-            <button
-              onClick={onNext}
-              className="px-3.5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold"
-            >
-              Next Test →
-            </button>
-          )}
-        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="px-3.5 py-2 rounded-lg border border-black bg-white hover:bg-zinc-100 text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-600" : ""}`} />
+          Re-scan All Hardware
+        </button>
       </div>
 
       {!specs ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-400">
-          {loading ? "Scanning laptop hardware specifications..." : "Click Re-scan Specs to collect hardware telemetry."}
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-10 text-center text-sm text-zinc-600">
+          {loading ? "Enumerating all laptop hardware subsystems..." : "Click Re-scan All Hardware to inspect specifications."}
         </div>
       ) : (
-        <>
+        <div className="space-y-4">
           {!specs.isElevated && specs.osFamily === "windows" && (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 text-xs text-amber-200">
-              <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400" />
+            <div className="rounded-xl border border-blue-600 bg-blue-50 px-4 py-3 flex items-center gap-3 text-xs text-black">
+              <ShieldAlert className="w-4 h-4 shrink-0 text-blue-600" />
               <span>
-                Running without Windows Administrator elevation. Release builds request UAC elevation automatically for full NVMe SMART, BitLocker, and System Event Logs.
+                Running without Administrator elevation. Release builds automatically prompt UAC for complete SMART, BitLocker, and System Event Logs.
               </span>
             </div>
           )}
 
-          {/* Core Identity */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400 uppercase tracking-wider">
-                <Laptop className="w-4 h-4" /> System Identity
+          {/* System, Motherboard, BIOS & CPU */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-zinc-200 bg-white p-4">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider mb-3">
+                <Laptop className="w-4 h-4" /> System, Chassis &amp; Motherboard
               </div>
-              <div className="text-base font-bold text-white">
-                {specs.manufacturer} {specs.model}
-              </div>
-              <div className="text-xs text-slate-400 space-y-1 font-mono">
-                <div>Serial: <span className="text-slate-200">{specs.serialNumber}</span></div>
-                <div>BIOS/FW: <span className="text-slate-200">{specs.biosVersion}</span></div>
-                <div>OS: <span className="text-slate-200">{specs.osName} ({specs.architecture})</span></div>
-              </div>
+              <Row label="Manufacturer" value={specs.manufacturer} />
+              <Row label="Model / SKU" value={specs.systemSku ? `${specs.model} (${specs.systemSku})` : specs.model} />
+              <Row label="Chassis Type" value={specs.chassisType} />
+              <Row label="Serial Number" value={specs.serialNumber} />
+              <Row label="System UUID" value={specs.systemUuid} />
+              <Row label="Motherboard" value={`${specs.motherboardVendor} ${specs.motherboardProduct}`.trim()} />
+              <Row label="Board Serial" value={specs.motherboardSerial} />
+              <Row label="BIOS / Firmware" value={`${specs.biosVendor} ${specs.biosVersion} ${specs.biosDate ? `(${specs.biosDate})` : ""}`.trim()} />
+              <Row label="Operating System" value={`${specs.osName} (${specs.architecture})`} />
+              <Row label="OS Build / Kernel" value={specs.osBuild} />
+              <Row label="Hostname" value={specs.hostname} />
             </div>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider">
-                <Cpu className="w-4 h-4" /> Processor (CPU)
+            <div className="rounded-xl border border-zinc-200 bg-white p-4">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider mb-3">
+                <Cpu className="w-4 h-4" /> Processor (CPU) Architecture
               </div>
-              <div className="text-base font-bold text-white">{specs.cpuBrand}</div>
-              <div className="text-xs text-slate-400 space-y-1 font-mono">
-                <div>
-                  Cores: <span className="text-slate-200">{specs.cpuPhysicalCores} Physical / {specs.cpuLogicalCores} Logical</span>
-                </div>
-                <div>Base Clock: <span className="text-slate-200">{specs.cpuBaseMhz} MHz</span></div>
-                <div>
-                  Profile:{" "}
-                  <span className={specs.isGamingCapable ? "text-orange-300 font-bold" : "text-cyan-300"}>
-                    {specs.isGamingCapable ? "Gaming / Pro Discrete GPU" : "Office / Standard Notebook"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-violet-400 uppercase tracking-wider">
-                <MemoryStick className="w-4 h-4" /> Memory Summary
-              </div>
-              <div className="text-base font-bold text-white">{specs.totalRamGb.toFixed(1)} GB Total</div>
-              <div className="text-xs text-slate-400 space-y-1">
-                {specs.ramModules.length > 0 ? (
-                  specs.ramModules.map((m, i) => (
-                    <div key={i} className="font-mono text-slate-200">
-                      {m.slot}: {m.capacityGb} GB {m.memoryType}
-                      {m.speedMhz ? ` @ ${m.speedMhz} MHz` : ""} ({m.manufacturer})
-                    </div>
-                  ))
-                ) : (
-                  <div>Unified / Integrated Memory</div>
-                )}
-              </div>
+              <Row label="Processor Brand" value={specs.cpuBrand} />
+              <Row label="Socket / Package" value={specs.cpuSocket} />
+              <Row label="Physical / Logical Cores" value={`${specs.cpuPhysicalCores} Cores / ${specs.cpuLogicalCores} Threads`} />
+              <Row label="Base Clock" value={`${specs.cpuBaseMhz} MHz`} />
+              <Row label="Max Rated Clock" value={specs.cpuMaxMhz ? `${specs.cpuMaxMhz} MHz` : "Auto Boost"} />
+              <Row label="L2 Cache" value={specs.cpuL2Kb ? `${(specs.cpuL2Kb / 1024).toFixed(1)} MB (${specs.cpuL2Kb} KB)` : "—"} />
+              <Row label="L3 Cache" value={specs.cpuL3Kb ? `${(specs.cpuL3Kb / 1024).toFixed(1)} MB (${specs.cpuL3Kb} KB)` : "—"} />
+              <Row
+                label="Hardware Virtualization"
+                value={specs.cpuVirtualization == null ? "—" : specs.cpuVirtualization ? "Enabled (VT-x / AMD-V)" : "Disabled"}
+              />
+              <Row
+                label="Laptop Thermal Class"
+                value={specs.isGamingCapable ? "Gaming / Pro Discrete GPU" : "Office / Standard Notebook"}
+              />
+              <Row label="System Uptime" value={`${Math.floor(specs.uptimeSeconds / 3600)}h ${Math.floor((specs.uptimeSeconds % 3600) / 60)}m`} />
+              <Row label="Privilege Mode" value={specs.isElevated ? "Administrator / Elevated" : "Standard User"} />
             </div>
           </div>
 
-          {/* GPUs, Disks, Displays */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-orange-400 uppercase tracking-wider">
-                <Monitor className="w-4 h-4" /> Graphics Adapters &amp; Displays
+          {/* Memory (RAM) Full DIMM Table */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+                <MemoryStick className="w-4 h-4" /> Memory (RAM) — {specs.totalRamGb.toFixed(1)} GB Installed
               </div>
-              <div className="space-y-2">
+              <div className="text-xs font-mono text-zinc-600">
+                Slots Used: <strong className="text-black">{specs.ramModules.length}</strong>
+                {specs.ramSlotsTotal ? ` / ${specs.ramSlotsTotal}` : ""}
+                {specs.ramMaxCapacityGb ? ` • Max Supported: ${specs.ramMaxCapacityGb.toFixed(0)} GB` : ""}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 border-y border-zinc-200 text-zinc-500 uppercase text-[10px]">
+                  <tr>
+                    <th className="py-2 px-3">Slot</th>
+                    <th className="py-2 px-3">Capacity</th>
+                    <th className="py-2 px-3">Type</th>
+                    <th className="py-2 px-3">Speed</th>
+                    <th className="py-2 px-3">Form Factor</th>
+                    <th className="py-2 px-3">Manufacturer</th>
+                    <th className="py-2 px-3">Part Number</th>
+                    <th className="py-2 px-3">Serial</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 font-mono">
+                  {specs.ramModules.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-3 px-3 text-zinc-500">
+                        Unified / Integrated Memory ({specs.totalRamGb.toFixed(1)} GB)
+                      </td>
+                    </tr>
+                  ) : (
+                    specs.ramModules.map((m, i) => (
+                      <tr key={i} className="hover:bg-blue-50/40">
+                        <td className="py-2 px-3 font-bold text-black">{m.slot}</td>
+                        <td className="py-2 px-3 text-blue-700 font-bold">{m.capacityGb} GB</td>
+                        <td className="py-2 px-3">{m.memoryType}</td>
+                        <td className="py-2 px-3">{m.speedMhz ? `${m.speedMhz} MHz` : "—"}</td>
+                        <td className="py-2 px-3">{m.formFactor}</td>
+                        <td className="py-2 px-3">{m.manufacturer}</td>
+                        <td className="py-2 px-3">{m.partNumber || "—"}</td>
+                        <td className="py-2 px-3">{m.serialNumber || "—"}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Graphics & Display Panels */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+                <Monitor className="w-4 h-4" /> Graphics Adapters (GPUs)
+              </div>
+              <div className="space-y-2.5">
                 {specs.gpus.map((g, idx) => (
-                  <div key={idx} className="rounded-lg bg-slate-950/70 border border-slate-800 p-3 text-xs">
+                  <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs space-y-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-white">{g.name}</span>
+                      <span className="font-bold text-black">{g.name}</span>
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          g.isDiscrete
-                            ? "bg-orange-500/20 text-orange-300 border border-orange-500/40"
-                            : "bg-slate-800 text-slate-300"
+                          g.isDiscrete ? "bg-blue-600 text-white" : "bg-white border border-zinc-300 text-zinc-700"
                         }`}
                       >
                         {g.isDiscrete ? "DISCRETE / PRO" : "INTEGRATED"}
                       </span>
                     </div>
-                    <div className="text-slate-400 mt-1 font-mono">
+                    <div className="font-mono text-[11px] text-zinc-600">
                       Vendor: {g.vendor}
-                      {g.vramMb ? ` • VRAM: ${g.vramMb} MB` : ""}
-                      {g.driverVersion ? ` • Driver: ${g.driverVersion}` : ""}
+                      {g.vramMb ? ` • VRAM: ${g.vramMb >= 1024 ? `${(g.vramMb / 1024).toFixed(1)} GB` : `${g.vramMb} MB`}` : ""}
                     </div>
+                    <div className="font-mono text-[11px] text-zinc-600">
+                      Driver: {g.driverVersion || "—"} {g.driverDate ? `(${g.driverDate})` : ""}
+                    </div>
+                    {g.pnpDeviceId && (
+                      <div className="font-mono text-[10px] text-zinc-400 truncate">{g.pnpDeviceId}</div>
+                    )}
                   </div>
                 ))}
               </div>
-              {specs.displays.length > 0 && (
-                <div className="pt-2 border-t border-slate-800 space-y-1.5">
-                  <div className="text-[11px] text-slate-400 font-semibold">Detected Panels</div>
-                  {specs.displays.map((d, i) => (
-                    <div key={i} className="text-xs text-slate-200 flex justify-between font-mono">
-                      <span className="truncate">{d.name}</span>
-                      <span className="text-cyan-300 shrink-0">
-                        {d.resolution}
-                        {d.refreshRateHz ? ` @ ${d.refreshRateHz}Hz` : ""}
-                      </span>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+                <Monitor className="w-4 h-4" /> Display Panels (EDID)
+              </div>
+              <div className="space-y-2.5">
+                {specs.displays.length === 0 ? (
+                  <div className="text-xs text-zinc-500">Default Active Display</div>
+                ) : (
+                  specs.displays.map((d, i) => (
+                    <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-black">{d.name}</span>
+                        <span className="font-mono font-bold text-blue-700">
+                          {d.resolution}
+                          {d.refreshRateHz ? ` @ ${d.refreshRateHz} Hz` : ""}
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px] text-zinc-600 mt-1">
+                        Manufacturer: {d.manufacturer || "—"}
+                        {d.diagonalInches ? ` • Physical Size: ~${d.diagonalInches}" Diagonal` : ""}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Storage Drives & Volumes */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+              <HardDrive className="w-4 h-4" /> Physical Storage Drives &amp; Partitions
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 border-y border-zinc-200 text-zinc-500 uppercase text-[10px]">
+                  <tr>
+                    <th className="py-2 px-3">Drive Model</th>
+                    <th className="py-2 px-3">Capacity</th>
+                    <th className="py-2 px-3">Interface</th>
+                    <th className="py-2 px-3">Media</th>
+                    <th className="py-2 px-3">Firmware</th>
+                    <th className="py-2 px-3">Serial Number</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 font-mono">
+                  {specs.disks.map((d, idx) => (
+                    <tr key={idx}>
+                      <td className="py-2 px-3 font-bold text-black">{d.model}</td>
+                      <td className="py-2 px-3 text-blue-700 font-bold">{d.sizeGb.toFixed(0)} GB</td>
+                      <td className="py-2 px-3">{d.interfaceType}</td>
+                      <td className="py-2 px-3">{d.mediaType}</td>
+                      <td className="py-2 px-3">{d.firmware || "—"}</td>
+                      <td className="py-2 px-3">{d.serialNumber || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {specs.volumes.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-2">
+                {specs.volumes.map((vol, i) => {
+                  const usedPct = vol.totalGb > 0 ? Math.round(((vol.totalGb - vol.freeGb) / vol.totalGb) * 100) : 0;
+                  return (
+                    <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-mono">
+                      <div className="flex justify-between font-bold text-black">
+                        <span>{vol.mount} {vol.label ? `(${vol.label})` : ""}</span>
+                        <span className="text-blue-700">{vol.fileSystem}</span>
+                      </div>
+                      <div className="text-[11px] text-zinc-600 mt-1">
+                        {vol.freeGb.toFixed(1)} GB free / {vol.totalGb.toFixed(1)} GB total ({usedPct}% used)
+                      </div>
+                      <div className="h-1.5 rounded-full bg-zinc-200 mt-1.5 overflow-hidden">
+                        <div className="h-full bg-blue-600" style={{ width: `${usedPct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Network & Peripherals */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2.5">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+                <Wifi className="w-4 h-4" /> Network Adapters (Wi-Fi / Ethernet / BT)
+              </div>
+              {specs.networkAdapters.length === 0 ? (
+                <div className="text-xs text-zinc-500">No physical network adapters enumerated.</div>
+              ) : (
+                <div className="space-y-2">
+                  {specs.networkAdapters.map((n, i) => (
+                    <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-black">{n.name}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-white border border-zinc-300 font-mono text-[10px] font-bold">
+                          {n.kind}
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px] text-zinc-600 mt-1">
+                        MAC: {n.macAddress} • Link: {n.linkSpeed} • {n.status}
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-sky-400 uppercase tracking-wider">
-                <HardDrive className="w-4 h-4" /> Installed Storage Drives
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2.5">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+                <Usb className="w-4 h-4" /> Audio, Camera, Bluetooth &amp; USB Controllers
               </div>
-              <div className="space-y-2">
-                {specs.disks.length === 0 ? (
-                  <div className="text-xs text-slate-400">No physical disks enumerated.</div>
+              <div className="max-h-60 overflow-y-auto divide-y divide-zinc-100">
+                {specs.peripherals.length === 0 ? (
+                  <div className="text-xs text-zinc-500">No peripheral controllers listed.</div>
                 ) : (
-                  specs.disks.map((d, idx) => (
-                    <div key={idx} className="rounded-lg bg-slate-950/70 border border-slate-800 p-3 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-white">{d.model}</span>
-                        <span className="font-mono text-cyan-300">{d.sizeGb.toFixed(0)} GB</span>
+                  specs.peripherals.map((p, i) => (
+                    <div key={i} className="py-1.5 flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <span className="inline-block px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[10px] font-bold mr-2">
+                          {p.category}
+                        </span>
+                        <span className="font-medium text-black">{p.name}</span>
                       </div>
-                      <div className="text-slate-400 mt-1 font-mono">
-                        {d.interfaceType} • {d.mediaType}
-                        {d.serialNumber ? ` • S/N: ${d.serialNumber}` : ""}
-                      </div>
+                      <span className="font-mono text-[10px] text-zinc-500 shrink-0">{p.status}</span>
                     </div>
                   ))
                 )}
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
+
+      <StepActionBar
+        stepNumber={stepNumber}
+        totalSteps={totalSteps}
+        status={status}
+        canProceed={Boolean(specs)}
+        requirementHint="Wait for full hardware scan to complete before advancing."
+        onNext={onNext}
+        onSkip={onSkip}
+      />
     </div>
   );
 };

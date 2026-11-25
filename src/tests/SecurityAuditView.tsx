@@ -2,73 +2,73 @@ import React from "react";
 import { RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import type { SecurityAuditReport, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
+import { StepActionBar } from "../components/StepActionBar";
 
 interface SecurityAuditViewProps {
   report: SecurityAuditReport | null;
   loading: boolean;
   status: TestStatus;
+  stepNumber: number;
+  totalSteps: number;
   onRefresh: () => void;
-  onNext?: () => void;
+  onNext: () => void;
+  onSkip: () => void;
 }
 
 export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
   report,
   loading,
   status,
+  stepNumber,
+  totalSteps,
   onRefresh,
   onNext,
+  onSkip,
 }) => {
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-white">Lock, MDM &amp; License Audit</h1>
+            <span className="px-2 py-0.5 rounded bg-black text-white font-mono text-xs font-bold">
+              0{stepNumber}
+            </span>
+            <h1 className="text-xl font-black text-black tracking-tight">
+              Lock, MDM &amp; License Audit
+            </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Verifies zero corporate MDM/DEP enrollment, Activation Lock / Find My status, OS license, encryption, and TPM/Secure Boot.
+          <p className="text-xs text-zinc-600 mt-1">
+            Verifies zero MDM/DEP enrollment, Apple Activation Lock / Find My, OEM Windows License, BitLocker/FileVault, TPM 2.0 &amp; Secure Boot.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            Re-run Audit
-          </button>
-          {onNext && (
-            <button
-              onClick={onNext}
-              className="px-3.5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold"
-            >
-              Next Test →
-            </button>
-          )}
-        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="px-3.5 py-2 rounded-lg border border-black bg-white hover:bg-zinc-100 text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-600" : ""}`} />
+          Re-run Audit
+        </button>
       </div>
 
       {!report ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-400">
-          {loading ? "Auditing MDM, Activation Lock, Encryption & Licensing..." : "Click Re-run Audit to inspect ownership & security locks."}
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-10 text-center text-sm text-zinc-600">
+          {loading ? "Auditing MDM, Activation Lock, Encryption & Licensing..." : "Click Re-run Audit to check ownership locks."}
         </div>
       ) : (
         <>
           <div
             className={`rounded-xl border p-4 flex items-center gap-3 ${
               report.overallStatus === "fail"
-                ? "bg-rose-500/10 border-rose-500/40 text-rose-200"
-                : report.overallStatus === "warn"
-                ? "bg-amber-500/10 border-amber-500/40 text-amber-200"
-                : "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+                ? "bg-black border-black text-white"
+                : "bg-blue-50 border-blue-600 text-black"
             }`}
           >
             {report.overallStatus === "fail" ? (
-              <ShieldAlert className="w-6 h-6 shrink-0 text-rose-400" />
+              <ShieldAlert className="w-6 h-6 shrink-0 text-white" />
             ) : (
-              <ShieldCheck className="w-6 h-6 shrink-0 text-emerald-400" />
+              <ShieldCheck className="w-6 h-6 shrink-0 text-blue-600" />
             )}
             <div>
               <div className="text-sm font-bold">{report.platform} Ownership &amp; Security Verdict</div>
@@ -80,16 +80,16 @@ export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
             {report.items.map((item) => (
               <div
                 key={item.id}
-                className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col justify-between gap-2"
+                className="rounded-xl border border-zinc-200 bg-white p-4 flex flex-col justify-between gap-2"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="text-xs font-semibold text-slate-400">{item.label}</div>
-                    <div className="text-base font-bold text-white mt-0.5">{item.value}</div>
+                    <div className="text-xs font-semibold text-zinc-500">{item.label}</div>
+                    <div className="text-base font-bold text-black mt-0.5">{item.value}</div>
                   </div>
                   <StatusBadge status={item.status} />
                 </div>
-                <div className="text-xs text-slate-400 font-mono break-words pt-1 border-t border-slate-800/80">
+                <div className="text-xs text-zinc-600 font-mono break-words pt-2 border-t border-zinc-100">
                   {item.detail}
                 </div>
               </div>
@@ -97,6 +97,16 @@ export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
           </div>
         </>
       )}
+
+      <StepActionBar
+        stepNumber={stepNumber}
+        totalSteps={totalSteps}
+        status={status}
+        canProceed={Boolean(report)}
+        requirementHint="Complete security & MDM audit before continuing."
+        onNext={onNext}
+        onSkip={onSkip}
+      />
     </div>
   );
 };

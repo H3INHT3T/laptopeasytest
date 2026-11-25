@@ -1,61 +1,60 @@
 import React from "react";
-import {
-  FileCheck2,
-  Flame,
-  Laptop,
-  Play,
-  RefreshCw,
-  ShieldCheck,
-} from "lucide-react";
-import type { ModuleRecord, SystemSpecs, TestModuleId } from "../types";
+import { ArrowRight, FileCheck2, Flame, Laptop, Lock, RefreshCw, Send } from "lucide-react";
+import type { ModuleRecord, StepModuleId, SystemSpecs, TestModuleId } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 
 interface DashboardViewProps {
   specs: SystemSpecs | null;
-  modules: Record<Exclude<TestModuleId, "dashboard">, ModuleRecord>;
+  stepOrder: StepModuleId[];
+  unlockedIndex: number;
+  modules: Record<StepModuleId, ModuleRecord>;
   autoRunning: boolean;
+  allStepsDone: boolean;
   onRunAutoChecks: () => void;
-  onStartGuided: () => void;
+  onStartOrResume: () => void;
   onSelectModule: (id: TestModuleId) => void;
   onOpenReport: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   specs,
+  stepOrder,
+  unlockedIndex,
   modules,
   autoRunning,
+  allStepsDone,
   onRunAutoChecks,
-  onStartGuided,
+  onStartOrResume,
   onSelectModule,
   onOpenReport,
 }) => {
-  const list = Object.values(modules);
+  const list = stepOrder.map((id) => modules[id]);
   const passed = list.filter((m) => m.status === "pass").length;
   const warned = list.filter((m) => m.status === "warn").length;
   const failed = list.filter((m) => m.status === "fail").length;
-  const pending = list.filter((m) => m.status === "pending" || m.status === "running").length;
+  const skipped = list.filter((m) => m.status === "skipped").length;
 
   return (
     <div className="space-y-6">
-      {/* Hero Banner */}
-      <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-cyan-950/30 p-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+      {/* Crisp Black + Blue Hero Banner */}
+      <div className="rounded-2xl bg-black text-white p-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border border-zinc-800">
         <div className="space-y-1.5">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold text-cyan-400">
+          <div className="inline-flex items-center gap-2 text-xs font-bold text-blue-400">
             <Laptop className="w-4 h-4" />
             {specs ? `${specs.manufacturer} ${specs.model}` : "Detecting Laptop Hardware..."}
             {specs?.isGamingCapable && (
-              <span className="px-2 py-0.5 rounded-full bg-orange-500/20 border border-orange-500/40 text-orange-300 text-[10px] font-bold flex items-center gap-1">
+              <span className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold flex items-center gap-1">
                 <Flame className="w-3 h-3" /> Gaming / Pro dGPU
               </span>
             )}
           </div>
           <h1 className="text-2xl font-black text-white tracking-tight">
-            Laptop Quality Control Overview
+            Advanced Step-by-Step Laptop QC
           </h1>
-          <p className="text-xs text-slate-400 font-mono">
+          <p className="text-xs text-zinc-400 font-mono">
             {specs
               ? `${specs.cpuBrand} • ${specs.totalRamGb.toFixed(0)} GB RAM • S/N: ${specs.serialNumber} • ${specs.osName}`
-              : "Automated diagnostics (Specs, MDM/Lock, Battery, Error Logs, SMART) run automatically on launch."}
+              : "Scanning full hardware specifications, security locks, battery, error logs & SMART..."}
           </p>
         </div>
 
@@ -63,79 +62,109 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             onClick={onRunAutoChecks}
             disabled={autoRunning}
-            className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2"
+            className="px-3.5 py-2.5 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs font-bold text-white flex items-center gap-2 cursor-pointer"
           >
-            <RefreshCw className={`w-4 h-4 ${autoRunning ? "animate-spin" : ""}`} />
-            Re-run Auto Checks
+            <RefreshCw className={`w-4 h-4 ${autoRunning ? "animate-spin text-blue-400" : ""}`} />
+            Re-scan System
           </button>
           <button
-            onClick={onStartGuided}
-            className="px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20"
+            onClick={onStartOrResume}
+            className="px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer"
           >
-            <Play className="w-4 h-4" />
-            Start Guided QC Walkthrough
+            {unlockedIndex === 0 ? "Start Step 1: Specifications" : `Resume Step ${Math.min(unlockedIndex + 1, stepOrder.length)}`}
+            <ArrowRight className="w-4 h-4" />
           </button>
-          <button
-            onClick={onOpenReport}
-            className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center gap-2"
-          >
-            <FileCheck2 className="w-4 h-4" />
-            Export Certificate
-          </button>
+          {allStepsDone && (
+            <button
+              onClick={onOpenReport}
+              className="px-4 py-2.5 rounded-lg bg-white hover:bg-zinc-200 text-black text-xs font-bold flex items-center gap-2 cursor-pointer"
+            >
+              <FileCheck2 className="w-4 h-4 text-blue-600" />
+              Export Certificate
+            </button>
+          )}
         </div>
       </div>
 
-      {/* KPI Summary Strip */}
+      {/* KPI Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
-          <div className="text-xs text-emerald-300/80 font-medium">Passed Modules</div>
-          <div className="text-3xl font-black font-mono text-emerald-400 mt-1">{passed}</div>
+        <div className="rounded-xl border border-blue-600 bg-blue-50 p-4">
+          <div className="text-xs text-blue-900 font-bold">Passed</div>
+          <div className="text-3xl font-black font-mono text-blue-600 mt-1">{passed}</div>
         </div>
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <div className="text-xs text-amber-300/80 font-medium">Warnings</div>
-          <div className="text-3xl font-black font-mono text-amber-400 mt-1">{warned}</div>
+        <div className="rounded-xl border border-zinc-200 bg-white p-4">
+          <div className="text-xs text-zinc-600 font-bold">Warnings</div>
+          <div className="text-3xl font-black font-mono text-black mt-1">{warned}</div>
         </div>
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4">
-          <div className="text-xs text-rose-300/80 font-medium">Failures</div>
-          <div className="text-3xl font-black font-mono text-rose-400 mt-1">{failed}</div>
+        <div className="rounded-xl border border-black bg-black text-white p-4">
+          <div className="text-xs text-zinc-400 font-bold">Failures</div>
+          <div className="text-3xl font-black font-mono text-white mt-1">{failed}</div>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <div className="text-xs text-slate-400 font-medium">Remaining / Pending</div>
-          <div className="text-3xl font-black font-mono text-slate-200 mt-1">{pending}</div>
+        <div className="rounded-xl border border-dashed border-zinc-400 bg-zinc-50 p-4">
+          <div className="text-xs text-zinc-600 font-bold">Explicitly Skipped</div>
+          <div className="text-3xl font-black font-mono text-zinc-700 mt-1">{skipped}</div>
         </div>
       </div>
 
-      {/* Module Grid */}
+      {/* Sequential Pipeline Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
-        {list.map((mod) => (
-          <button
-            key={mod.id}
-            onClick={() => onSelectModule(mod.id)}
-            className="text-left rounded-xl border border-slate-800 hover:border-cyan-500/50 bg-slate-900/70 hover:bg-slate-900 p-4 transition flex flex-col justify-between gap-3 group"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  {mod.category}
+        {list.map((mod, idx) => {
+          const isUnlocked = idx <= unlockedIndex;
+          return (
+            <button
+              key={mod.id}
+              disabled={!isUnlocked}
+              onClick={() => isUnlocked && onSelectModule(mod.id)}
+              className={`text-left rounded-xl border p-4 transition flex flex-col justify-between gap-3 ${
+                isUnlocked
+                  ? "border-zinc-200 hover:border-blue-600 bg-white cursor-pointer"
+                  : "border-zinc-200 bg-zinc-50 opacity-65 cursor-not-allowed"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={`w-6 h-6 rounded font-mono text-xs font-bold flex items-center justify-center ${
+                      isUnlocked ? "bg-black text-white" : "bg-zinc-200 text-zinc-500"
+                    }`}
+                  >
+                    {idx + 1}
+                  </span>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-zinc-500">
+                      {mod.category}
+                    </div>
+                    <div className="text-sm font-bold text-black">{mod.name}</div>
+                  </div>
                 </div>
-                <div className="text-sm font-bold text-white group-hover:text-cyan-300 mt-0.5">
-                  {mod.name}
-                </div>
+                {!isUnlocked ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-200 text-zinc-600 text-[10px] font-bold">
+                    <Lock className="w-3 h-3" /> LOCKED
+                  </span>
+                ) : (
+                  <StatusBadge status={mod.status} />
+                )}
               </div>
-              <StatusBadge status={mod.status} />
-            </div>
-            <div className="text-xs text-slate-400 line-clamp-2 min-h-[2rem]">
-              {mod.summary || "Click to open and execute this diagnostic test."}
-            </div>
-          </button>
-        ))}
+              <div className="text-xs text-zinc-600 line-clamp-2 min-h-[2rem]">
+                {!isUnlocked
+                  ? `Complete or explicitly skip Step ${idx} to unlock this deep test.`
+                  : mod.summary || "Ready to execute this deep diagnostic step."}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Footer note */}
-      <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 px-4 py-3 flex items-center gap-2.5 text-xs text-slate-400">
-        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-        <span>
-          All diagnostics execute 100% natively offline in Rust. Before exporting the final certificate, you will be prompted with a Ports &amp; Speaker check reminder and shop branding sign-off.
+      {/* Creator Credit Footer */}
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="text-zinc-600">
+          Steps progress sequentially one by one — cannot be skipped by default; use each step's explicit <strong>Skip Step</strong> button when needed.
+        </span>
+        <span className="font-bold text-black inline-flex items-center gap-1.5">
+          Created by Hein Htet Zaw
+          <span className="text-blue-600 font-mono inline-flex items-center gap-1">
+            • <Send className="w-3 h-3" /> @ich8g92
+          </span>
         </span>
       </div>
     </div>

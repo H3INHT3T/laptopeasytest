@@ -3,29 +3,33 @@ import {
   Activity,
   BatteryCharging,
   Camera,
-  CheckCircle2,
   Cpu,
   FileCheck2,
   FileWarning,
-  Flame,
   Fingerprint,
+  Flame,
   Gauge,
   HardDrive,
   Keyboard,
   LayoutDashboard,
+  Lock,
   MemoryStick,
   Monitor,
+  PlugZap,
+  Send,
   ShieldCheck,
 } from "lucide-react";
-import type { ModuleRecord, TestModuleId } from "../types";
+import type { ModuleRecord, StepModuleId, TestModuleId } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
 interface SidebarProps {
   activeTab: TestModuleId;
   onSelect: (id: TestModuleId) => void;
-  modules: Record<Exclude<TestModuleId, "dashboard">, ModuleRecord>;
+  stepOrder: StepModuleId[];
+  unlockedIndex: number;
+  modules: Record<StepModuleId, ModuleRecord>;
   isGamingCapable: boolean;
-  guidedMode: boolean;
+  allStepsDone: boolean;
   onOpenReportModal: () => void;
 }
 
@@ -43,139 +47,159 @@ const ICONS: Record<TestModuleId, React.ReactNode> = {
   ram: <MemoryStick className="w-4 h-4" />,
   performance: <Gauge className="w-4 h-4" />,
   gpu: <Flame className="w-4 h-4" />,
+  ports_speakers: <PlugZap className="w-4 h-4" />,
 };
-
-const GROUPS: Array<{ title: string; ids: Exclude<TestModuleId, "dashboard">[] }> = [
-  {
-    title: "Automated Diagnostics",
-    ids: ["specs", "security", "battery", "logs", "storage"],
-  },
-  {
-    title: "Interactive Hardware",
-    ids: ["display", "keyboard", "biometrics", "media"],
-  },
-  {
-    title: "Stress & Benchmarks",
-    ids: ["ram", "performance", "gpu"],
-  },
-];
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onSelect,
+  stepOrder,
+  unlockedIndex,
   modules,
   isGamingCapable,
-  guidedMode,
+  allStepsDone,
   onOpenReportModal,
 }) => {
-  const allList = Object.values(modules);
-  const completedCount = allList.filter(
-    (m) => m.status !== "pending" && m.status !== "running"
-  ).length;
-  const pct = Math.round((completedCount / allList.length) * 100);
+  const completedCount = stepOrder.filter((id) => {
+    const st = modules[id].status;
+    return st !== "pending" && st !== "running";
+  }).length;
+  const pct = Math.round((completedCount / stepOrder.length) * 100);
 
   return (
-    <aside className="w-72 shrink-0 bg-slate-900/90 border-r border-slate-800 flex flex-col h-full">
+    <aside className="w-72 shrink-0 bg-black text-white border-r border-zinc-800 flex flex-col h-full select-none">
       {/* Brand Header */}
-      <div className="px-4 py-4 border-b border-slate-800 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-          <Activity className="w-5 h-5 text-slate-950 stroke-[2.5]" />
+      <div className="px-4 py-4 border-b border-zinc-800 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+          <Activity className="w-5 h-5 text-white stroke-[2.5]" />
         </div>
         <div className="min-w-0">
           <div className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5">
             LaptopBench QC
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700">
-              v1.0
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 text-blue-400 border border-zinc-700">
+              PRO
             </span>
           </div>
-          <div className="text-[11px] text-slate-400 truncate">
-            {guidedMode ? "Guided QC Mode Active" : "Offline Diagnostics Suite"}
+          <div className="text-[11px] text-zinc-400 truncate">
+            Strict Step-by-Step Deep QC
           </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
         <button
           onClick={() => onSelect("dashboard")}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition ${
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
             activeTab === "dashboard"
-              ? "bg-cyan-500/15 text-cyan-200 border border-cyan-500/30"
-              : "text-slate-300 hover:bg-slate-800/80 border border-transparent"
+              ? "bg-blue-600 text-white"
+              : "text-zinc-300 hover:bg-zinc-900"
           }`}
         >
           <span className="flex items-center gap-2.5">
             {ICONS.dashboard}
-            QC Dashboard
+            Overview Dashboard
           </span>
-          <span className="text-[11px] text-slate-400 font-mono">
-            {completedCount}/{allList.length}
+          <span className="font-mono text-[10px] opacity-80">
+            {completedCount}/{stepOrder.length}
           </span>
         </button>
 
-        {GROUPS.map((group) => (
-          <div key={group.title}>
-            <div className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              {group.title}
-            </div>
-            <div className="space-y-1">
-              {group.ids.map((id) => {
-                const mod = modules[id];
-                const isActive = activeTab === id;
-                return (
-                  <button
-                    key={id}
-                    onClick={() => onSelect(id)}
-                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition ${
-                      isActive
-                        ? "bg-slate-800 text-white border border-slate-700 shadow-sm"
-                        : "text-slate-300 hover:bg-slate-800/50 border border-transparent"
+        <div className="pt-2 pb-1 px-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+          Sequential QC Pipeline
+        </div>
+
+        {stepOrder.map((id, idx) => {
+          const mod = modules[id];
+          const isUnlocked = idx <= unlockedIndex;
+          const isActive = activeTab === id;
+
+          return (
+            <button
+              key={id}
+              disabled={!isUnlocked}
+              onClick={() => isUnlocked && onSelect(id)}
+              title={!isUnlocked ? `Complete or skip Step ${idx} first to unlock` : mod.name}
+              className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition ${
+                isActive
+                  ? "bg-white text-black font-bold"
+                  : isUnlocked
+                  ? "text-zinc-200 hover:bg-zinc-900 cursor-pointer"
+                  : "text-zinc-600 cursor-not-allowed opacity-65"
+              }`}
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <span
+                  className={`w-5 h-5 rounded text-[10px] font-mono font-bold flex items-center justify-center shrink-0 ${
+                    isActive
+                      ? "bg-blue-600 text-white"
+                      : isUnlocked
+                      ? "bg-zinc-800 text-zinc-200"
+                      : "bg-zinc-900 text-zinc-600"
+                  }`}
+                >
+                  {idx + 1}
+                </span>
+                <span className="truncate">{mod.name}</span>
+                {id === "gpu" && isGamingCapable && (
+                  <span
+                    className={`px-1 py-0.5 text-[9px] rounded font-bold ${
+                      isActive ? "bg-blue-600 text-white" : "bg-blue-950 text-blue-300 border border-blue-700"
                     }`}
                   >
-                    <span className="flex items-center gap-2.5 min-w-0">
-                      <span className={isActive ? "text-cyan-400" : "text-slate-400"}>
-                        {ICONS[id]}
-                      </span>
-                      <span className="truncate">{mod.name}</span>
-                      {id === "gpu" && isGamingCapable && (
-                        <span className="px-1 py-0.5 text-[9px] rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 font-bold">
-                          dGPU
-                        </span>
-                      )}
-                    </span>
-                    <StatusBadge status={mod.status} compact />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+                    dGPU
+                  </span>
+                )}
+              </span>
+
+              {!isUnlocked ? (
+                <Lock className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+              ) : (
+                <StatusBadge status={mod.status} compact darkSurface={!isActive} />
+              )}
+            </button>
+          );
+        })}
       </nav>
 
-      {/* Progress & Final Report CTA */}
-      <div className="p-3 border-t border-slate-800 bg-slate-950/60 space-y-2.5">
+      {/* Progress, Final Report & Creator Credit */}
+      <div className="p-3 border-t border-zinc-800 bg-zinc-950 space-y-2.5">
         <div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-            <span>QC Completion</span>
-            <span className="font-mono text-slate-200">{pct}%</span>
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-1">
+            <span>Pipeline Progress</span>
+            <span className="font-mono text-white font-bold">{pct}%</span>
           </div>
-          <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+          <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 transition-all duration-300"
+              className="h-full bg-blue-600 transition-all duration-300"
               style={{ width: `${pct}%` }}
             />
           </div>
         </div>
+
         <button
           onClick={onOpenReportModal}
-          className="w-full py-2.5 px-3 rounded-lg bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15 transition cursor-pointer"
+          disabled={!allStepsDone}
+          title={allStepsDone ? "Export QC Certificate" : "Finish or skip all 13 steps to unlock Final Report"}
+          className={`w-full py-2.5 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition ${
+            allStepsDone
+              ? "bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
+              : "bg-zinc-900 text-zinc-500 border border-zinc-800 cursor-not-allowed"
+          }`}
         >
-          <FileCheck2 className="w-4 h-4" />
-          Generate Final QC Report
+          {allStepsDone ? <FileCheck2 className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
+          {allStepsDone ? "Generate Final QC Report" : `Complete All Steps (${completedCount}/${stepOrder.length})`}
         </button>
-        <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-500">
-          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-          <span>100% Offline • PDF + HTML + JSON</span>
+
+        {/* Creator Credit Tag */}
+        <div className="pt-2 border-t border-zinc-800/90 text-center space-y-0.5">
+          <div className="text-[11px] font-semibold text-white">
+            Created by Hein Htet Zaw
+          </div>
+          <div className="inline-flex items-center justify-center gap-1 text-[11px] font-mono text-blue-400">
+            <Send className="w-3 h-3" />
+            <span>Telegram: @ich8g92</span>
+          </div>
         </div>
       </div>
     </aside>

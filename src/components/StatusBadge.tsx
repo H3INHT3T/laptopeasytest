@@ -1,42 +1,59 @@
 import React from "react";
 import type { TestStatus } from "../types";
 
-export const StatusBadge: React.FC<{ status: TestStatus; compact?: boolean }> = ({
+export const StatusBadge: React.FC<{ status: TestStatus; compact?: boolean; darkSurface?: boolean }> = ({
   status,
   compact = false,
+  darkSurface = false,
 }) => {
   const map: Record<TestStatus, { label: string; cls: string }> = {
     pass: {
       label: "PASS",
-      cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
+      cls: "bg-blue-600 text-white border-blue-600",
     },
     warn: {
       label: "WARN",
-      cls: "bg-amber-500/15 text-amber-300 border-amber-500/40",
+      cls: darkSurface
+        ? "bg-blue-950 text-blue-200 border-blue-400"
+        : "bg-blue-50 text-blue-900 border-blue-600",
     },
     fail: {
       label: "FAIL",
-      cls: "bg-rose-500/15 text-rose-300 border-rose-500/40",
+      cls: darkSurface
+        ? "bg-white text-black border-white font-extrabold"
+        : "bg-black text-white border-black font-extrabold",
     },
     running: {
       label: "RUN",
-      cls: "bg-cyan-500/15 text-cyan-300 border-cyan-500/40 animate-pulse",
+      cls: darkSurface
+        ? "bg-blue-600/30 text-blue-200 border-blue-400 animate-pulse"
+        : "bg-blue-50 text-blue-700 border-blue-500 animate-pulse",
+    },
+    skipped: {
+      label: "SKIP",
+      cls: darkSurface
+        ? "bg-transparent text-zinc-300 border-dashed border-zinc-500"
+        : "bg-white text-zinc-700 border-dashed border-zinc-400",
     },
     notApplicable: {
       label: "N/A",
-      cls: "bg-slate-600/25 text-slate-400 border-slate-600/40",
+      cls: darkSurface
+        ? "bg-zinc-900 text-zinc-400 border-zinc-700"
+        : "bg-zinc-100 text-zinc-600 border-zinc-300",
     },
     pending: {
-      label: "PENDING",
-      cls: "bg-slate-800 text-slate-400 border-slate-700",
+      label: "WAIT",
+      cls: darkSurface
+        ? "bg-zinc-900 text-zinc-500 border-zinc-800"
+        : "bg-zinc-100 text-zinc-500 border-zinc-200",
     },
   };
 
   const item = map[status];
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-full border font-semibold tracking-wider ${
-        compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-0.5 text-xs"
+      className={`inline-flex items-center justify-center rounded-md border font-bold tracking-wider ${
+        compact ? "px-1.5 py-0.5 text-[9px]" : "px-2.5 py-0.5 text-[11px]"
       } ${item.cls}`}
     >
       {item.label}

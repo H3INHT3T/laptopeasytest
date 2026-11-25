@@ -4,19 +4,23 @@ import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, CheckCircle2, Keyboard, RotateCcw, Shield, XCircle } from "lucide-react";
 import type { TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
+import { StepActionBar } from "../components/StepActionBar";
 
 interface KeyboardTestViewProps {
   osFamily: string;
   status: TestStatus;
   notes: string;
+  stepNumber: number;
+  totalSteps: number;
   onVerdict: (status: TestStatus, summary: string, notes: string) => void;
-  onNext?: () => void;
+  onNext: () => void;
+  onSkip: () => void;
 }
 
 interface KeyDef {
   code: string;
   label: string;
-  w?: number; // relative flex width
+  w?: number;
 }
 
 type LayoutMode = "win_compact" | "win_full" | "mac_ansi";
@@ -94,15 +98,18 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
   osFamily,
   status,
   notes: initialNotes,
+  stepNumber,
+  totalSteps,
   onVerdict,
   onNext,
+  onSkip,
 }) => {
   const [layout, setLayout] = useState<LayoutMode>(
     osFamily === "macos" ? "mac_ansi" : "win_compact"
   );
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
   const [testedKeys, setTestedKeys] = useState<Set<string>>(new Set());
-  const [lastEvent, setLastEvent] = useState<string>("Press any key to begin...");
+  const [lastEvent, setLastEvent] = useState<string>("Press physical keys to begin...");
   const [chatterWarnings, setChatterWarnings] = useState<string[]>([]);
   const [osHookEnabled, setOsHookEnabled] = useState(false);
   const [notes, setNotes] = useState(initialNotes);
@@ -162,9 +169,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
     }
     return () => {
       if (unlisten) unlisten();
-      if (osHookEnabled) {
-        invoke("stop_keyboard_capture").catch(() => {});
-      }
+      if (osHookEnabled) invoke("stop_keyboard_capture").catch(() => {});
     };
   }, [osHookEnabled]);
 
@@ -173,13 +178,6 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
     rows.reduce((a, r) => a + r.length, 0) +
     (layout === "win_full" ? NUMPAD_ROWS.reduce((a, r) => a + r.length, 0) : 0);
 
-  const resetAll = () => {
-    setActiveKeys(new Set());
-    setTestedKeys(new Set());
-    setChatterWarnings([]);
-    setLastEvent("Reset — press keys to test.");
-  };
-
   const renderKey = (k: KeyDef) => {
     const isDown = activeKeys.has(k.code);
     const isTested = testedKeys.has(k.code);
@@ -187,12 +185,12 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
       <div
         key={k.code}
         style={{ flex: k.w ?? 1 }}
-        className={`h-11 rounded-lg border flex items-center justify-center text-[11px] font-semibold select-none transition-all duration-75 ${
+        className={`h-11 rounded-lg border flex items-center justify-center text-[11px] font-bold select-none transition-all duration-75 ${
           isDown
-            ? "bg-cyan-400 text-slate-950 border-cyan-200 scale-95 shadow-lg shadow-cyan-400/40"
+            ? "bg-black text-white border-black scale-95 shadow"
             : isTested
-            ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/60"
-            : "bg-slate-900 text-slate-300 border-slate-700"
+            ? "bg-blue-600 text-white border-blue-700"
+            : "bg-white text-black border-zinc-300"
         }`}
       >
         {k.label}
@@ -202,18 +200,23 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-white">Keyboard Test (Offline Key-Test)</h1>
+            <span className="px-2 py-0.5 rounded bg-black text-white font-mono text-xs font-bold">
+              0{stepNumber}
+            </span>
+            <h1 className="text-xl font-black text-black tracking-tight">
+              Keyboard Test (Offline Key-Test)
+            </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Press every physical key. Active keys flash cyan, verified keys stay emerald, and rapid double-trigger chatter is flagged.
+          <p className="text-xs text-zinc-600 mt-1">
+            Held keys turn Black, verified keys stay Blue, and sub-25ms key-bounce chatter is flagged automatically.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="inline-flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs">
+          <div className="inline-flex rounded-lg bg-zinc-100 border border-zinc-200 p-0.5 text-xs">
             {(
               [
                 ["win_compact", "Win Compact"],
@@ -224,8 +227,8 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
               <button
                 key={m}
                 onClick={() => setLayout(m)}
-                className={`px-2.5 py-1 rounded-md font-medium ${
-                  layout === m ? "bg-cyan-500 text-slate-950 font-bold" : "text-slate-400 hover:text-white"
+                className={`px-2.5 py-1 rounded-md font-bold cursor-pointer ${
+                  layout === m ? "bg-blue-600 text-white" : "text-zinc-600 hover:text-black"
                 }`}
               >
                 {lbl}
@@ -235,56 +238,52 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
           {osFamily === "windows" && (
             <button
               onClick={() => setOsHookEnabled((v) => !v)}
-              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
                 osHookEnabled
-                  ? "bg-cyan-500/20 border-cyan-400 text-cyan-200"
-                  : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                  ? "bg-blue-600 border-blue-600 text-white"
+                  : "bg-white border-black text-black hover:bg-zinc-100"
               }`}
             >
               <Shield className="w-3.5 h-3.5" />
-              {osHookEnabled ? "Win/PrtSc Capture ON" : "Capture Win/PrtSc Keys"}
+              {osHookEnabled ? "Win/PrtSc Capture ON" : "Capture Win/PrtSc"}
             </button>
           )}
           <button
-            onClick={resetAll}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5"
+            onClick={() => {
+              setActiveKeys(new Set());
+              setTestedKeys(new Set());
+              setChatterWarnings([]);
+              setLastEvent("Reset — press keys to test.");
+            }}
+            className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset
+            <RotateCcw className="w-3.5 h-3.5" /> Reset
           </button>
-          {onNext && (
-            <button
-              onClick={onNext}
-              className="px-3.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold"
-            >
-              Next Test →
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Telemetry bar */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
+      {/* Telemetry */}
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
         <div className="flex items-center gap-4">
-          <span className="text-slate-400">
-            Tested: <strong className="text-emerald-400">{testedKeys.size}</strong> / {totalLayoutKeys}
+          <span className="text-zinc-600">
+            Tested: <strong className="text-blue-700">{testedKeys.size}</strong> / {totalLayoutKeys}
           </span>
-          <span className="text-slate-400">
-            Currently Held: <strong className="text-cyan-300">{activeKeys.size}</strong>
+          <span className="text-zinc-600">
+            Held: <strong className="text-black">{activeKeys.size}</strong>
           </span>
         </div>
-        <div className="text-slate-300">{lastEvent}</div>
+        <div className="text-black font-semibold">{lastEvent}</div>
       </div>
 
       {chatterWarnings.length > 0 && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+        <div className="rounded-xl border border-black bg-black text-white px-4 py-2.5 text-xs flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-blue-400" />
           <span>Key chatter / bounce detected: {chatterWarnings.join(", ")}</span>
         </div>
       )}
 
       {/* Visual Keyboard Deck */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 overflow-x-auto">
+      <div className="rounded-2xl border border-zinc-300 bg-zinc-100 p-4 overflow-x-auto">
         <div className="flex gap-3 min-w-[760px]">
           <div className="flex-1 space-y-1.5">
             {rows.map((row, rIdx) => (
@@ -294,7 +293,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
             ))}
           </div>
           {layout === "win_full" && (
-            <div className="w-56 space-y-1.5 pl-2 border-l border-slate-800">
+            <div className="w-56 space-y-1.5 pl-2 border-l border-zinc-300">
               {NUMPAD_ROWS.map((row, rIdx) => (
                 <div key={rIdx} className="flex gap-1.5">
                   {row.map(renderKey)}
@@ -306,17 +305,17 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
       </div>
 
       {/* Verdict */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-bold text-white">
-          <Keyboard className="w-4 h-4 text-cyan-400" />
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-black">
+          <Keyboard className="w-4 h-4 text-blue-600" />
           Keyboard QC Verdict
         </div>
         <input
           type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional keyboard notes (e.g. Backlight works, all keys crisp, no stuck keys)"
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+          placeholder="Optional keyboard notes (e.g. Backlight verified, all keys responsive, no stuck keys)"
+          className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
         />
         <div className="flex flex-wrap gap-2">
           <button
@@ -327,10 +326,9 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                 notes
               )
             }
-            className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5"
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
-            <CheckCircle2 className="w-4 h-4" />
-            Pass Keyboard Test
+            <CheckCircle2 className="w-4 h-4" /> Pass Keyboard Test
           </button>
           <button
             onClick={() =>
@@ -340,13 +338,22 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                 notes
               )
             }
-            className="px-4 py-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-bold text-xs flex items-center gap-1.5"
+            className="px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
-            <XCircle className="w-4 h-4" />
-            Fail Keyboard Test
+            <XCircle className="w-4 h-4" /> Fail Keyboard Test
           </button>
         </div>
       </div>
+
+      <StepActionBar
+        stepNumber={stepNumber}
+        totalSteps={totalSteps}
+        status={status}
+        canProceed={false}
+        requirementHint="Test keys and record Pass or Fail verdict to advance (or click Skip Step)."
+        onNext={onNext}
+        onSkip={onSkip}
+      />
     </div>
   );
 };

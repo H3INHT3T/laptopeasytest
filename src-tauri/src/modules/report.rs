@@ -64,10 +64,10 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
     };
 
     let verdict_color = match payload.overall_verdict.as_str() {
-        "PASSED" => "#059669",
-        "PASSED WITH WARNINGS" => "#d97706",
-        "FAILED" => "#dc2626",
-        _ => "#475569",
+        "PASSED" => "#2563eb",
+        "PASSED WITH WARNINGS" => "#1d4ed8",
+        "FAILED" => "#09090b",
+        _ => "#52525b",
     };
 
     let logo_html = payload
@@ -121,12 +121,13 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
     let mut rows_html = String::new();
     for t in &payload.tests {
         let (lbl, bg) = match t.status {
-            TestStatus::Pass => ("PASS", "#059669"),
-            TestStatus::Warn => ("WARN", "#d97706"),
-            TestStatus::Fail => ("FAIL", "#dc2626"),
-            TestStatus::NotApplicable => ("N/A", "#64748b"),
-            TestStatus::Running => ("RUN", "#0284c7"),
-            TestStatus::Pending => ("SKIP", "#64748b"),
+            TestStatus::Pass => ("PASS", "#2563eb"),
+            TestStatus::Warn => ("WARN", "#1d4ed8"),
+            TestStatus::Fail => ("FAIL", "#09090b"),
+            TestStatus::Skipped => ("SKIPPED", "#52525b"),
+            TestStatus::NotApplicable => ("N/A", "#71717a"),
+            TestStatus::Running => ("RUN", "#2563eb"),
+            TestStatus::Pending => ("PENDING", "#71717a"),
         };
         let note_html = if t.notes.trim().is_empty() {
             String::new()
@@ -216,7 +217,7 @@ fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) -> String {
     </section>
   </main>
   <footer>
-    <span>Generated offline by LaptopBench QC</span>
+    <span>LaptopBench QC &bull; Created by Hein Htet Zaw (Telegram: @ich8g92)</span>
     <span>Verified by {} ({})</span>
   </footer>
 </div>

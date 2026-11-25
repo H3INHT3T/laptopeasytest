@@ -2,19 +2,26 @@ import React, { useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, Mic, Play, Square, Volume2, XCircle } from "lucide-react";
 import type { TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
+import { StepActionBar } from "../components/StepActionBar";
 
 interface MediaTestViewProps {
   status: TestStatus;
   notes: string;
+  stepNumber: number;
+  totalSteps: number;
   onVerdict: (status: TestStatus, summary: string, notes: string) => void;
-  onNext?: () => void;
+  onNext: () => void;
+  onSkip: () => void;
 }
 
 export const MediaTestView: React.FC<MediaTestViewProps> = ({
   status,
   notes: initialNotes,
+  stepNumber,
+  totalSteps,
   onVerdict,
   onNext,
+  onSkip,
 }) => {
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -46,7 +53,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
       if (!selectedCam && cams[0]) setSelectedCam(cams[0].deviceId);
       if (!selectedMic && audios[0]) setSelectedMic(audios[0].deviceId);
     } catch {
-      // Enumerate may wait for permission
+      // Wait for permission
     }
   };
 
@@ -121,9 +128,9 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
         if (canvas) {
           const g = canvas.getContext("2d");
           if (g) {
-            g.fillStyle = "#020617";
+            g.fillStyle = "#09090b";
             g.fillRect(0, 0, canvas.width, canvas.height);
-            g.strokeStyle = "#22d3ee";
+            g.strokeStyle = "#3b82f6";
             g.lineWidth = 2;
             g.beginPath();
             const step = canvas.width / data.length;
@@ -156,9 +163,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
   };
 
   const record3SecLoopback = async () => {
-    if (!micStreamRef.current) {
-      await startMic();
-    }
+    if (!micStreamRef.current) await startMic();
     const stream = micStreamRef.current;
     if (!stream || typeof MediaRecorder === "undefined") {
       setError("Audio recorder unavailable.");
@@ -186,51 +191,44 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-white">Camera &amp; Microphone Test</h1>
+            <span className="px-2 py-0.5 rounded bg-black text-white font-mono text-xs font-bold">
+              0{stepNumber}
+            </span>
+            <h1 className="text-xl font-black text-black tracking-tight">
+              Camera &amp; Microphone Test
+            </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Verify live webcam feed, resolution/FPS, microphone waveform sensitivity, and 3-second voice loopback clarity.
+          <p className="text-xs text-zinc-600 mt-1">
+            Verify live webcam video resolution/FPS, microphone waveform response, and 3-second voice loopback clarity.
           </p>
         </div>
-        {onNext && (
-          <button
-            onClick={onNext}
-            className="px-3.5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold"
-          >
-            Next Test →
-          </button>
-        )}
       </div>
 
       {error && (
-        <div className="rounded-xl bg-rose-500/15 border border-rose-500/40 px-4 py-2.5 text-xs text-rose-200">
-          {error}
-        </div>
+        <div className="rounded-xl bg-black text-white px-4 py-2.5 text-xs">{error}</div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Camera Panel */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-sm font-bold text-white">
-              <Camera className="w-4 h-4 text-cyan-400" />
-              Webcam Preview
+            <div className="flex items-center gap-2 text-sm font-bold text-black">
+              <Camera className="w-4 h-4 text-blue-600" /> Webcam Preview
             </div>
             {camActive ? (
               <button
                 onClick={stopCamera}
-                className="px-3 py-1.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-200 text-xs font-semibold flex items-center gap-1"
+                className="px-3 py-1.5 rounded-lg bg-black text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
               >
                 <Square className="w-3 h-3" /> Stop
               </button>
             ) : (
               <button
                 onClick={startCamera}
-                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1"
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
               >
                 <Play className="w-3 h-3" /> Start Camera
               </button>
@@ -240,7 +238,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
           <select
             value={selectedCam}
             onChange={(e) => setSelectedCam(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
+            className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs text-black"
           >
             {cameras.length === 0 ? (
               <option value="">Default Webcam</option>
@@ -253,7 +251,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             )}
           </select>
 
-          <div className="aspect-video rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center relative">
+          <div className="aspect-video rounded-xl bg-black border border-zinc-300 overflow-hidden flex items-center justify-center">
             <video
               ref={videoRef}
               autoPlay
@@ -262,34 +260,32 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
               className={`w-full h-full object-cover ${camActive ? "block" : "hidden"}`}
             />
             {!camActive && (
-              <div className="text-xs text-slate-500 flex flex-col items-center gap-2">
+              <div className="text-xs text-zinc-400 flex flex-col items-center gap-2">
                 <Camera className="w-8 h-8 opacity-40" />
-                <span>Click Start Camera to inspect video feed</span>
+                <span>Click Start Camera to inspect live video</span>
               </div>
             )}
           </div>
-          <div className="text-[11px] font-mono text-slate-400">{camInfo}</div>
+          <div className="text-[11px] font-mono text-zinc-600">{camInfo}</div>
         </div>
 
-        {/* Microphone Panel */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3 flex flex-col justify-between">
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3 flex flex-col justify-between">
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-sm font-bold text-white">
-                <Mic className="w-4 h-4 text-emerald-400" />
-                Microphone &amp; Loopback
+              <div className="flex items-center gap-2 text-sm font-bold text-black">
+                <Mic className="w-4 h-4 text-blue-600" /> Microphone &amp; Loopback
               </div>
               {micActive ? (
                 <button
                   onClick={stopMic}
-                  className="px-3 py-1.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-200 text-xs font-semibold flex items-center gap-1"
+                  className="px-3 py-1.5 rounded-lg bg-black text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                 >
                   <Square className="w-3 h-3" /> Stop
                 </button>
               ) : (
                 <button
                   onClick={startMic}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1"
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                 >
                   <Play className="w-3 h-3" /> Start Mic
                 </button>
@@ -299,7 +295,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             <select
               value={selectedMic}
               onChange={(e) => setSelectedMic(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
+              className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs text-black"
             >
               {mics.length === 0 ? (
                 <option value="">Default Microphone</option>
@@ -316,19 +312,16 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
               ref={waveCanvasRef}
               width={520}
               height={120}
-              className="w-full h-32 rounded-xl border border-slate-800 bg-slate-950"
+              className="w-full h-32 rounded-xl border border-zinc-300 bg-black"
             />
 
             <div className="space-y-1">
-              <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+              <div className="flex justify-between text-[11px] text-zinc-600 font-mono">
                 <span>Input Signal Level</span>
-                <span>{micLevel}%</span>
+                <strong className="text-blue-700">{micLevel}%</strong>
               </div>
-              <div className="h-2 rounded-full bg-slate-950 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-amber-400 transition-all duration-75"
-                  style={{ width: `${micLevel}%` }}
-                />
+              <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
+                <div className="h-full bg-blue-600 transition-all duration-75" style={{ width: `${micLevel}%` }} />
               </div>
             </div>
           </div>
@@ -337,44 +330,51 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             <button
               onClick={record3SecLoopback}
               disabled={recording}
-              className="px-3.5 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-lg border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
               <Volume2 className="w-4 h-4" />
               {recording ? "Recording 3s..." : "Record 3s & Playback"}
             </button>
-            {playbackUrl && (
-              <audio src={playbackUrl} controls className="h-8 max-w-[220px]" />
-            )}
+            {playbackUrl && <audio src={playbackUrl} controls className="h-8 max-w-[220px]" />}
           </div>
         </div>
       </div>
 
-      {/* Verdict */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
         <input
           type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional camera/mic notes (e.g. Sharp image, clear voice playback, no privacy shutter issue)"
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+          placeholder="Optional camera/mic notes (e.g. Sharp image, clear loopback audio, privacy shutter checked)"
+          className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
         />
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() =>
-              onVerdict("pass", `Camera (${camInfo !== "Stopped" ? camInfo : "verified"}) & Microphone loopback passed.`, notes)
+              onVerdict("pass", `Camera (${camInfo !== "Stopped" ? camInfo : "verified"}) & Microphone passed.`, notes)
             }
-            className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5"
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" /> Pass Camera &amp; Mic
           </button>
           <button
             onClick={() => onVerdict("fail", "Camera or Microphone defect reported.", notes)}
-            className="px-4 py-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-bold text-xs flex items-center gap-1.5"
+            className="px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
             <XCircle className="w-4 h-4" /> Fail Camera / Mic
           </button>
         </div>
       </div>
+
+      <StepActionBar
+        stepNumber={stepNumber}
+        totalSteps={totalSteps}
+        status={status}
+        canProceed={false}
+        requirementHint="Test camera & microphone and click Pass or Fail to continue (or click Skip Step)."
+        onNext={onNext}
+        onSkip={onSkip}
+      />
     </div>
   );
 };

@@ -139,7 +139,8 @@ pub fn run_gpu_stress_test(
     let (width, height): (u32, u32) = match resolution {
         "1080p" => (1920, 1080),
         "1440p" => (2560, 1440),
-        _ => (1280, 720), // 720p default — balanced for both iGPU and dGPU
+        "4k" | "2160p" => (3840, 2160),
+        _ => (1280, 720),
     };
 
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {

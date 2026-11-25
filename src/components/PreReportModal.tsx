@@ -3,13 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
-  AlertTriangle,
   CheckCircle2,
   FileText,
   FolderOpen,
   Image as ImageIcon,
-  PlugZap,
-  Volume2,
+  Send,
   X,
 } from "lucide-react";
 import type {
@@ -18,8 +16,8 @@ import type {
   ModuleRecord,
   PortsSpeakerSignoff,
   ShopProfile,
+  StepModuleId,
   SystemSpecs,
-  TestModuleId,
 } from "../types";
 
 interface PreReportModalProps {
@@ -28,34 +26,9 @@ interface PreReportModalProps {
   shopProfile: ShopProfile;
   onUpdateProfile: (profile: ShopProfile) => void;
   specs: SystemSpecs | null;
-  modules: Record<Exclude<TestModuleId, "dashboard">, ModuleRecord>;
-}
-
-function playStereoChime(channel: "left" | "right" | "both") {
-  try {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const panner = ctx.createStereoPanner();
-
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(channel === "left" ? 440 : channel === "right" ? 587.33 : 523.25, ctx.currentTime);
-    panner.pan.setValueAtTime(channel === "left" ? -1 : channel === "right" ? 1 : 0, ctx.currentTime);
-
-    gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.32, ctx.currentTime + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.65);
-
-    osc.connect(gain);
-    gain.connect(panner);
-    panner.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.7);
-    setTimeout(() => ctx.close(), 850);
-  } catch {
-    // Ignore audio context restriction errors
-  }
+  stepOrder: StepModuleId[];
+  modules: Record<StepModuleId, ModuleRecord>;
+  signoff: PortsSpeakerSignoff;
 }
 
 export const PreReportModal: React.FC<PreReportModalProps> = ({
@@ -64,18 +37,15 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   shopProfile,
   onUpdateProfile,
   specs,
+  stepOrder,
   modules,
+  signoff,
 }) => {
   const [profile, setProfile] = useState<ShopProfile>(shopProfile);
   useEffect(() => {
     setProfile(shopProfile);
   }, [shopProfile, isOpen]);
-  const [signoff, setSignoff] = useState<PortsSpeakerSignoff>({
-    portsChecked: false,
-    portsNotes: "",
-    speakersChecked: false,
-    speakersNotes: "",
-  });
+
   const [customerOrSku, setCustomerOrSku] = useState("");
   const [technicianNotes, setTechnicianNotes] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -84,9 +54,10 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const list = Object.values(modules);
+  const list = stepOrder.map((id) => modules[id]);
   const failCount = list.filter((m) => m.status === "fail").length;
   const warnCount = list.filter((m) => m.status === "warn").length;
+  const skippedCount = list.filter((m) => m.status === "skipped").length;
   const pendingCount = list.filter((m) => m.status === "pending" || m.status === "running").length;
 
   const overallVerdict =
@@ -94,7 +65,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
       ? "FAILED"
       : pendingCount > 0
       ? "INCOMPLETE"
-      : warnCount > 0
+      : warnCount > 0 || skippedCount > 0
       ? "PASSED WITH WARNINGS"
       : "PASSED";
 
@@ -117,7 +88,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         setProfile((p) => ({ ...p, defaultOutputDir: selected }));
       }
     } catch {
-      // Dialog cancelled
+      // Cancelled
     }
   };
 
@@ -138,7 +109,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         specs,
         tests: list.map((m) => ({
           id: m.id,
-          name: m.name,
+          name: `${m.stepNumber}. ${m.name}`,
           category: m.category,
           status: m.status,
           summary: m.summary || "Not run",
@@ -158,19 +129,19 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-white border border-black rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="px-6 py-4 bg-black text-white flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-white">Pre-Report Reminder &amp; Final QC Certificate</h2>
-            <p className="text-xs text-slate-400">
-              Confirm physical ports &amp; speakers, enter shop identity, and export PDF + HTML + JSON.
+            <h2 className="text-lg font-black tracking-tight">Final Branded QC Certificate</h2>
+            <p className="text-xs text-zinc-400">
+              Export offline PDF Certificate + Branded HTML + JSON Archive with your Shop Name &amp; Username.
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -178,163 +149,65 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
 
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-5">
-          {/* Overall Verdict Banner */}
           <div
             className={`rounded-xl border px-4 py-3 flex items-center justify-between ${
-              overallVerdict === "PASSED"
-                ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
-                : overallVerdict === "FAILED"
-                ? "bg-rose-500/10 border-rose-500/40 text-rose-200"
-                : "bg-amber-500/10 border-amber-500/40 text-amber-200"
+              overallVerdict === "FAILED"
+                ? "bg-black border-black text-white"
+                : "bg-blue-50 border-blue-600 text-black"
             }`}
           >
             <div>
-              <div className="text-xs uppercase tracking-wider opacity-80">Computed Overall Verdict</div>
-              <div className="text-base font-bold">{overallVerdict}</div>
+              <div className="text-[11px] uppercase tracking-wider font-bold opacity-75">
+                Computed Overall Verdict
+              </div>
+              <div className="text-lg font-black">{overallVerdict}</div>
             </div>
             <div className="text-xs text-right font-mono">
-              <div>{failCount} Fail • {warnCount} Warn • {pendingCount} Pending</div>
+              <div>
+                {failCount} Fail • {warnCount} Warn • {skippedCount} Skipped
+              </div>
               <div className="opacity-80">
                 {specs ? `${specs.model} (${specs.serialNumber})` : "Hardware detected"}
               </div>
             </div>
           </div>
 
-          {/* Mandatory Alert Reminder: Ports & Speakers */}
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
-            <div className="flex items-center gap-2 text-amber-300 font-semibold text-sm">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              Technician Reminder: Physical Ports &amp; Speaker Verification
-            </div>
-
-            <div className="space-y-2.5">
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={signoff.portsChecked}
-                  onChange={(e) => setSignoff((s) => ({ ...s, portsChecked: e.target.checked }))}
-                  className="mt-1 accent-emerald-500 w-4 h-4"
-                />
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-slate-100 flex items-center gap-1.5">
-                    <PlugZap className="w-3.5 h-3.5 text-cyan-400" />
-                    All Physical Ports Tested (USB-A, USB-C / Thunderbolt, HDMI / DP, Charging Port, Audio Jack, SD/LAN)
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Optional port notes (e.g. All 3 USB + HDMI verified)"
-                    value={signoff.portsNotes}
-                    onChange={(e) => setSignoff((s) => ({ ...s, portsNotes: e.target.value }))}
-                    className="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-              </label>
-
-              <div className="border-t border-slate-800/80 pt-2.5">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={signoff.speakersChecked}
-                    onChange={(e) => setSignoff((s) => ({ ...s, speakersChecked: e.target.checked }))}
-                    className="mt-1 accent-emerald-500 w-4 h-4"
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-slate-100 flex items-center justify-between flex-wrap gap-2">
-                      <span className="flex items-center gap-1.5">
-                        <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                        Speakers Verified (Left, Right, Volume &amp; No Crackling)
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            playStereoChime("left");
-                          }}
-                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-cyan-300"
-                        >
-                          Test Left
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            playStereoChime("right");
-                          }}
-                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-cyan-300"
-                        >
-                          Test Right
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            playStereoChime("both");
-                          }}
-                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-emerald-300"
-                        >
-                          Stereo
-                        </button>
-                      </div>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Optional speaker notes (e.g. Stereo clear, no rattle)"
-                      value={signoff.speakersNotes}
-                      onChange={(e) => setSignoff((s) => ({ ...s, speakersNotes: e.target.value }))}
-                      className="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Shop & Technician Branding */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Shop Name (Saved as default)
-              </label>
+              <label className="block text-xs font-bold text-black mb-1">Shop Name (Saved)</label>
               <input
                 type="text"
                 value={profile.shopName}
                 onChange={(e) => setProfile((p) => ({ ...p, shopName: e.target.value }))}
                 placeholder="e.g. ProTech Laptop Store"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-blue-600"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Technician Username (Saved as default)
-              </label>
+              <label className="block text-xs font-bold text-black mb-1">Technician Username (Saved)</label>
               <input
                 type="text"
                 value={profile.technicianName}
                 onChange={(e) => setProfile((p) => ({ ...p, technicianName: e.target.value }))}
-                placeholder="e.g. tech_alex"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                placeholder="e.g. Hein Htet Zaw"
+                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-blue-600"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Customer Name / Inventory SKU (Optional)
-              </label>
+              <label className="block text-xs font-bold text-black mb-1">Customer / Inventory SKU (Optional)</label>
               <input
                 type="text"
                 value={customerOrSku}
                 onChange={(e) => setCustomerOrSku(e.target.value)}
-                placeholder="e.g. SKU-2026-041 or Customer Name"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                placeholder="e.g. SKU-2026-041"
+                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-blue-600"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Shop Logo (Optional, for HTML report)
-              </label>
+              <label className="block text-xs font-bold text-black mb-1">Shop Logo (Optional)</label>
               <div className="flex items-center gap-2">
-                <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 hover:border-cyan-500 text-xs text-slate-300">
-                  <ImageIcon className="w-4 h-4 text-cyan-400" />
+                <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-zinc-50 border border-zinc-300 hover:border-blue-600 text-xs font-semibold text-black">
+                  <ImageIcon className="w-4 h-4 text-blue-600" />
                   {profile.logoDataUrl ? "Change Logo" : "Upload PNG/JPG"}
                   <input type="file" accept="image/png,image/jpeg" onChange={handleLogoUpload} className="hidden" />
                 </label>
@@ -342,7 +215,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   <img
                     src={profile.logoDataUrl}
                     alt="Logo"
-                    className="h-9 w-9 rounded object-contain bg-white p-0.5"
+                    className="h-9 w-9 rounded object-contain border border-zinc-300 p-0.5"
                   />
                 )}
               </div>
@@ -350,67 +223,57 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
-              Final Technician Notes (Optional)
-            </label>
+            <label className="block text-xs font-bold text-black mb-1">Final Technician Notes (Optional)</label>
             <textarea
               rows={2}
               value={technicianNotes}
               onChange={(e) => setTechnicianNotes(e.target.value)}
-              placeholder="e.g. Cleaned fans, Grade A chassis, ready for showroom display."
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+              placeholder="e.g. Grade A unit, all tests verified."
+              className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-blue-600"
             />
           </div>
 
-          {/* Export Output Directory */}
-          <div className="flex items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
+          <div className="flex items-center justify-between gap-2 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
             <div className="min-w-0">
-              <div className="text-[11px] text-slate-400">Output Directory</div>
-              <div className="text-xs text-slate-200 truncate font-mono">
+              <div className="text-[11px] text-zinc-500">Output Directory</div>
+              <div className="text-xs text-black truncate font-mono">
                 {profile.defaultOutputDir || "Documents/LaptopBenchQC/Reports (Default)"}
               </div>
             </div>
             <button
               type="button"
               onClick={handleChooseFolder}
-              className="shrink-0 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 flex items-center gap-1.5"
+              className="shrink-0 px-3 py-1.5 rounded-lg border border-black bg-white hover:bg-zinc-100 text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
             >
-              <FolderOpen className="w-3.5 h-3.5" />
-              Browse
+              <FolderOpen className="w-3.5 h-3.5" /> Browse
             </button>
           </div>
 
-          {error && (
-            <div className="rounded-lg bg-rose-500/15 border border-rose-500/40 px-3 py-2 text-xs text-rose-200">
-              {error}
-            </div>
-          )}
+          {error && <div className="rounded-lg bg-black text-white px-3 py-2 text-xs">{error}</div>}
 
           {exported && (
-            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/40 p-4 space-y-2.5">
-              <div className="flex items-center gap-2 text-emerald-300 font-semibold text-sm">
-                <CheckCircle2 className="w-4 h-4" />
+            <div className="rounded-xl bg-blue-50 border border-blue-600 p-4 space-y-2.5">
+              <div className="flex items-center gap-2 text-blue-800 font-bold text-sm">
+                <CheckCircle2 className="w-4 h-4 text-blue-600" />
                 QC Certificate Exported Successfully!
               </div>
-              <div className="text-xs text-slate-300 font-mono break-all">
-                Folder: {exported.directory}
-              </div>
+              <div className="text-xs text-zinc-700 font-mono break-all">Folder: {exported.directory}</div>
               <div className="flex flex-wrap gap-2 pt-1">
                 <button
                   onClick={() => openPath(exported.pdfPath)}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   <FileText className="w-3.5 h-3.5" /> Open PDF Certificate
                 </button>
                 <button
                   onClick={() => openPath(exported.htmlPath)}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-200 font-semibold text-xs"
+                  className="px-3.5 py-1.5 rounded-lg border border-black bg-white hover:bg-zinc-100 text-black font-bold text-xs cursor-pointer"
                 >
                   Open Branded HTML
                 </button>
                 <button
                   onClick={() => openPath(exported.directory)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   <FolderOpen className="w-3.5 h-3.5" /> Open Folder
                 </button>
@@ -420,20 +283,28 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-slate-800 flex items-center justify-end gap-2.5">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200"
-          >
-            Close
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="px-5 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs shadow-lg"
-          >
-            {exporting ? "Exporting PDF + HTML + JSON..." : "Export Final QC Report"}
-          </button>
+        <div className="px-6 py-3.5 border-t border-zinc-200 bg-zinc-50 flex items-center justify-between gap-2.5">
+          <div className="text-[11px] text-zinc-600 flex items-center gap-1">
+            Created by <strong className="text-black">Hein Htet Zaw</strong>
+            <span className="text-blue-600 font-mono inline-flex items-center gap-0.5">
+              (<Send className="w-2.5 h-2.5" />@ich8g92)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 text-xs font-bold text-black cursor-pointer"
+            >
+              Close
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs cursor-pointer"
+            >
+              {exporting ? "Exporting PDF + HTML + JSON..." : "Export Final QC Report"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
