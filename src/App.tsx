@@ -7,6 +7,7 @@ import type {
   BatteryHealthReport,
   BatterySagResult,
   BiometricsHardwareReport,
+  CinePathtracerResult,
   CpuStressResult,
   DisplayProResult,
   ErrorLogsReport,
@@ -16,6 +17,7 @@ import type {
   HardwareFaultsReport,
   LiveTelemetrySnapshot,
   ModuleRecord,
+  Native3dSuiteResult,
   NetworkDiagnosticsReport,
   PerfBenchProgress,
   PerfBenchResult,
@@ -215,12 +217,14 @@ export const App: React.FC = () => {
   const [ramResult, setRamResult] = useState<RamTestResult | null>(null);
   const [bioHwReport, setBioHwReport] = useState<BiometricsHardwareReport | null>(null);
   const [perfResult, setPerfResult] = useState<PerfBenchResult | null>(null);
+  const [cinePathtracerResult, setCinePathtracerResult] = useState<CinePathtracerResult | null>(null);
   const [cpuStressResult, setCpuStressResult] = useState<CpuStressResult | null>(null);
   const [gpuResult, setGpuResult] = useState<GpuStressResult | null>(null);
   const [vramResult, setVramResult] = useState<VramTestResult | null>(null);
   const [tortureResult, setTortureResult] = useState<PowerTortureResult | null>(null);
   const [graphicsFpsResult, setGraphicsFpsResult] = useState<GraphicsFpsSuiteResult | null>(null);
   const [gpuComputeResult, setGpuComputeResult] = useState<GpuComputeBenchResult | null>(null);
+  const [native3dResult, setNative3dResult] = useState<Native3dSuiteResult | null>(null);
   const [networkReport, setNetworkReport] = useState<NetworkDiagnosticsReport | null>(null);
   const [loadingNetwork, setLoadingNetwork] = useState(false);
   const [hardwareFaults, setHardwareFaults] = useState<HardwareFaultsReport | null>(null);
@@ -1082,6 +1086,7 @@ export const App: React.FC = () => {
     manufacturer: specs?.manufacturer,
     model: specs?.model,
     result: perfResult,
+    cinePathtracerResult,
     userbenchmarkComparison,
     status: modules.performance.status,
     stepNumber: stepNumberOf("performance"),
@@ -1103,6 +1108,12 @@ export const App: React.FC = () => {
       updateModule("performance", res.status, res.summary);
       refreshUserbenchmarkComparison({ perf: res }).catch(() => {});
     },
+    onCinePathtracerComplete: (res) => {
+      setCinePathtracerResult(res);
+      const summary = perfResult ? `${perfResult.summary} | ${res.summary}` : res.summary;
+      const merged: TestStatus = perfResult?.status === "fail" ? "fail" : res.status === "warn" || perfResult?.status === "warn" ? "warn" : "pass";
+      updateModule("performance", merged, summary);
+    },
     onNext: () => advanceFrom("performance"),
     onSkip: () => skipStep("performance"),
   };
@@ -1120,6 +1131,7 @@ export const App: React.FC = () => {
     tortureResult,
     graphicsFpsResult,
     gpuComputeResult,
+    native3dResult,
     userbenchmarkComparison,
     status: modules.gpu.status,
     stepNumber: stepNumberOf("gpu"),
@@ -1140,38 +1152,45 @@ export const App: React.FC = () => {
     onComplete: (res) => {
       setGpuResult(res);
       gpuRef.current = res;
-      const statuses = [res.status, vramResult?.status, tortureResult?.status, graphicsFpsResult?.status, gpuComputeResult?.status].filter(Boolean) as TestStatus[];
+      const statuses = [res.status, vramResult?.status, tortureResult?.status, graphicsFpsResult?.status, gpuComputeResult?.status, native3dResult?.status].filter(Boolean) as TestStatus[];
       const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-      const parts = [res.summary, vramResult?.summary, tortureResult?.summary, graphicsFpsResult?.plainSummary].filter(Boolean).join(" | ");
+      const parts = [res.summary, vramResult?.summary, tortureResult?.summary, native3dResult?.summary, graphicsFpsResult?.plainSummary].filter(Boolean).join(" | ");
       updateModule("gpu", merged, parts);
       refreshUserbenchmarkComparison({ gpu: res }).catch(() => {});
     },
     onVramComplete: (res) => {
       setVramResult(res);
-      const statuses = [gpuResult?.status, res.status, tortureResult?.status, graphicsFpsResult?.status, gpuComputeResult?.status].filter(Boolean) as TestStatus[];
+      const statuses = [gpuResult?.status, res.status, tortureResult?.status, graphicsFpsResult?.status, gpuComputeResult?.status, native3dResult?.status].filter(Boolean) as TestStatus[];
       const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-      const parts = [gpuResult?.summary, res.summary, tortureResult?.summary, graphicsFpsResult?.plainSummary].filter(Boolean).join(" | ");
+      const parts = [gpuResult?.summary, res.summary, tortureResult?.summary, native3dResult?.summary, graphicsFpsResult?.plainSummary].filter(Boolean).join(" | ");
       updateModule("gpu", merged, parts);
     },
     onTortureComplete: (res) => {
       setTortureResult(res);
-      const statuses = [gpuResult?.status, vramResult?.status, res.status, graphicsFpsResult?.status, gpuComputeResult?.status].filter(Boolean) as TestStatus[];
+      const statuses = [gpuResult?.status, vramResult?.status, res.status, graphicsFpsResult?.status, gpuComputeResult?.status, native3dResult?.status].filter(Boolean) as TestStatus[];
       const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-      const parts = [gpuResult?.summary, vramResult?.summary, res.summary, graphicsFpsResult?.plainSummary].filter(Boolean).join(" | ");
+      const parts = [gpuResult?.summary, vramResult?.summary, res.summary, native3dResult?.summary, graphicsFpsResult?.plainSummary].filter(Boolean).join(" | ");
       updateModule("gpu", merged, parts);
     },
     onGraphicsFpsComplete: (res) => {
       setGraphicsFpsResult(res);
-      const statuses = [gpuResult?.status, vramResult?.status, tortureResult?.status, res.status, gpuComputeResult?.status].filter(Boolean) as TestStatus[];
+      const statuses = [gpuResult?.status, vramResult?.status, tortureResult?.status, res.status, gpuComputeResult?.status, native3dResult?.status].filter(Boolean) as TestStatus[];
       const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-      const parts = [gpuResult?.summary, vramResult?.summary, tortureResult?.summary, `Graphics Lab: ${res.compositeScore} (${res.smoothnessTier})`].filter(Boolean).join(" | ");
+      const parts = [gpuResult?.summary, vramResult?.summary, tortureResult?.summary, native3dResult?.summary, `Graphics Lab: ${res.compositeScore} (${res.smoothnessTier})`].filter(Boolean).join(" | ");
       updateModule("gpu", merged, parts);
     },
     onGpuComputeComplete: (res) => {
       setGpuComputeResult(res);
-      const statuses = [gpuResult?.status, vramResult?.status, tortureResult?.status, graphicsFpsResult?.status, res.status].filter(Boolean) as TestStatus[];
+      const statuses = [gpuResult?.status, vramResult?.status, tortureResult?.status, graphicsFpsResult?.status, res.status, native3dResult?.status].filter(Boolean) as TestStatus[];
       const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
-      const parts = [gpuResult?.summary, vramResult?.summary, tortureResult?.summary, `wgpu FP32: ${res.fp32Gflops.toFixed(0)} GFLOPS`].filter(Boolean).join(" | ");
+      const parts = [gpuResult?.summary, vramResult?.summary, tortureResult?.summary, native3dResult?.summary, `wgpu FP32: ${res.fp32Gflops.toFixed(0)} GFLOPS`].filter(Boolean).join(" | ");
+      updateModule("gpu", merged, parts);
+    },
+    onNative3dComplete: (res) => {
+      setNative3dResult(res);
+      const statuses = [gpuResult?.status, vramResult?.status, tortureResult?.status, graphicsFpsResult?.status, gpuComputeResult?.status, res.status].filter(Boolean) as TestStatus[];
+      const merged: TestStatus = statuses.includes("fail") ? "fail" : statuses.includes("warn") ? "warn" : "pass";
+      const parts = [gpuResult?.summary, vramResult?.summary, tortureResult?.summary, res.summary].filter(Boolean).join(" | ");
       updateModule("gpu", merged, parts);
     },
     onMarkNA: () =>
@@ -1232,12 +1251,14 @@ export const App: React.FC = () => {
     touchscreenResult,
     ramResult,
     perfResult,
+    cinePathtracerResult,
     cpuStressResult,
     gpuResult,
     vramResult,
     tortureResult,
     graphicsFpsResult,
     gpuComputeResult,
+    native3dResult,
     networkReport,
     hardwareFaults,
     sleepAuditReport,

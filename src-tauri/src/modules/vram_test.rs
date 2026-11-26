@@ -313,9 +313,22 @@ pub fn run_vram_integrity_test_with_cutoff(
     let words_per_chunk = (chunk_bytes / 4) as u32;
     let workgroups = (words_per_chunk + 255) / 256;
 
-    let requested_mb = target_vram_mb.unwrap_or(if is_discrete { 1024 } else { 384 }).clamp(128, 4096);
-    let num_chunks = ((requested_mb / chunk_mb) as usize).clamp(4, 128);
+    // Heavy 75% VRAM mode (target_vram_mb == Some(0)) auto-detects dedicated VRAM & allocates up to 75%
+    let requested_mb = if target_vram_mb == Some(0) {
+        let sp = crate::modules::specs::collect_system_specs();
+        let best_vram_mb: u64 = sp.gpus.iter().filter_map(|g| g.vram_mb).max().unwrap_or(0);
+        if is_discrete && best_vram_mb >= 1024 {
+            ((best_vram_mb as f64 * 0.75).round() as u64).clamp(1024, 16384)
+        } else {
+            let sys_ram_mb = (sp.total_ram_gb * 1024.0).round() as u64;
+            ((sys_ram_mb as f64 * 0.25).round() as u64).clamp(512, 4096)
+        }
+    } else {
+        target_vram_mb.unwrap_or(if is_discrete { 1024 } else { 384 }).clamp(128, 16384)
+    };
+    let num_chunks = ((requested_mb / chunk_mb) as usize).clamp(4, 512);
     let allocated_vram_mb = (num_chunks as u64) * chunk_mb;
+    let heavy_mode = target_vram_mb == Some(0) || allocated_vram_mb >= 2048;
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("VRAM Integrity Compute Shader"),
@@ -443,6 +456,7 @@ pub fn run_vram_integrity_test_with_cutoff(
     let mut total_errors: u64 = 0;
     let mut total_gb_verified: f64 = 0.0;
     let mut passes_completed: u32 = 0;
+    let mut peak_bw: f64 = 0.0;
     let mut cancelled = false;
     let mut thermal = VramThermalState {
         last_poll: Instant::now() - Duration::from_secs(5),
@@ -545,6 +559,7 @@ pub fn run_vram_integrity_test_with_cutoff(
         let pass_gb = (allocated_vram_mb as f64 * 2.0) / 1024.0; // Write + Read
         total_gb_verified += pass_gb;
         let inst_bw = ((pass_gb / pass_secs) * 10.0).round() / 10.0;
+        peak_bw = peak_bw.max(inst_bw);
 
         let _ = thermal.poll(&mut telemetry, &started, false);
 
@@ -661,6 +676,8 @@ pub fn run_vram_integrity_test_with_cutoff(
         effective_cutoff_c: safe_cutoff_c,
         sensor_available: sensor_available_ever,
         plain_summary,
+        peak_bandwidth_gb_s: peak_bw.max(avg_bw),
+        heavy_mode,
     })
 }
 

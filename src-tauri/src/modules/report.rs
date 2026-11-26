@@ -454,6 +454,30 @@ pub(crate) fn build_long_term_meaning(payload: &ExportReportPayload) -> (String,
         }
     }
 
+    if let Some(n3d) = &payload.native_3d {
+        let line = format!(
+            "Native Uncapped {} 3D Suite ({} • Score {}): {:.1} FPS avg ({:.1} 1%L, {} artifacts) — {}",
+            n3d.backend, n3d.resolution, n3d.composite_score, n3d.avg_fps, n3d.low_1pct_fps, n3d.artifact_errors, n3d.plain_summary
+        );
+        if n3d.status != TestStatus::Pass {
+            critical_bullets.push(line);
+        } else {
+            standard_bullets.push(line);
+        }
+    }
+
+    if let Some(cp) = &payload.cine_pathtracer {
+        let line = format!(
+            "Cinebench-Class CPU Path-Tracer ({} • {} pts, {:.2} MRays/s): {}",
+            cp.tier, cp.multi_core_pts, cp.mrays_per_sec, cp.plain_summary
+        );
+        if cp.status != TestStatus::Pass {
+            critical_bullets.push(line);
+        } else {
+            standard_bullets.push(line);
+        }
+    }
+
     if let Some(ub) = &payload.user_benchmark {
         standard_bullets.push(format!(
             "UserBenchmark Standing ({}): Overall {} tier — Gaming {:.0}%, Desktop {:.0}%, Workstation {:.0}%. {}",
@@ -813,8 +837,81 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         || payload.tamper_forensics.is_some()
         || payload.graphics_fps.is_some()
         || payload.gpu_compute.is_some()
+        || payload.native_3d.is_some()
+        || payload.cine_pathtracer.is_some()
     {
         let mut cards = String::new();
+        if let Some(n3d) = &payload.native_3d {
+            let cls = match n3d.status {
+                TestStatus::Pass => "st-pass",
+                TestStatus::Fail => "st-fail",
+                _ => "st-warn",
+            };
+            let scene_bits = n3d
+                .scenes
+                .iter()
+                .map(|s| format!("{} {:.1} FPS (1%L {:.1})", html_escape(&s.name), s.avg_fps, s.low_1pct_fps))
+                .collect::<Vec<_>>()
+                .join(" &bull; ");
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">NATIVE DX12/VULKAN/METAL UNCAPPED 3D BENCHMARK SUITE</strong>
+                    <span class="stamp {cls}">{tier}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    {ad} ({bk} / {pm}) &bull; {res} &bull; Score: {score} &bull; Avg: {fps:.1} FPS (1%L {l1:.1}) &bull; Artifacts: {art} &bull; {bits}
+                  </div>
+                  <div class="ub-summary">{plain}</div>
+                </div>"#,
+                cls = cls,
+                tier = html_escape(&n3d.tier.to_uppercase()),
+                ad = html_escape(&n3d.adapter_name),
+                bk = html_escape(&n3d.backend),
+                pm = html_escape(&n3d.present_mode),
+                res = html_escape(&n3d.resolution),
+                score = n3d.composite_score,
+                fps = n3d.avg_fps,
+                l1 = n3d.low_1pct_fps,
+                art = n3d.artifact_errors,
+                bits = scene_bits,
+                plain = html_escape(&n3d.plain_summary),
+            ));
+        }
+        if let Some(cp) = &payload.cine_pathtracer {
+            let cls = match cp.status {
+                TestStatus::Pass => "st-pass",
+                TestStatus::Fail => "st-fail",
+                _ => "st-warn",
+            };
+            let sc_str = match (cp.single_core_pts, cp.mp_ratio) {
+                (Some(sc), Some(r)) => format!(" &bull; Single-Core: {} pts (MP {:.2}x)", sc, r),
+                (Some(sc), None) => format!(" &bull; Single-Core: {} pts", sc),
+                _ => String::new(),
+            };
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">CINEBENCH-CLASS MONTE-CARLO CPU PATH-TRACER</strong>
+                    <span class="stamp {cls}">{tier}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    {res} ({spp} spp, {th}T) &bull; Multi-Core: {mc} pts{sc} &bull; {mr:.2} MRays/s &bull; Clock: {clk} MHz
+                  </div>
+                  <div class="ub-summary">{plain}</div>
+                </div>"#,
+                cls = cls,
+                tier = html_escape(&cp.tier.to_uppercase()),
+                res = html_escape(&cp.resolution),
+                spp = cp.samples_per_pixel,
+                th = cp.threads_used,
+                mc = cp.multi_core_pts,
+                sc = sc_str,
+                mr = cp.mrays_per_sec,
+                clk = cp.avg_clock_mhz,
+                plain = html_escape(&cp.plain_summary),
+            ));
+        }
         if let Some(gf) = &payload.graphics_fps {
             let cls = match gf.status {
                 TestStatus::Pass => "st-pass",
@@ -1490,7 +1587,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </section>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.4.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.5.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Tamper-Check ID: {cert_id}</span>
   </footer>
 </div>
@@ -1504,7 +1601,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </table>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.4.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.5.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Cert ID: {cert_id}</span>
   </footer>
 </div>
@@ -1592,7 +1689,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         spk_ok = if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         spk_notes = html_escape(&payload.signoff.speakers_notes),
         notes_esc = if payload.technician_notes.trim().is_empty() {
-            format!("Unit inspected per {}-stage LaptopBench QC v3.4.0 protocol.", stage_count)
+            format!("Unit inspected per {}-stage LaptopBench QC v3.5.0 protocol.", stage_count)
         } else {
             html_escape(payload.technician_notes.trim())
         },
@@ -1648,7 +1745,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
     let json_val = serde_json::json!({
         "certificateId": cert_id,
         "generatedAt": generated_at,
-        "version": "3.4.0",
+        "version": "3.5.0",
         "report": payload
     });
     let json_str = serde_json::to_string_pretty(&json_val).map_err(|e| e.to_string())?;
@@ -1841,6 +1938,8 @@ mod tests {
             tamper_forensics: None,
             graphics_fps: None,
             gpu_compute: None,
+            native_3d: None,
+            cine_pathtracer: None,
             tests: (1..=14)
                 .map(|i| ReportTestEntry {
                     id: format!("stage_{}", i),
@@ -1867,7 +1966,7 @@ mod tests {
         let payload = sample_v230_payload(None, "ABNORMAL");
         let html = render_qc_html(&payload, "2026-11-26 10:00:00");
 
-        assert!(html.contains("LaptopBench QC v3.4.0"));
+        assert!(html.contains("LaptopBench QC v3.5.0"));
         assert!(html.contains("Created by Hein Htet Zaw"));
         assert!(html.contains("@ich8g92"));
         assert!(html.contains("14-STAGE TECHNICAL DIAGNOSTIC AUDIT LEDGER"));
@@ -1907,9 +2006,9 @@ mod tests {
 
         assert!(pdf_bytes.starts_with(b"%PDF-1.4"));
         assert!(pdf_bytes.ends_with(b"%%EOF\n"));
-        assert!(html_text.contains("LaptopBench QC v3.4.0"));
+        assert!(html_text.contains("LaptopBench QC v3.5.0"));
         let parsed: serde_json::Value = serde_json::from_str(&json_text).expect("valid JSON");
-        assert_eq!(parsed["version"], "3.4.0");
+        assert_eq!(parsed["version"], "3.5.0");
         assert_eq!(parsed["report"]["userBenchmark"]["overallVehicleTier"], "Aircraft Carrier");
         assert_eq!(parsed["report"]["batteryDischarge"]["verdict"], "NORMAL");
         assert_eq!(parsed["report"]["touchscreen"]["coveredCells"], 160);

@@ -8,10 +8,13 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   build: {
-    chunkSizeWarningLimit: 650,
+    chunkSizeWarningLimit: 5000,
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes("node_modules/@dimforge/rapier3d-compat")) {
+            return "rapier-physics";
+          }
           if (id.includes("node_modules/three")) {
             return "three-engine";
           }

@@ -3,8 +3,8 @@ mod modules;
 mod types;
 
 use modules::{
-    baselines, battery, biometrics, cpu_stress, display_pro, error_logs, gpu_stress, hardware_controls,
-    hardware_faults, keyboard_hook, network, perf_bench, port_diagnostics, portable, power_torture, qc_archive, ram_test,
+    baselines, battery, biometrics, cine_pathtracer, cpu_stress, display_pro, error_logs, gpu_stress, hardware_controls,
+    hardware_faults, keyboard_hook, native_3d_bench, network, perf_bench, port_diagnostics, portable, power_torture, qc_archive, ram_test,
     raytracer, report, security_audit, session, shop_history, simd_kernels, sleep_audit, specs, storage,
     telemetry, usb_ports, userbenchmark, vram_test,
 };
@@ -16,10 +16,10 @@ use tauri::{AppHandle, State};
 use types::{
     BatteryChargeResult, BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample,
     BatterySagResult,
-    BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult,
+    BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CinePathtracerResult, CpuStressResult,
     DisplayCapabilitiesReport, EdpHingeFlexResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuComputeBenchResult, GpuStressResult,
-    HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
+    HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, Native3dSuiteResult, NetworkDiagnosticsReport, PerfBenchResult,
     PortDiagnosticsReport, PortableStorageInfo, PowerTortureResult, QcArchiveRecord, RamTestResult,
     RemovableDriveBenchResult, RemovableDriveInfo, SavedSessionPayload, SecurityAuditReport,
     ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, SleepStandbyReport, StorageBenchResult,
@@ -30,6 +30,10 @@ use types::{
     CPU_THERMAL_CUTOFF_MIN_C, GPU_THERMAL_CUTOFF_DEFAULT_C, GPU_THERMAL_CUTOFF_MAX_C,
     GPU_THERMAL_CUTOFF_MIN_C,
 };
+
+pub fn run_native_3d_bench_cli(args: &[String]) -> Result<(), String> {
+    native_3d_bench::run_native_3d_bench_cli(args)
+}
 
 pub struct CancelRegistry {
     pub battery_stop: Mutex<Option<Arc<AtomicBool>>>,
@@ -47,6 +51,8 @@ pub struct CancelRegistry {
     pub vram_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub torture_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub burnin_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub native_3d_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub cine_pathtracer_cancel: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl Default for CancelRegistry {
@@ -67,6 +73,8 @@ impl Default for CancelRegistry {
             vram_cancel: Mutex::new(None),
             torture_cancel: Mutex::new(None),
             burnin_cancel: Mutex::new(None),
+            native_3d_cancel: Mutex::new(None),
+            cine_pathtracer_cancel: Mutex::new(None),
         }
     }
 }
@@ -684,7 +692,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v3.4.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v3.5.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -1006,6 +1014,8 @@ pub fn run_self_test() -> Result<(), String> {
         tamper_forensics: None,
         graphics_fps: None,
         gpu_compute: None,
+        native_3d: None,
+        cine_pathtracer: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -1014,8 +1024,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v3.4.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v3.4.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v3.5.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v3.5.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -1232,7 +1242,17 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v3.4.0 SELF-TESTS PASSED ===");
+    let native_3d_smoke = match native_3d_bench::smoke_test_native_3d_shaders() {
+        Ok(s) => s,
+        Err(e) => format!("Skipped ({})", e),
+    };
+    let cine_smoke = cine_pathtracer::smoke_test_cine_pathtracer()?;
+    println!(
+        "[PASS] v3.5.0 Dual-Engine Powerhouse ({} | {})",
+        native_3d_smoke, cine_smoke
+    );
+
+    println!("=== ALL v3.5.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -1241,6 +1261,60 @@ async fn run_gpu_compute_bench(adapter_index: Option<usize>) -> Result<GpuComput
     tauri::async_runtime::spawn_blocking(move || gpu_stress::run_gpu_compute_bench(adapter_index))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn run_native_3d_suite(
+    state: State<'_, CancelRegistry>,
+    resolution: Option<String>,
+    secs_per_scene: Option<u64>,
+    adapter_index: Option<usize>,
+    thermal_cutoff_c: Option<f32>,
+    scene: Option<String>,
+) -> Result<Native3dSuiteResult, String> {
+    let cancel = replace_flag(&state.native_3d_cancel);
+    let res = resolution.unwrap_or_else(|| "1080p".into());
+    let secs = secs_per_scene.unwrap_or(12).clamp(5, 60);
+    let cutoff = clamp_gpu_thermal_cutoff_cmd(thermal_cutoff_c);
+    tauri::async_runtime::spawn_blocking(move || {
+        native_3d_bench::launch_native_3d_suite_subprocess(
+            &res,
+            secs,
+            adapter_index,
+            cutoff,
+            scene.as_deref(),
+            cancel,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_native_3d_suite(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.native_3d_cancel);
+}
+
+#[tauri::command]
+async fn run_cine_pathtracer(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    mode: Option<String>,
+    quality: Option<String>,
+) -> Result<CinePathtracerResult, String> {
+    let cancel = replace_flag(&state.cine_pathtracer_cancel);
+    let m = mode.unwrap_or_else(|| "both".into());
+    let q = quality.unwrap_or_else(|| "quick".into());
+    tauri::async_runtime::spawn_blocking(move || {
+        cine_pathtracer::run_cine_pathtracer(&app, &m, &q, cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_cine_pathtracer(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.cine_pathtracer_cancel);
 }
 
 #[tauri::command]
@@ -1304,6 +1378,10 @@ pub fn run() {
             run_gpu_stress,
             cancel_gpu_stress,
             run_gpu_compute_bench,
+            run_native_3d_suite,
+            cancel_native_3d_suite,
+            run_cine_pathtracer,
+            cancel_cine_pathtracer,
             run_vram_test,
             cancel_vram_test,
             run_power_torture,

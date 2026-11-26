@@ -622,6 +622,63 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         cancelledFlags.cpu_stress = true;
         return null;
       },
+      run_native_3d_suite: async (args) =>
+        fixture.native3d || {
+          status: "pass",
+          adapterName: "Intel Iris Xe Graphics (Mock)",
+          backend: "Dx12",
+          presentMode: "Immediate",
+          resolution: (args && args.resolution) || "1920x1080 (1080p)",
+          compositeScore: 6840,
+          avgFps: 74.2,
+          low1pctFps: 61.5,
+          peakTempC: 72.0,
+          peakPowerW: 28.5,
+          artifactErrors: 0,
+          thermalCutoffTriggered: false,
+          cancelled: false,
+          elapsedSecs: 40.0,
+          tier: "Mainstream dGPU / High-End iGPU",
+          scenes: [
+            { id: "native_furmark", name: "Native FurMark Volumetric Fur-Torus", avgFps: 62.4, low1pctFps: 54.0, low01pctFps: 50.1, avgFrameMs: 16.0, framesRendered: 750, peakTempC: 72.0, peakPowerW: 28.5, artifactErrors: 0, score: 5980, status: "pass" },
+            { id: "native_pathtrace", name: "Native Multi-Bounce Path-Traced PBR", avgFps: 58.1, low1pctFps: 49.8, low01pctFps: 45.2, avgFrameMs: 17.2, framesRendered: 700, peakTempC: 71.0, peakPowerW: 27.4, artifactErrors: 0, score: 5570, status: "pass" },
+            { id: "native_canyon", name: "Native Volumetric Alpine Canyon", avgFps: 68.5, low1pctFps: 58.0, low01pctFps: 53.0, avgFrameMs: 14.6, framesRendered: 820, peakTempC: 70.0, peakPowerW: 26.8, artifactErrors: 0, score: 6550, status: "pass" },
+            { id: "native_particles", name: "Native 500,000-Particle GPU Compute", avgFps: 107.8, low1pctFps: 84.2, low01pctFps: 76.0, avgFrameMs: 9.28, framesRendered: 1290, peakTempC: 69.0, peakPowerW: 25.0, artifactErrors: 0, score: 9260, status: "pass" },
+          ],
+          previewDataUrl: null,
+          summary: "Native Dx12 1920x1080 (Immediate): 74.2 FPS avg (61.5 1% Low) | Score 6840 | 0 artifacts",
+          plainSummary: "Intel Iris Xe Graphics ran native uncapped Dx12 3D at 74.2 FPS avg (0 artifacts).",
+        },
+      cancel_native_3d_suite: async () => {
+        cancelledFlags.native_3d = true;
+        return null;
+      },
+      run_cine_pathtracer: async (args) =>
+        fixture.cinePathtracer || {
+          status: "pass",
+          mode: (args && args.mode) || "both",
+          resolution: "960x540",
+          samplesPerPixel: 24,
+          threadsUsed: 8,
+          multiCorePts: 8420,
+          singleCorePts: 1580,
+          mpRatio: 5.33,
+          mraysPerSec: 6.74,
+          totalRays: 42000000,
+          elapsedSecs: 6.2,
+          peakTempC: 76.0,
+          avgClockMhz: 3500,
+          throttleDropPct: 3.1,
+          cancelled: false,
+          tier: "Modern Mainstream Ultrabook",
+          imageDataUrl: null,
+          summary: "Cine Path-Tracer (960x540 24spp, 8T): Multi 8420 pts | Single-Core 1580 pts (MP 5.33x) | 6.74 MRays/s",
+          plainSummary: "Multi-bounce Monte-Carlo PBR Path-Tracer completed across 8 threads: 8420 pts (6.74 MRays/s).",
+        },
+      cancel_cine_pathtracer: async () => {
+        cancelledFlags.cine_pathtracer = true;
+        return null;
+      },
       list_qc_archive: async () => fixture.qcArchive || [],
       check_warranty_return_diff: async () => fixture.warrantyReturnDiff || null,
       delete_qc_archive_entry: async () => 1,

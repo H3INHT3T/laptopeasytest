@@ -86,6 +86,13 @@ pub(crate) fn compute_ssd_write_budget(preset: &str) -> SsdWriteBudget {
             rand_qd32_write_mb: 48,
             mixed_write_mb: 32,
         },
+        "slc_saturation" => SsdWriteBudget {
+            total_budget_mb: 4096, // 4 GB Sustained SLC-Cache Saturation Audit (v3.5.0)
+            seq_mb: 3968,
+            rand_qd1_write_mb: 48,
+            rand_qd32_write_mb: 48,
+            mixed_write_mb: 32,
+        },
         _ => SsdWriteBudget {
             total_budget_mb: SSD_WRITE_BUDGET_QUICK_MB, // 128 MB
             seq_mb: 96,
@@ -97,9 +104,13 @@ pub(crate) fn compute_ssd_write_budget(preset: &str) -> SsdWriteBudget {
 }
 
 pub(crate) fn validate_free_space_mb(avail_mb: u64, budget_mb: u64) -> Result<(), String> {
-    let required_mb = budget_mb
-        .saturating_mul(SSD_FREE_SPACE_MULTIPLIER)
-        .max(2048);
+    let required_mb = if budget_mb > 1024 {
+        budget_mb.saturating_add(2048)
+    } else {
+        budget_mb
+            .saturating_mul(SSD_FREE_SPACE_MULTIPLIER)
+            .max(2048)
+    };
     if avail_mb < required_mb {
         return Err(format!(
             "Insufficient free disk space: {} MB available, require at least {} MB ({}x {} MB write budget, minimum 2048 MB).",
@@ -1588,6 +1599,21 @@ pub fn run_storage_benchmark(
     let (seq_write_early_mb_s, seq_write_late_mb_s, write_collapse_pct, temp_rise_c, thermal_throttle_verdict) =
         classify_ssd_write_collapse(&chunk_speeds, start_drive_temp, peak_drive_temp);
 
+    // Downsample chunk write speeds into up to 48 curve points for SLC-Cache saturation charting (v3.5.0)
+    let slc_speed_curve_mb_s: Vec<f64> = if chunk_speeds.len() <= 48 {
+        chunk_speeds.iter().map(|v| (v * 10.0).round() / 10.0).collect()
+    } else {
+        let step = chunk_speeds.len() as f64 / 48.0;
+        (0..48)
+            .map(|i| {
+                let s = (i as f64 * step) as usize;
+                let e = (((i + 1) as f64 * step) as usize).min(chunk_speeds.len()).max(s + 1);
+                let avg = chunk_speeds[s..e].iter().sum::<f64>() / (e - s) as f64;
+                (avg * 10.0).round() / 10.0
+            })
+            .collect()
+    };
+
     let total_written_mb = (bytes_written + (1024 * 1024 - 1)) / (1024 * 1024);
     let iface = interface_hint.unwrap_or_else(|| "NVMe".into());
     let media = media_hint.unwrap_or_else(|| "SSD".into());
@@ -1610,6 +1636,7 @@ pub fn run_storage_benchmark(
         TestStatus::Fail
     } else if thermal_warning
         || thermal_throttle_verdict == "SSD_THERMAL_THROTTLE"
+        || (preset == "slc_saturation" && thermal_throttle_verdict == "SLC_CACHE_DROP")
         || baseline.percent_of_normal < 80.0
         || p99_4k_latency_ms > 15.0
     {
@@ -1712,6 +1739,7 @@ pub fn run_storage_benchmark(
         seq_write_late_mb_s,
         write_collapse_pct,
         thermal_throttle_verdict,
+        slc_speed_curve_mb_s,
     })
 }
 

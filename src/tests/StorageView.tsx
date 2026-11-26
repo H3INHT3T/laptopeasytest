@@ -7,8 +7,8 @@ import {
   type LiveTelemetrySnapshot,
   type StorageBenchProgress,
   type StorageBenchResult,
+  type StoragePreset,
   type StorageSmartReport,
-  type StressPreset,
   type SystemSpecs,
   type TestStatus,
   type UserBenchmarkComparison,
@@ -58,7 +58,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
   onNext,
   onSkip,
 }) => {
-  const [preset, setPreset] = useState<StressPreset>("quick");
+  const [preset, setPreset] = useState<StoragePreset>("quick");
   const [targetMount, setTargetMount] = useState<string>("");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<StorageBenchProgress | null>(null);
@@ -94,12 +94,17 @@ export const StorageView: React.FC<StorageViewProps> = ({
 
   const effectiveVolumes = volumes.length > 0 ? volumes : specs?.volumes ?? [];
   const budgetMb =
-    preset === "burnin"
+    preset === "slc_saturation"
+      ? 4096
+      : preset === "burnin"
       ? DEFAULT_HARDWARE_SAFETY_BOUNDS.ssdWriteBudgetMaxMb
       : preset === "standard"
       ? DEFAULT_HARDWARE_SAFETY_BOUNDS.ssdWriteBudgetStdMb
       : DEFAULT_HARDWARE_SAFETY_BOUNDS.ssdWriteBudgetQuickMb;
-  const requiredFreeMb = Math.max(2048, budgetMb * DEFAULT_HARDWARE_SAFETY_BOUNDS.ssdFreeSpaceMultiplier);
+  const requiredFreeMb =
+    budgetMb > 1024
+      ? budgetMb + 2048
+      : Math.max(2048, budgetMb * DEFAULT_HARDWARE_SAFETY_BOUNDS.ssdFreeSpaceMultiplier);
   const selectedVol = effectiveVolumes.find((v) => v.mount === targetMount) ?? effectiveVolumes[0];
   const lowSpace = Boolean(selectedVol && selectedVol.freeGb * 1024 < requiredFreeMb);
 
@@ -403,7 +408,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
             <select
               value={preset}
               disabled={running}
-              onChange={(e) => setPreset(e.target.value as StressPreset)}
+              onChange={(e) => setPreset(e.target.value as StoragePreset)}
               className="bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black font-medium"
             >
               <option value="quick">
@@ -414,6 +419,9 @@ export const StorageView: React.FC<StorageViewProps> = ({
               </option>
               <option value="burnin">
                 Deep Burn-In — {DEFAULT_HARDWARE_SAFETY_BOUNDS.ssdWriteBudgetMaxMb} MB Max Write Budget (SLC Exhaust + 8-Queue)
+              </option>
+              <option value="slc_saturation">
+                SLC-Cache Saturation (v3.5) — 4,096 MB (4 GB) Sustained Write (Exposes QLC Speed Collapse)
               </option>
             </select>
             {running ? (
@@ -617,6 +625,15 @@ export const StorageView: React.FC<StorageViewProps> = ({
                   {benchResult.thermalThrottleVerdict.replace(/_/g, " ")}
                 </span>
               </div>
+            )}
+
+            {benchResult.slcSpeedCurveMbS && benchResult.slcSpeedCurveMbS.length >= 3 && (
+              <LiveChart
+                title={`SLC-Cache Sustained Sequential Write Curve (${benchResult.totalWrittenMb ?? benchResult.testSizeMb} MB)`}
+                unit="MB/s"
+                data={benchResult.slcSpeedCurveMbS}
+                plainHint="Sharp drop after initial high speed reveals exhausted SLC buffer (QLC/DRAM-less NAND) or thermal throttling."
+              />
             )}
 
             <div className="grid grid-cols-2 md:grid-cols-6 divide-x divide-y md:divide-y-0 divide-zinc-200 border border-zinc-300 rounded-lg font-mono tabular-nums">

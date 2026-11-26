@@ -284,7 +284,7 @@ impl PageBuilder {
             // Hairline footer rule
             self.line(MARGIN, 34.0, MARGIN + content_w, 34.0, 0.6, COL_RULE);
             let footer = format!(
-                "LaptopBench QC v3.4.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
+                "LaptopBench QC v3.5.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
                 self.cert_id, page_num
             );
             let _ = writeln!(
@@ -945,7 +945,9 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         || payload.cpu_stress.as_ref().map(|c| c.bd_prochot_suspected || !c.cooldown_verdict.is_empty()).unwrap_or(false)
         || payload.tamper_forensics.is_some()
         || payload.graphics_fps.is_some()
-        || payload.gpu_compute.is_some();
+        || payload.gpu_compute.is_some()
+        || payload.native_3d.is_some()
+        || payload.cine_pathtracer.is_some();
 
     if has_v3_diag {
         draw_section_header(
@@ -1196,6 +1198,60 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
             draw_diag_card(&mut pb, "NATIVE WGPU UNCAPPED GPU FP32 COMPUTE", &gc.tier.to_uppercase(), sev, &body);
         }
 
+        if let Some(n3d) = &payload.native_3d {
+            let sev = match n3d.status {
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+                _ => "warn",
+            };
+            let scene_bits = n3d
+                .scenes
+                .iter()
+                .map(|s| format!("{} {:.1} FPS (1%L {:.1})", s.name, s.avg_fps, s.low_1pct_fps))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            let body = format!(
+                "Adapter: {} ({} / {}) | {} | Score: {} | Avg {:.1} FPS (1%L {:.1}) | Artifacts: {} | {} — {}",
+                n3d.adapter_name,
+                n3d.backend,
+                n3d.present_mode,
+                n3d.resolution,
+                n3d.composite_score,
+                n3d.avg_fps,
+                n3d.low_1pct_fps,
+                n3d.artifact_errors,
+                scene_bits,
+                n3d.plain_summary
+            );
+            draw_diag_card(&mut pb, "NATIVE DX12/VULKAN/METAL UNCAPPED 3D BENCHMARK SUITE", &n3d.tier.to_uppercase(), sev, &body);
+        }
+
+        if let Some(cp) = &payload.cine_pathtracer {
+            let sev = match cp.status {
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+                _ => "warn",
+            };
+            let sc_str = match (cp.single_core_pts, cp.mp_ratio) {
+                (Some(sc), Some(r)) => format!(" | Single-Core: {} pts (MP {:.2}x)", sc, r),
+                (Some(sc), None) => format!(" | Single-Core: {} pts", sc),
+                _ => String::new(),
+            };
+            let body = format!(
+                "Resolution: {} ({} spp, {} threads) | Multi-Core: {} pts{} | {:.2} MRays/s | Avg Clock: {} MHz | Throttle: {:.1}% — {}",
+                cp.resolution,
+                cp.samples_per_pixel,
+                cp.threads_used,
+                cp.multi_core_pts,
+                sc_str,
+                cp.mrays_per_sec,
+                cp.avg_clock_mhz,
+                cp.throttle_drop_pct,
+                cp.plain_summary
+            );
+            draw_diag_card(&mut pb, "CINEBENCH-CLASS MONTE-CARLO CPU PATH-TRACER", &cp.tier.to_uppercase(), sev, &body);
+        }
+
         if let Some(pb_res) = &payload.perf_bench {
             if pb_res.video_encode_fps > 0.0 || pb_res.sha256_mb_s > 0.0 || pb_res.json_parse_mb_s > 0.0 {
                 let body = format!(
@@ -1392,7 +1448,7 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     ));
-    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.4.0 protocol.", stage_count);
+    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.5.0 protocol.", stage_count);
     let notes_s = format!(
         "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
@@ -1613,7 +1669,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("LaptopBench QC v3.4.0"));
+        assert!(text.contains("LaptopBench QC v3.5.0"));
         assert!(text.contains("Created by Hein Htet Zaw"));
         assert!(text.contains("@ich8g92"));
         assert!(!text.contains("v2.1."));
@@ -1771,6 +1827,8 @@ mod tests {
             tamper_forensics: None,
             graphics_fps: None,
             gpu_compute: None,
+            native_3d: None,
+            cine_pathtracer: None,
             output_dir: None,
         };
 

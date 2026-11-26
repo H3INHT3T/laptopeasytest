@@ -28,6 +28,7 @@ import type {
   GraphicsFpsSceneScore,
   GraphicsFpsSuiteResult,
   LiveTelemetrySnapshot,
+  Native3dSuiteResult,
   TestStatus,
 } from "../types";
 import { StatusBadge } from "./StatusBadge";
@@ -51,10 +52,13 @@ export interface GraphicsFpsLabProps {
   selectedAdapter: number;
   adapterName: string;
   isDiscreteGpu: boolean;
+  thermalCutoffC?: number;
   suiteResult: GraphicsFpsSuiteResult | null;
   computeResult: GpuComputeBenchResult | null;
+  native3dResult?: Native3dSuiteResult | null;
   onSuiteComplete: (res: GraphicsFpsSuiteResult) => void;
   onComputeComplete: (res: GpuComputeBenchResult) => void;
+  onNative3dComplete?: (res: Native3dSuiteResult) => void;
   onRunningChange: (running: boolean) => void;
 }
 
@@ -321,10 +325,13 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
   selectedAdapter,
   adapterName,
   isDiscreteGpu,
+  thermalCutoffC = 88,
   suiteResult,
   computeResult,
+  native3dResult = null,
   onSuiteComplete,
   onComputeComplete,
+  onNative3dComplete,
   onRunningChange,
 }) => {
   const [loadTier, setLoadTier] = useState<LoadTier>(isDiscreteGpu ? "heavy" : "standard");
@@ -338,7 +345,36 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
 
   const [computeRunning, setComputeRunning] = useState(false);
   const [computeError, setComputeError] = useState<string | null>(null);
+  const [nativeRes, setNativeRes] = useState<"1080p" | "1440p" | "4k">("1080p");
+  const [nativeSecs, setNativeSecs] = useState<number>(12);
+  const [nativeScene, setNativeScene] = useState<string>("all");
+  const [nativeRunning, setNativeRunning] = useState(false);
+  const [nativeError, setNativeError] = useState<string | null>(null);
   const [liveHw, setLiveHw] = useState<LiveTelemetrySnapshot | null>(null);
+
+  const onNative3dCompleteRef = useRef(onNative3dComplete);
+  onNative3dCompleteRef.current = onNative3dComplete;
+
+  const runNative3dSuite = useCallback(async () => {
+    setNativeError(null);
+    setNativeRunning(true);
+    onRunningChangeRef.current(true);
+    try {
+      const res = await invoke<Native3dSuiteResult>("run_native_3d_suite", {
+        resolution: nativeRes,
+        secsPerScene: nativeSecs,
+        adapterIndex: selectedAdapter,
+        thermalCutoffC,
+        scene: nativeScene,
+      });
+      onNative3dCompleteRef.current?.(res);
+    } catch (e) {
+      setNativeError(String(e));
+    } finally {
+      setNativeRunning(false);
+      onRunningChangeRef.current(false);
+    }
+  }, [nativeRes, nativeSecs, nativeScene, selectedAdapter, thermalCutoffC]);
 
   const [hud, setHud] = useState({
     fps: 0,
@@ -708,9 +744,9 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
 
     const tick = (now: number) => {
       if (cancelled || finished) return;
-      const dtMs = Math.max(0.5, Math.min(250, now - lastFrameAt));
+      const dtMs = Math.max(0.5, Math.min(1500, now - lastFrameAt));
       lastFrameAt = now;
-      const realDt = dtMs / 1000; // True wall-clock elapsed (10s scene = 10 real seconds even on slow iGPUs)
+      const realDt = dtMs / 1000; // True wall-clock elapsed (10s scene = 10 real seconds even under extreme Ultra loads)
       const simDt = Math.min(0.05, realDt); // Clamped physics step to keep 3D physics rock-solid
       animElapsed += realDt;
 
@@ -852,19 +888,165 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Top Hero Card */}
+      {/* ENGINE 1: True Native Rust wgpu + winit Uncapped Fullscreen DX12/Vulkan/Metal 3D Suite */}
+      <div className="rounded-xl border-2 border-blue-600 bg-white p-5 space-y-4">
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Zap className="w-4 h-4 text-blue-600" />
+              <h2 className="text-base font-bold text-black tracking-tight">
+                Native Rust wgpu Uncapped Fullscreen 3D Suite — DX12 / Vulkan / Metal (v3.5.0)
+              </h2>
+              {native3dResult && <StatusBadge status={native3dResult.status} compact />}
+              <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white font-mono text-[10px] font-bold">
+                ZERO VSYNC CAP
+              </span>
+            </div>
+            <p className="text-xs text-zinc-600 max-w-2xl">
+              Spawns a real native OS fullscreen GPU window (<code className="font-mono text-black">PresentMode::Immediate</code>) bypassing WebView 60Hz VSync: (1) FurMark Volumetric Fur-Torus + Artifact Scan, (2) 4-Bounce Path-Traced PBR &amp; Glass Caustics, (3) Volumetric Alpine Canyon &amp; Clouds, (4) 500,000-Particle GPU Compute Vortex. Controls: <code className="font-mono text-black">Esc</code> Exit • <code className="font-mono text-black">N/P</code> Next/Prev • <code className="font-mono text-black">Drag/WASD</code> Free-Cam.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={nativeRes}
+              disabled={nativeRunning || fullscreenOpen}
+              onChange={(e) => setNativeRes(e.target.value as "1080p" | "1440p" | "4k")}
+              aria-label="Native 3D Resolution"
+              className="bg-[#F8FAFC] border border-zinc-200 rounded-lg px-2.5 py-2 font-mono text-xs font-semibold text-black"
+            >
+              <option value="1080p">1920×1080 (1080p)</option>
+              <option value="1440p">2560×1440 (1440p QHD)</option>
+              <option value="4k">3840×2160 (4K Extreme)</option>
+            </select>
+            <select
+              value={nativeSecs}
+              disabled={nativeRunning || fullscreenOpen}
+              onChange={(e) => setNativeSecs(Number(e.target.value))}
+              aria-label="Native 3D Duration"
+              className="bg-[#F8FAFC] border border-zinc-200 rounded-lg px-2.5 py-2 font-mono text-xs font-semibold text-black"
+            >
+              <option value={10}>10s / scene</option>
+              <option value={12}>12s / scene</option>
+              <option value={15}>15s / scene</option>
+              <option value={20}>20s / scene</option>
+            </select>
+            <select
+              value={nativeScene}
+              disabled={nativeRunning || fullscreenOpen}
+              onChange={(e) => setNativeScene(e.target.value)}
+              aria-label="Native 3D Scene Target"
+              className="bg-[#F8FAFC] border border-zinc-200 rounded-lg px-2.5 py-2 font-mono text-xs font-semibold text-black"
+            >
+              <option value="all">All 4 Native Scenes</option>
+              <option value="furmark">01. FurMark Fur-Torus</option>
+              <option value="pathtrace">02. Path-Traced PBR</option>
+              <option value="canyon">03. Volumetric Canyon</option>
+              <option value="particles">04. 500K GPU Particles</option>
+            </select>
+            {nativeRunning ? (
+              <button
+                type="button"
+                onClick={() => invoke("cancel_native_3d_suite").catch(() => {})}
+                className="px-4 py-2 rounded-xl bg-black hover:bg-zinc-800 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Square className="w-3.5 h-3.5" /> Stop Native 3D
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={fullscreenOpen}
+                onClick={runNative3dSuite}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <Maximize2 className="w-3.5 h-3.5" /> Launch Native Uncapped 3D
+              </button>
+            )}
+          </div>
+        </div>
+
+        {nativeError && (
+          <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">
+            {nativeError}
+          </div>
+        )}
+
+        {native3dResult && (
+          <div className="space-y-3 pt-1">
+            <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3.5 flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-3.5 flex-1 min-w-[260px]">
+                {native3dResult.previewDataUrl && (
+                  <img
+                    src={native3dResult.previewDataUrl}
+                    alt="Native Uncapped DX12/Vulkan/Metal 3D Capture"
+                    className="w-32 h-18 rounded-lg object-cover border border-zinc-300 bg-black shrink-0"
+                  />
+                )}
+                <div className="space-y-1 font-mono text-xs">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <strong className="text-blue-700 text-sm">
+                      {native3dResult.avgFps.toFixed(1)} FPS AVG (1% Low {native3dResult.low1pctFps.toFixed(1)})
+                    </strong>
+                    <span className="text-black font-bold">
+                      • Score {native3dResult.compositeScore.toLocaleString()}
+                    </span>
+                    <span className="text-zinc-500">
+                      • {native3dResult.backend} ({native3dResult.presentMode})
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-700 font-sans">
+                    {native3dResult.plainSummary}
+                  </div>
+                  <div className="text-[10.5px] text-zinc-600">
+                    {native3dResult.resolution} • Artifacts: <strong className="text-black">{native3dResult.artifactErrors}</strong>
+                    {native3dResult.peakTempC != null ? ` • Peak ${native3dResult.peakTempC.toFixed(0)}°C` : ""}
+                    {native3dResult.peakPowerW != null ? ` • Peak ${native3dResult.peakPowerW.toFixed(1)}W` : ""}
+                    {` • ${native3dResult.tier}`}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {native3dResult.scenes.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                {native3dResult.scenes.map((ns) => (
+                  <div
+                    key={ns.id}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5 font-mono tabular-nums text-[11px] space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-bold text-black truncate">{ns.name.replace("Native ", "")}</span>
+                      <StatusBadge status={ns.status} compact />
+                    </div>
+                    <div className="text-blue-700 font-black text-sm">
+                      {ns.avgFps.toFixed(1)} FPS{" "}
+                      <span className="text-[10px] font-semibold text-zinc-500">
+                        (1%L {ns.low1pctFps.toFixed(1)})
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">
+                      {ns.avgFrameMs.toFixed(1)}ms • {ns.framesRendered.toLocaleString()}f • {ns.artifactErrors} art
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ENGINE 2: AAA Three.js + Rapier3D Physics + 2D Graphics Top Hero Card */}
       <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               <Globe className="w-4 h-4 text-blue-600" />
               <h2 className="text-base font-bold text-black tracking-tight">
-                Three.js 3D Game Engine &amp; 2D Graphics Benchmark Suite (v3.4.0)
+                Three.js 3D Game Engine &amp; 2D Graphics Benchmark Suite (v3.5.0)
               </h2>
               {suiteResult && <StatusBadge status={suiteResult.status} compact />}
             </div>
             <p className="text-xs text-zinc-500 max-w-2xl">
-              Powered by real <strong>Three.js</strong> PBR shadows &amp; InstancedMesh: 3 full-color 3D Worlds (Sunlit Island, PBR Metallic Studio, Cyberpunk Megacity), 3 Playable 3D Games (Space Fighter Boss, Neon Highway Racer, Physics Tower Cannon) &amp; 3 PassMark-2D engines — with Play-Mode timer pause and uncapped native Rust <code className="font-mono text-black">wgpu</code> 1080p 3D FPS.
+              Upgraded AAA <strong>Three.js</strong> engine with <strong>RoomEnvironment HDRI</strong>, <strong>UnrealBloomPass</strong> post-processing, Sobel PBR normal/roughness maps, <strong>Rapier3D WASM rigid-body physics</strong>, Ultra 2× SSAA supersampling &amp; unlimited Play Mode (timer pauses).
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

@@ -78,6 +78,8 @@ interface PreReportModalProps {
   tortureResult?: PowerTortureResult | null;
   graphicsFpsResult?: GraphicsFpsSuiteResult | null;
   gpuComputeResult?: GpuComputeBenchResult | null;
+  native3dResult?: import("../types").Native3dSuiteResult | null;
+  cinePathtracerResult?: import("../types").CinePathtracerResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
   hardwareFaults?: HardwareFaultsReport | null;
   sleepAuditReport?: SleepStandbyReport | null;
@@ -114,6 +116,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   tortureResult,
   graphicsFpsResult,
   gpuComputeResult,
+  native3dResult,
+  cinePathtracerResult,
   networkReport,
   hardwareFaults,
   sleepAuditReport,
@@ -812,6 +816,12 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
           out.push(["UB GPU", `${effectiveGpuUb.vehicleTier} (${effectiveGpuUb.standingLabel})`]);
         }
       }
+      if (native3dResult) {
+        out.push([
+          "Native 3D",
+          `${native3dResult.avgFps.toFixed(1)} FPS (${native3dResult.backend} ${native3dResult.resolution}, ${native3dResult.artifactErrors} art)`,
+        ]);
+      }
       if (graphicsFpsResult) {
         out.push(["Graphics Lab", `${graphicsFpsResult.compositeScore} (${graphicsFpsResult.smoothnessTier})`]);
       }
@@ -890,6 +900,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         tamperForensics: tamperForensics ?? null,
         graphicsFps: graphicsFpsResult ?? null,
         gpuCompute: gpuComputeResult ?? null,
+        native3d: native3dResult ?? null,
+        cinePathtracer: cinePathtracerResult ?? null,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);

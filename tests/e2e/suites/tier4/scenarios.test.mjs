@@ -988,8 +988,8 @@ export const tests = [
         `Static Swiss color violations: ${JSON.stringify(swissStatic.violations.slice(0, 5))}`
       );
 
-      // v3.4.0: All 8 manifests/UI/report sources aligned to 3.4.0
-      const align = ctx.cli.checkVersionAlignment("3.4.0");
+      // v3.5.0: All 8 manifests/UI/report sources aligned to 3.5.0
+      const align = ctx.cli.checkVersionAlignment("3.5.0");
       ctx.assert.equal(
         align.ok,
         true,

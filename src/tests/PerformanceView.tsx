@@ -21,6 +21,7 @@ import {
 import {
   CPU_THERMAL_CUTOFF_DEFAULT_C,
   CPU_THERMAL_CUTOFF_MAX_C,
+  type CinePathtracerResult,
   type LiveTelemetrySnapshot,
   type PerfBenchProgress,
   type PerfBenchResult,
@@ -39,6 +40,7 @@ import { LiveChart } from "../components/LiveChart";
 import { BaselineCard } from "../components/BaselineCard";
 import { EnvironmentGuard } from "../components/EnvironmentGuard";
 import { EngineeringConsole, ThresholdAuditTable, type ThresholdAuditRow } from "../components/EngineeringConsole";
+import { CinePathtracerPanel } from "../components/CinePathtracerPanel";
 
 interface PerformanceViewProps {
   telemetry: LiveTelemetrySnapshot | null;
@@ -46,12 +48,14 @@ interface PerformanceViewProps {
   manufacturer?: string;
   model?: string;
   result: PerfBenchResult | null;
+  cinePathtracerResult?: CinePathtracerResult | null;
   userbenchmarkComparison?: UserBenchmarkComparison | null;
   status: TestStatus;
   stepNumber: number;
   totalSteps: number;
   onUserbenchmarkUpdate?: (comp: UserBenchmarkComparison) => void;
   onComplete: (res: PerfBenchResult) => void;
+  onCinePathtracerComplete?: (res: CinePathtracerResult) => void;
   onRunningChange: (running: boolean) => void;
   onNext: () => void;
   onSkip: () => void;
@@ -63,12 +67,14 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
   manufacturer,
   model,
   result,
+  cinePathtracerResult = null,
   userbenchmarkComparison,
   status,
   stepNumber,
   totalSteps,
   onUserbenchmarkUpdate,
   onComplete,
+  onCinePathtracerComplete,
   onRunningChange,
   onNext,
   onSkip,
@@ -1071,13 +1077,21 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
         </div>
       )}
 
+      {/* Engine 3: Cinebench-Class Live Tile Monte-Carlo PBR Path-Tracer (v3.5.0) */}
+      <CinePathtracerPanel
+        result={cinePathtracerResult}
+        disabled={running}
+        onComplete={(res) => onCinePathtracerComplete?.(res)}
+        onRunningChange={onRunningChange}
+      />
+
       <EngineeringConsole lines={consoleLog} />
 
       <StepActionBar
         stepNumber={stepNumber}
         totalSteps={totalSteps}
         status={status}
-        canProceed={Boolean(result && !running)}
+        canProceed={Boolean((result || cinePathtracerResult) && !running)}
         requirementHint={`Run the 14-Stage All-Scope Performance Audit to unlock Stage ${nextStageNum} (or click Skip Step).`}
         onNext={onNext}
         onSkip={onSkip}

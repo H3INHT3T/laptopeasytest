@@ -1,6 +1,6 @@
 [package]
 name = "laptopbench-qc"
-version = "3.4.0"
+version = "3.5.0"
 description = "LaptopBench QC — Created by Hein Htet Zaw (@ich8g92)"
 authors = ["Hein Htet Zaw (@ich8g92)"]
 edition = "2021"
@@ -23,6 +23,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rayon = "1.10"
 sha2 = "0.10"
 wgpu = "24"
+winit = "0.30"
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 base64 = "0.22"

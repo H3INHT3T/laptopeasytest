@@ -1,10 +1,27 @@
-# LaptopBench QC v3.4.0
+# LaptopBench QC v3.5.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v3.4.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, **Three.js 3D Game Engine & 2D Graphics Benchmark**, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, **Three.js (WebGL2 PBR)**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) interface.
+**LaptopBench QC v3.5.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, **Dual-Engine Powerhouse (Native Uncapped DX12/Vulkan/Metal 3D Suite + AAA Three.js/Rapier3D + Cinebench-Class Live Tile CPU Path-Tracer)**, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu + winit**, **Three.js + UnrealBloom + Rapier3D WASM**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) interface.
 
-## What's New in v3.4.0 — Real Three.js 3D Game Engine, 3 Playable 3D Games, Unlimited Play Mode & Zero-Reset Suite Flow
+## What's New in v3.5.0 — Dual-Engine Powerhouse (Native Uncapped 3D + AAA Three.js/Rapier3D + Cinebench Tile Path-Tracer)
+
+- **Engine 1 — True Native Rust `wgpu` + `winit` Uncapped Fullscreen 3D Suite (Zero VSync Cap):** Spawns a dedicated native OS fullscreen GPU window (`PresentMode::Immediate` / `Mailbox`) directly on **DirectX 12, Vulkan, or Metal** at selectable **1080p / 1440p / 4K**:
+  1. **FurMark-Class Volumetric Fur-Torus Thermal Hammer + Live Hardware ALU Artifact Scan**
+  2. **4-Bounce Real-Time Path-Traced PBR Reflections & Dielectric Glass Caustics Studio**
+  3. **Volumetric Alpine Canyon, 3D Clouds & Reflective Ocean Ray-Marcher**
+  4. **500,000-Particle GPU Compute Flocking & Gravity Vortex** (`cs_particles` storage-buffer compute + additive HDR rendering)
+  - Live on-screen GPU bitmap HUD (Uncapped FPS, 1% Low, 0.1% Low, Frame-Time Sparkline, GPU Temp °C, Wattage W, Load %, Artifacts, Countdown, `Esc` Exit, `N`/`P` Skip, Mouse/WASD Free-Cam) + automatic thermal safety cutoff + native JPEG capture embedded in PDF/HTML QC certificates.
+- **Engine 2 — Full AAA Three.js Visual & Real Physics Overhaul:**
+  - **Real `@dimforge/rapier3d-compat` WASM Rigid-Body Physics** in Playable 3D Game 3 (stacked architectural fortresses with true gravity, friction, restitution, angular inertia & chain-reaction tower demolition).
+  - **Real HDRI IBL Reflections (`PMREMGenerator` + `RoomEnvironment`)** + **`EffectComposer` + `UnrealBloomPass` + `OutputPass`** cinematic post-processing.
+  - **Procedural Tangent-Space PBR Normal/Roughness/Emissive Texture Maps** (carbon fiber, wet rain-puddle neon asphalt, ocean wave normals, studio marble, cyberpunk facades, beveled masonry), sculpted multi-part 3D Starfighter & Cyber-Supercar, and **Ultra 2× SSAA Supersampling**.
+- **Engine 3 — Cinebench-Class Live Tile CPU Path-Tracer + Heavy 75% VRAM + 4 GB SLC-Cache SSD Saturation:**
+  - **Stage 12 Live Tile Monte-Carlo PBR Path-Tracer (Rust + Rayon):** 5-bounce Global Illumination + dielectric glass refraction + metallic GGX reflections streaming live `64×64` spiral tiles with glowing active per-core tile frames, computing **Multi-Core pts**, **Single-Core pts**, **MP Ratio**, and **MRays/s**.
+  - **Stage 13 Tab 02 Heavy 75% VRAM Hammer:** Auto-detects dedicated GPU VRAM and allocates up to **75% (up to 12 GB)** across multi-buffer compute sweeps with **Peak VRAM Bandwidth (GB/s)** telemetry.
+  - **Stage 05 4 GB SLC-Cache Saturation SSD Audit:** Optional 4,096 MB sustained Direct-IO write test with live **SLC-Cache Sustained Sequential Write Curve** to expose QLC/DRAM-less drives that collapse once their SLC buffer fills.
+
+## Highlights from v3.4.0 — Real Three.js 3D Game Engine, 3 Playable 3D Games, Unlimited Play Mode & Zero-Reset Suite Flow
 
 - **100% Fixed 2–3s Scene Reset Bug:** Isolated all fullscreen Three.js / Canvas2D benchmark loops from background telemetry and parent callback re-renders so every test runs continuously from start to finish, auto-advances smoothly `01 → 09` with a clean transition banner, and supports instant **`Prev (P)` / `Next (N)`** navigation.
 - **Play Mode Timer Pause:** Clicking **`Take Control (Play)`** (or launching via **`Play 3D`**) pauses the countdown timer immediately so you can play any 3D game or fly through any 3D world as long as you want without interruption or reset, until you click **`Resume Suite`** or **`Exit (Esc)`**.

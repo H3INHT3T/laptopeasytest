@@ -60,26 +60,30 @@ async function waitForButtonEnabled(app, labelRegex, timeoutMs = 5000) {
 }
 
 async function advanceCurrentStage(app) {
-  const btns = await app.queryAll("button");
-  const nextBtn = btns.find(
-    (b) =>
-      b.rect.width > 0 &&
-      b.rect.height > 0 &&
-      !b.disabled &&
-      (/Next:\s*Stage/i.test(b.text) || /^Issue QC Certificate$/i.test(b.text))
-  );
-  if (nextBtn) {
-    await app.clickButton(new RegExp(`^${nextBtn.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
-    await sleep(30);
-    return "next";
-  }
-  const skipBtn = btns.find(
-    (b) => b.rect.width > 0 && b.rect.height > 0 && !b.disabled && /^Skip Step$/i.test(b.text)
-  );
-  if (skipBtn) {
-    await app.clickButton(/^Skip Step$/i);
-    await sleep(30);
-    return "skip";
+  const deadline = Date.now() + 3500;
+  while (Date.now() < deadline) {
+    const btns = await app.queryAll("button");
+    const nextBtn = btns.find(
+      (b) =>
+        b.rect.width > 0 &&
+        b.rect.height > 0 &&
+        !b.disabled &&
+        (/Next:\s*Stage/i.test(b.text) || /^Issue QC Certificate$/i.test(b.text))
+    );
+    if (nextBtn) {
+      await app.clickButton(new RegExp(`^${nextBtn.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+      await sleep(30);
+      return "next";
+    }
+    const skipBtn = btns.find(
+      (b) => b.rect.width > 0 && b.rect.height > 0 && !b.disabled && /^Skip Step$/i.test(b.text)
+    );
+    if (skipBtn) {
+      await app.clickButton(/^Skip Step$/i);
+      await sleep(30);
+      return "skip";
+    }
+    await sleep(40);
   }
   throw new Error("Neither enabled Next: Stage / Issue QC Certificate nor Skip Step button found");
 }
@@ -1492,6 +1496,59 @@ export const tests = [
           true,
           "Fullscreen HUD should poll sample_live_telemetry cleanly without restarting scene"
         );
+      });
+    },
+  },
+
+  {
+    id: "T5-14",
+    tier: 5,
+    feature: "F15",
+    title: "v3.5.0 Dual-Engine Powerhouse: Native Uncapped 3D launcher, Cinebench Live Tile Path-Tracer, Heavy 75% VRAM, 4 GB SLC SSD & Certificate Export",
+    tags: ["tier5", "adversarial", "native3d", "pathtracer", "vram75", "slc_ssd", "F15"],
+    async run(ctx) {
+      const fixture = enrichScenario(ctx.fixtures.healthyUltrabook());
+
+      await withApp(ctx, fixture, { maxTouchPoints: 10, mockOptions: { stepDelayMs: 10 } }, async (app) => {
+        // 1. Stage 05 Storage: verify 4 GB SLC-Cache Saturation option exists
+        await navigateToStage(app, /SSD SMART Health & Direct-IO Durability Audit/i);
+        const hasSlcOpt = await app.evaluate(() =>
+          Array.from(document.querySelectorAll("option")).some((o) => o.value === "slc_saturation")
+        );
+        ctx.assert.equal(hasSlcOpt, true, "Stage 05 Storage preset dropdown must include slc_saturation (4 GB)");
+
+        // 2. Stage 12 Performance: run Cinebench-Class Live Tile Path-Tracer
+        await navigateToStage(app, /360° All-Scope Performance/i);
+        await app.clickButton(/Run Cine Path-Tracer/i);
+        await app.waitForText(/8,420|8420/, 5000);
+
+        // 3. Stage 13 GPU: verify Heavy 75% VRAM option + launch Native Uncapped 3D Suite
+        await navigateToStage(app, /GPU Burn-In, Dedicated VRAM Integrity/i);
+        await app.clickButton(/02\. VRAM Integrity/i);
+        const hasHeavy75 = await app.evaluate(() =>
+          Array.from(document.querySelectorAll("option")).some((o) => o.value === "0" && /75%/i.test(o.textContent || ""))
+        );
+        ctx.assert.equal(hasHeavy75, true, "Stage 13 VRAM pool selector must offer Heavy 75% Auto-Detect VRAM option");
+
+        await app.clickButton(/04\. Graphics & FPS Lab/i);
+        await app.waitForText(/Native Rust wgpu Uncapped Fullscreen 3D Suite/i, 4000);
+        await app.clickButton(/Launch Native Uncapped 3D/i);
+        await app.waitForText(/74\.2 FPS AVG/i, 5000);
+
+        // 4. Advance to PreReportModal and verify export_qc_report carries both native3d & cinePathtracer
+        await advanceRemainingToReportModal(app);
+        await app.waitForText(/SWISS LAB CALIBRATION CERTIFICATE GENERATOR/i, 4000);
+        await app.clickButton(/Issue Official QC Certificate/i);
+        await app.waitForText(/Certificate Issued Successfully/i, 5000);
+
+        const invokeLog = await assertCleanRuntime(ctx, app);
+        ctx.assert.equal(invokeLog.some((e) => e.cmd === "run_cine_pathtracer" && e.ok), true);
+        ctx.assert.equal(invokeLog.some((e) => e.cmd === "run_native_3d_suite" && e.ok), true);
+        const exportCall = invokeLog.find((e) => e.cmd === "export_qc_report");
+        ctx.assert.ok(exportCall, "Expected export_qc_report invocation in T5-14");
+        const payload = exportCall.args?.payload || exportCall.args;
+        ctx.assert.equal(payload.native3d?.compositeScore, 6840, "Exported payload must carry native3d result");
+        ctx.assert.equal(payload.cinePathtracer?.multiCorePts, 8420, "Exported payload must carry cinePathtracer result");
       });
     },
   },

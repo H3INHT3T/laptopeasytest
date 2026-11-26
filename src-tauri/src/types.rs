@@ -578,6 +578,8 @@ pub struct StorageBenchResult {
     pub write_collapse_pct: f64,
     #[serde(default)]
     pub thermal_throttle_verdict: String,
+    #[serde(default)]
+    pub slc_speed_curve_mb_s: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -914,6 +916,10 @@ pub struct VramTestResult {
     pub sensor_available: bool,
     #[serde(default)]
     pub plain_summary: String,
+    #[serde(default)]
+    pub peak_bandwidth_gb_s: f64,
+    #[serde(default)]
+    pub heavy_mode: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1317,6 +1323,100 @@ pub struct ExportReportPayload {
     pub graphics_fps: Option<GraphicsFpsSuiteResult>,
     #[serde(default, alias = "gpuComputeResult")]
     pub gpu_compute: Option<GpuComputeBenchResult>,
+    #[serde(default, alias = "native3dResult")]
+    pub native_3d: Option<Native3dSuiteResult>,
+    #[serde(default, alias = "cinePathtracerResult")]
+    pub cine_pathtracer: Option<CinePathtracerResult>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct Native3dSceneScore {
+    pub id: String,
+    pub name: String,
+    pub avg_fps: f64,
+    pub low_1pct_fps: f64,
+    pub low_01pct_fps: f64,
+    pub avg_frame_ms: f64,
+    pub frames_rendered: u64,
+    pub peak_temp_c: Option<f32>,
+    pub peak_power_w: Option<f32>,
+    pub artifact_errors: u64,
+    pub score: u64,
+    pub status: TestStatus,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct Native3dSuiteResult {
+    pub status: TestStatus,
+    pub adapter_name: String,
+    pub backend: String,
+    pub present_mode: String,
+    pub resolution: String,
+    pub composite_score: u64,
+    pub avg_fps: f64,
+    pub low_1pct_fps: f64,
+    pub peak_temp_c: Option<f32>,
+    pub peak_power_w: Option<f32>,
+    pub artifact_errors: u64,
+    pub thermal_cutoff_triggered: bool,
+    pub cancelled: bool,
+    pub elapsed_secs: f64,
+    pub tier: String,
+    pub scenes: Vec<Native3dSceneScore>,
+    pub preview_data_url: Option<String>,
+    pub summary: String,
+    pub plain_summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CinePathtracerTileEvent {
+    pub pass_mode: String,
+    pub tile_x: u32,
+    pub tile_y: u32,
+    pub tile_w: u32,
+    pub tile_h: u32,
+    pub image_w: u32,
+    pub image_h: u32,
+    pub tiles_done: u32,
+    pub tiles_total: u32,
+    pub percent: f64,
+    pub mrays_per_sec: f64,
+    pub elapsed_secs: f64,
+    pub cpu_temp_c: Option<f32>,
+    pub cpu_clock_mhz: u64,
+    pub tile_png_base64: String,
+    pub active_tiles: Vec<[u32; 2]>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CinePathtracerResult {
+    pub status: TestStatus,
+    pub mode: String,
+    pub resolution: String,
+    pub samples_per_pixel: u32,
+    pub threads_used: usize,
+    pub multi_core_pts: u64,
+    pub single_core_pts: Option<u64>,
+    pub mp_ratio: Option<f64>,
+    pub mrays_per_sec: f64,
+    pub total_rays: u64,
+    pub elapsed_secs: f64,
+    pub peak_temp_c: Option<f32>,
+    pub avg_clock_mhz: u64,
+    pub throttle_drop_pct: f64,
+    pub cancelled: bool,
+    pub tier: String,
+    pub image_data_url: Option<String>,
+    pub summary: String,
+    pub plain_summary: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -34,6 +34,7 @@ export type StepModuleId =
 export type TestModuleId = "dashboard" | "stress_hub" | "archive" | StepModuleId;
 
 export type StressPreset = "quick" | "standard" | "burnin";
+export type StoragePreset = StressPreset | "slc_saturation";
 
 // ============================================================================
 // Hardware Safety Constants & Bounds (v2.3.0 — mirrors src-tauri/src/types.rs)
@@ -786,6 +787,7 @@ export interface StorageBenchResult {
   seqWriteLateMbS?: number;
   writeCollapsePct?: number;
   thermalThrottleVerdict?: string;
+  slcSpeedCurveMbS?: number[];
 }
 
 export interface RamTestProgress {
@@ -1063,6 +1065,8 @@ export interface VramTestResult {
   passesCompleted: number;
   totalGbVerified: number;
   avgBandwidthGbS: number;
+  peakBandwidthGbS?: number;
+  heavyMode?: boolean;
   errorsFound: number;
   peakTempC: number | null;
   elapsedSecs: number;
@@ -1307,6 +1311,86 @@ export interface ExportReportPayload {
   tamperForensics?: TamperForensicsReport | null;
   graphicsFps?: GraphicsFpsSuiteResult | null;
   gpuCompute?: GpuComputeBenchResult | null;
+  native3d?: Native3dSuiteResult | null;
+  cinePathtracer?: CinePathtracerResult | null;
+}
+
+export interface Native3dSceneScore {
+  id: string;
+  name: string;
+  avgFps: number;
+  low1pctFps: number;
+  low01pctFps: number;
+  avgFrameMs: number;
+  framesRendered: number;
+  peakTempC: number | null;
+  peakPowerW: number | null;
+  artifactErrors: number;
+  score: number;
+  status: TestStatus;
+}
+
+export interface Native3dSuiteResult {
+  status: TestStatus;
+  adapterName: string;
+  backend: string;
+  presentMode: string;
+  resolution: string;
+  compositeScore: number;
+  avgFps: number;
+  low1pctFps: number;
+  peakTempC: number | null;
+  peakPowerW: number | null;
+  artifactErrors: number;
+  thermalCutoffTriggered: boolean;
+  cancelled: boolean;
+  elapsedSecs: number;
+  tier: string;
+  scenes: Native3dSceneScore[];
+  previewDataUrl: string | null;
+  summary: string;
+  plainSummary: string;
+}
+
+export interface CinePathtracerTileEvent {
+  passMode: string;
+  tileX: number;
+  tileY: number;
+  tileW: number;
+  tileH: number;
+  imageW: number;
+  imageH: number;
+  tilesDone: number;
+  tilesTotal: number;
+  percent: number;
+  mraysPerSec: number;
+  elapsedSecs: number;
+  cpuTempC: number | null;
+  cpuClockMhz: number;
+  tilePngBase64: string;
+  activeTiles: [number, number][];
+}
+
+export interface CinePathtracerResult {
+  status: TestStatus;
+  mode: string;
+  resolution: string;
+  samplesPerPixel: number;
+  threadsUsed: number;
+  multiCorePts: number;
+  singleCorePts: number | null;
+  mpRatio: number | null;
+  mraysPerSec: number;
+  totalRays: number;
+  elapsedSecs: number;
+  peakTempC: number | null;
+  avgClockMhz: number;
+  throttleDropPct: number;
+  cancelled: boolean;
+  tier: string;
+  imageDataUrl: string | null;
+  summary: string;
+  plainSummary: string;
 }
 
 export interface PortableStorageInfo {

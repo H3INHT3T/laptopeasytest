@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -27,6 +27,7 @@ import {
   type GpuStressResult,
   type GraphicsFpsSuiteResult,
   type LiveTelemetrySnapshot,
+  type Native3dSuiteResult,
   type PowerTortureProgress,
   type PowerTortureResult,
   type SystemSpecs,
@@ -44,7 +45,10 @@ import { EnvironmentGuard } from "../components/EnvironmentGuard";
 import { EngineeringConsole, ThresholdAuditTable, type ThresholdAuditRow } from "../components/EngineeringConsole";
 import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
 import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
-import { GraphicsFpsLab } from "../components/GraphicsFpsLab";
+
+const GraphicsFpsLab = lazy(() =>
+  import("../components/GraphicsFpsLab").then((m) => ({ default: m.GraphicsFpsLab }))
+);
 
 interface GpuStressViewProps {
   telemetry: LiveTelemetrySnapshot | null;
@@ -55,6 +59,7 @@ interface GpuStressViewProps {
   tortureResult: PowerTortureResult | null;
   graphicsFpsResult?: GraphicsFpsSuiteResult | null;
   gpuComputeResult?: GpuComputeBenchResult | null;
+  native3dResult?: Native3dSuiteResult | null;
   userbenchmarkComparison?: UserBenchmarkComparison | null;
   status: TestStatus;
   stepNumber: number;
@@ -65,6 +70,7 @@ interface GpuStressViewProps {
   onTortureComplete: (res: PowerTortureResult) => void;
   onGraphicsFpsComplete?: (res: GraphicsFpsSuiteResult) => void;
   onGpuComputeComplete?: (res: GpuComputeBenchResult) => void;
+  onNative3dComplete?: (res: Native3dSuiteResult) => void;
   onMarkNA: () => void;
   onRunningChange: (running: boolean) => void;
   onNext: () => void;
@@ -94,6 +100,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
   tortureResult,
   graphicsFpsResult = null,
   gpuComputeResult = null,
+  native3dResult = null,
   userbenchmarkComparison,
   status,
   stepNumber,
@@ -104,6 +111,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
   onTortureComplete,
   onGraphicsFpsComplete,
   onGpuComputeComplete,
+  onNative3dComplete,
   onMarkNA,
   onRunningChange,
   onNext,
@@ -658,19 +666,30 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
 
       {/* ===================== TAB 4: FULLSCREEN GRAPHICS, MINI-GAMES & FP32 LAB ===================== */}
       {tab === "graphics_lab" && (
-        <GraphicsFpsLab
-          selectedAdapter={selectedAdapter}
-          adapterName={activeAdapter?.name ?? specs?.gpus[0]?.name ?? "Primary GPU"}
-          isDiscreteGpu={Boolean(activeAdapter?.isDiscrete ?? isGamingCapable)}
-          suiteResult={graphicsFpsResult}
-          computeResult={gpuComputeResult}
-          onSuiteComplete={(res) => onGraphicsFpsComplete?.(res)}
-          onComputeComplete={(res) => onGpuComputeComplete?.(res)}
-          onRunningChange={(r) => {
-            setRunningMode(r ? "graphics_lab" : null);
-            onRunningChange(r);
-          }}
-        />
+        <Suspense
+          fallback={
+            <div className="rounded-xl border border-zinc-200 bg-white p-6 text-center font-mono text-xs text-zinc-500">
+              Loading Native 3D &amp; Three.js Graphics Lab...
+            </div>
+          }
+        >
+          <GraphicsFpsLab
+            selectedAdapter={selectedAdapter}
+            adapterName={activeAdapter?.name ?? specs?.gpus[0]?.name ?? "Primary GPU"}
+            isDiscreteGpu={Boolean(activeAdapter?.isDiscrete ?? isGamingCapable)}
+            thermalCutoffC={cutoffC}
+            suiteResult={graphicsFpsResult}
+            computeResult={gpuComputeResult}
+            native3dResult={native3dResult}
+            onSuiteComplete={(res) => onGraphicsFpsComplete?.(res)}
+            onComputeComplete={(res) => onGpuComputeComplete?.(res)}
+            onNative3dComplete={(res) => onNative3dComplete?.(res)}
+            onRunningChange={(r) => {
+              setRunningMode(r ? "graphics_lab" : null);
+              onRunningChange(r);
+            }}
+          />
+        </Suspense>
       )}
 
       {/* ===================== TAB 1: FURMARK 3D SHADER ===================== */}
@@ -927,10 +946,14 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                 >
                   <option value={256}>256 MB (Integrated / Quick)</option>
+                  <option value={0}>Heavy 75% Auto-Detect VRAM (Recommended dGPU Hammer)</option>
                   <option value={512}>512 MB (Integrated / Entry dGPU)</option>
                   <option value={1024}>1,024 MB / 1 GB (Standard dGPU)</option>
                   <option value={2048}>2,048 MB / 2 GB (Gaming 4–6GB)</option>
-                  <option value={4096}>4,096 MB / 4 GB (High-End 8GB+)</option>
+                  <option value={4096}>4,096 MB / 4 GB (High-End 6–8GB)</option>
+                  <option value={6144}>6,144 MB / 6 GB (Heavy RTX 8GB)</option>
+                  <option value={8192}>8,192 MB / 8 GB (Workstation 12GB)</option>
+                  <option value={12288}>12,288 MB / 12 GB (Flagship 16GB+)</option>
                 </select>
               </div>
               <div>
@@ -1001,8 +1024,12 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   <div className="p-3 bg-white">
                     <div className="text-[9.5px] uppercase text-zinc-500 font-bold">Allocated Pool</div>
                     <div className="text-xl font-black text-black mt-0.5">
-                      {vramProg?.allocatedVramMb ?? vramResult?.allocatedVramMb ?? vramMb} MB
+                      {vramProg?.allocatedVramMb ?? vramResult?.allocatedVramMb ?? (vramMb === 0 ? "Auto 75%" : `${vramMb} MB`)}
+                      {(vramProg?.allocatedVramMb ?? vramResult?.allocatedVramMb) != null ? " MB" : ""}
                     </div>
+                    {vramResult?.heavyMode && (
+                      <div className="text-[9.5px] font-bold text-blue-700">HEAVY 75% MODE</div>
+                    )}
                   </div>
                   <div className="p-3 bg-white">
                     <div className="text-[9.5px] uppercase text-zinc-500 font-bold">Total Verified</div>
@@ -1015,6 +1042,11 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                     <div className="text-xl font-black text-black mt-0.5">
                       {(vramProg?.bandwidthGbS ?? vramResult?.avgBandwidthGbS ?? 0).toFixed(1)} GB/s
                     </div>
+                    {vramResult?.peakBandwidthGbS != null && vramResult.peakBandwidthGbS > 0 && (
+                      <div className="text-[10px] text-blue-700 font-bold">
+                        Peak: {vramResult.peakBandwidthGbS.toFixed(1)} GB/s
+                      </div>
+                    )}
                   </div>
                   <div className="p-3 bg-white">
                     <div className="text-[9.5px] uppercase text-zinc-500 font-bold">GPU Temp / Cutoff</div>
