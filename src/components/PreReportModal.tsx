@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  BatteryChargeResult,
   BatteryDischargeResult,
   BatteryHealthReport,
   BatterySagResult,
@@ -56,6 +57,7 @@ interface PreReportModalProps {
   batteryReport?: BatteryHealthReport | null;
   batterySagResult?: BatterySagResult | null;
   batteryDischargeResult?: BatteryDischargeResult | null;
+  batteryChargeResult?: BatteryChargeResult | null;
   errorLogsReport?: ErrorLogsReport | null;
   smartReport?: StorageSmartReport | null;
   storageBench?: StorageBenchResult | null;
@@ -84,6 +86,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   batteryReport,
   batterySagResult,
   batteryDischargeResult,
+  batteryChargeResult,
   errorLogsReport,
   smartReport,
   storageBench,
@@ -625,7 +628,15 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
     } else if (id === "battery") {
       if (batteryReport?.present) {
         if (batteryReport.healthPercent != null) out.push(["Health", `${batteryReport.healthPercent.toFixed(1)}%`]);
-        if (batteryReport.cycleCount != null) out.push(["Cycles", `${batteryReport.cycleCount}`]);
+        if (batteryReport.cycleCount != null) {
+          out.push(["Cycles", `${batteryReport.cycleCount}${batteryReport.cycleSource ? ` (${batteryReport.cycleSource})` : ""}`]);
+        }
+      }
+      if (batteryChargeResult) {
+        const avgW = batteryChargeResult.avgChargeWatts != null
+          ? ` (${batteryChargeResult.avgChargeWatts >= 0 ? "+" : ""}${batteryChargeResult.avgChargeWatts.toFixed(1)}W)`
+          : "";
+        out.push(["Charging IC", `${batteryChargeResult.verdict}${avgW}`]);
       }
       if (batterySagResult) {
         out.push(["15s Sag", `${batterySagResult.maxVoltageSagMv} mV (-${batterySagResult.chargeDropPct.toFixed(1)}%)`]);
@@ -695,6 +706,9 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         out.push(["Uncached/Thread", `${perfResult.memoryUncachedReadGbS.toFixed(1)} / ${(perfResult.memoryThreadedGbS ?? perfResult.memoryBandwidthGbS).toFixed(1)} GB/s`]);
       }
       out.push(["Throttle", `-${perfResult.throttleDropPct.toFixed(1)}%`]);
+      if (perfResult.cooldownDropC != null && perfResult.cooldownVerdict) {
+        out.push(["12s Cool-Down", `-${perfResult.cooldownDropC.toFixed(1)}°C (${perfResult.cooldownVerdict})`]);
+      }
       if (perfResult.thermalCutoffTriggered) out.push(["Thermal Cutoff", "TRIGGERED"]);
       if (effectiveCpuUb) {
         out.push(["UB CPU", `${effectiveCpuUb.vehicleTier} (${effectiveCpuUb.standingLabel})`]);
@@ -705,6 +719,9 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         out.push(["GPU Drop", `-${gpuResult.fpsDropPct.toFixed(1)}%`]);
         if (gpuResult.artifactErrors != null) out.push(["Artifacts", `${gpuResult.artifactErrors}`]);
         if (gpuResult.throttleReason) out.push(["Throttle", gpuResult.throttleReason]);
+        if (gpuResult.cooldownDropC != null && gpuResult.cooldownVerdict) {
+          out.push(["12s Cool-Down", `-${gpuResult.cooldownDropC.toFixed(1)}°C (${gpuResult.cooldownVerdict})`]);
+        }
         if (effectiveGpuUb) {
           out.push(["UB GPU", `${effectiveGpuUb.vehicleTier} (${effectiveGpuUb.standingLabel})`]);
         }
@@ -758,6 +775,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         plainVerdictSummary,
         userBenchmark: userbenchmarkComparison ?? null,
         batteryDischarge: batteryDischargeResult ?? null,
+        batteryCharge: batteryChargeResult ?? null,
         touchscreen: touchscreenResult ?? null,
         networkReport: networkReport ?? null,
         cpuStress: cpuStressResult ?? null,

@@ -355,6 +355,13 @@ export interface HardwareControlsReport {
   summary: string;
 }
 
+export interface BatteryCapacityHistoryPoint {
+  date: string;
+  fullChargeMwh: number;
+  designMwh: number;
+  healthPct: number;
+}
+
 export interface BatteryHealthReport {
   present: boolean;
   status: TestStatus;
@@ -372,6 +379,45 @@ export interface BatteryHealthReport {
   rateMw: number | null;
   adapterWatts: number | null;
   notes: string;
+  cycleSource?: string;
+  capacityHistory?: BatteryCapacityHistoryPoint[];
+}
+
+export interface BatteryChargeProgress {
+  running: boolean;
+  elapsedSecs: number;
+  durationSecs: number;
+  chargePercent: number;
+  acPlugged: boolean;
+  isCharging: boolean;
+  voltageMv: number | null;
+  watts: number | null;
+  note: string;
+}
+
+export type BatteryChargeVerdict =
+  | "PASS"
+  | "CONSERVATION_MODE"
+  | "SLOW_CHARGE"
+  | "CHARGING_IC_FAULT"
+  | "AC_UNPLUGGED"
+  | "NOT_APPLICABLE"
+  | "CANCELLED";
+
+export interface BatteryChargeResult {
+  status: TestStatus;
+  verdict: BatteryChargeVerdict | string;
+  durationSecs: number;
+  acPlugged: boolean;
+  startChargePct: number;
+  endChargePct: number;
+  chargeGainPct: number;
+  avgChargeWatts: number | null;
+  peakChargeWatts: number | null;
+  startVoltageMv: number | null;
+  endVoltageMv: number | null;
+  plainSummary: string;
+  summary: string;
 }
 
 export interface BatteryLiveSample {
@@ -751,6 +797,7 @@ export interface PerfBenchProgress {
   cpuTempC: number | null;
   raytracePreviewUrl: string | null;
   telemetry: LiveTelemetrySnapshot | null;
+  inCooldown?: boolean;
 }
 
 export interface PerfBenchResult {
@@ -798,6 +845,12 @@ export interface PerfBenchResult {
   sensorUnavailable?: boolean;
   userbenchmarkRating?: UserBenchmarkComponentRating | null;
   plainSummary?: string;
+  cooldownStartTempC?: number | null;
+  cooldownEndTempC?: number | null;
+  cooldownDropC?: number | null;
+  cooldownRateCPerSec?: number | null;
+  cooldownVerdict?: string;
+  cooldownNote?: string;
 }
 
 export interface VramTestProgress {
@@ -948,6 +1001,7 @@ export interface GpuStressProgress {
   artifactErrors?: number;
   gpuTempAvailable?: boolean;
   throttleState?: string;
+  inCooldown?: boolean;
 }
 
 export interface GpuStressResult {
@@ -979,6 +1033,12 @@ export interface GpuStressResult {
   effectiveCutoffC?: number;
   plainSummary?: string;
   userbenchmarkRating?: UserBenchmarkComponentRating | null;
+  cooldownStartTempC?: number | null;
+  cooldownEndTempC?: number | null;
+  cooldownDropC?: number | null;
+  cooldownRateCPerSec?: number | null;
+  cooldownVerdict?: string;
+  cooldownNote?: string;
 }
 
 export interface ShopProfile {
@@ -1046,6 +1106,7 @@ export interface ExportReportPayload {
   plainVerdictSummary?: string | null;
   userBenchmark?: UserBenchmarkComparison | null;
   batteryDischarge?: BatteryDischargeResult | null;
+  batteryCharge?: BatteryChargeResult | null;
   touchscreen?: TouchscreenTestResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
   cpuStress?: CpuStressResult | null;

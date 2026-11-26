@@ -14,7 +14,8 @@ use std::sync::{
 };
 use tauri::{AppHandle, State};
 use types::{
-    BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample, BatterySagResult,
+    BatteryChargeResult, BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample,
+    BatterySagResult,
     BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
     HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
@@ -32,6 +33,7 @@ pub struct CancelRegistry {
     pub battery_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub battery_sag_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub battery_discharge_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub battery_charge_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub usb_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub keyboard_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub storage_cancel: Mutex<Option<Arc<AtomicBool>>>,
@@ -50,6 +52,7 @@ impl Default for CancelRegistry {
             battery_stop: Mutex::new(None),
             battery_sag_cancel: Mutex::new(None),
             battery_discharge_cancel: Mutex::new(None),
+            battery_charge_cancel: Mutex::new(None),
             usb_stop: Mutex::new(None),
             keyboard_stop: Mutex::new(None),
             storage_cancel: Mutex::new(None),
@@ -163,6 +166,25 @@ async fn run_battery_discharge_test(
 #[tauri::command]
 fn cancel_battery_discharge_test(state: State<'_, CancelRegistry>) {
     signal_stop(&state.battery_discharge_cancel);
+}
+
+#[tauri::command]
+async fn run_battery_charge_test(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    duration_secs: Option<u64>,
+) -> Result<BatteryChargeResult, String> {
+    let cancel = replace_flag(&state.battery_charge_cancel);
+    tauri::async_runtime::spawn_blocking(move || {
+        battery::run_battery_charge_test(duration_secs, &app, &cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_battery_charge_test(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.battery_charge_cancel);
 }
 
 #[tauri::command]
@@ -609,7 +631,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.9.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.10.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -736,6 +758,8 @@ pub fn run_self_test() -> Result<(), String> {
         rate_mw: Some(-18_000),
         adapter_watts: None,
         notes: String::new(),
+        cycle_source: "SelfTest".into(),
+        capacity_history: Vec::new(),
     };
     let normal_samples: Vec<BatteryLiveSample> = (0..12)
         .map(|i| BatteryLiveSample {
@@ -896,6 +920,7 @@ pub fn run_self_test() -> Result<(), String> {
         output_dir: Some(report_tmp_dir.to_string_lossy().to_string()),
         user_benchmark: Some(ub_cmp),
         battery_discharge: Some(bat_norm),
+        battery_charge: None,
         touchscreen: Some(TouchscreenTestResult {
             touch_capable: false,
             status: TestStatus::Skipped,
@@ -924,8 +949,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.9.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.9.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.10.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.10.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -976,8 +1001,53 @@ pub fn run_self_test() -> Result<(), String> {
 
     let bat = battery::get_battery_health();
     println!(
-        "[PASS] Battery: present={} health={:?}% cycles={:?} ac={}",
-        bat.present, bat.health_percent, bat.cycle_count, bat.ac_plugged
+        "[PASS] Battery: present={} health={:?}% cycles={:?} (source={}) history={} pts ac={}",
+        bat.present,
+        bat.health_percent,
+        bat.cycle_count,
+        if bat.cycle_source.is_empty() { "N/A" } else { &bat.cycle_source },
+        bat.capacity_history.len(),
+        bat.ac_plugged
+    );
+
+    // 11b. v2.10.0 Smart-Bench Charging IC + Conservation Mode + Smart Cool-Down Verification
+    let chg_ok = battery::classify_battery_charge_test(
+        &[
+            BatteryLiveSample { timestamp_ms: 0, charge_percent: 55.0, ac_plugged: true, is_charging: true, voltage_mv: Some(12_300), rate_mw: Some(32_000), watts: Some(32.0) },
+            BatteryLiveSample { timestamp_ms: 12_000, charge_percent: 55.6, ac_plugged: true, is_charging: true, voltage_mv: Some(12_350), rate_mw: Some(31_500), watts: Some(31.5) },
+        ],
+        12.0,
+        false,
+    );
+    let chg_cons = battery::classify_battery_charge_test(
+        &[
+            BatteryLiveSample { timestamp_ms: 0, charge_percent: 80.0, ac_plugged: true, is_charging: false, voltage_mv: Some(12_100), rate_mw: Some(0), watts: Some(0.0) },
+            BatteryLiveSample { timestamp_ms: 12_000, charge_percent: 80.0, ac_plugged: true, is_charging: false, voltage_mv: Some(12_100), rate_mw: Some(0), watts: Some(0.0) },
+        ],
+        12.0,
+        false,
+    );
+    let chg_dead = battery::classify_battery_charge_test(
+        &[
+            BatteryLiveSample { timestamp_ms: 0, charge_percent: 45.0, ac_plugged: true, is_charging: false, voltage_mv: Some(11_100), rate_mw: Some(0), watts: Some(0.0) },
+            BatteryLiveSample { timestamp_ms: 12_000, charge_percent: 44.8, ac_plugged: true, is_charging: false, voltage_mv: Some(11_050), rate_mw: Some(-3_000), watts: Some(-3.0) },
+        ],
+        12.0,
+        false,
+    );
+    let (_, _, cd_cool, _) = cpu_stress::classify_smart_cooldown(Some(65.0), Some(61.0), 12.0);
+    let (_, _, cd_poor, _) = cpu_stress::classify_smart_cooldown(Some(88.0), Some(84.0), 12.0);
+    if chg_ok.verdict != "PASS"
+        || chg_cons.verdict != "CONSERVATION_MODE"
+        || chg_dead.verdict != "CHARGING_IC_FAULT"
+        || cd_cool != "COOL_LOAD"
+        || cd_poor != "POOR_COOLING"
+    {
+        return Err("v2.10.0 Charging IC or Smart Cool-Down classifier check failed".into());
+    }
+    println!(
+        "[PASS] v2.10.0 Charging IC & Smart Cool-Down (ok={}, cons={}, dead={}, cool={}, poor={})",
+        chg_ok.verdict, chg_cons.verdict, chg_dead.verdict, cd_cool, cd_poor
     );
 
     let logs = error_logs::scan_error_logs(7);
@@ -1016,7 +1086,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.9.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.10.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -1036,6 +1106,8 @@ pub fn run() {
             cancel_battery_sag_pulse,
             run_battery_discharge_test,
             cancel_battery_discharge_test,
+            run_battery_charge_test,
+            cancel_battery_charge_test,
             run_network_diagnostics,
             list_usb_devices,
             start_usb_monitor,

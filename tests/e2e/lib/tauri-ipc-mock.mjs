@@ -239,6 +239,36 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         cancelledFlags.battery_sag = true;
         return null;
       },
+      run_battery_charge_test: async () =>
+        runLongCommand(
+          "battery_charge",
+          "battery:charge",
+          fixture.batteryCharge || {
+            status: "pass",
+            verdict: "PASS",
+            durationSecs: 12.0,
+            acPlugged: true,
+            startChargePct: 68.0,
+            endChargePct: 69.0,
+            chargeGainPct: 1.0,
+            avgChargeWatts: 34.2,
+            peakChargeWatts: 36.0,
+            startVoltageMv: 12400,
+            endVoltageMv: 12460,
+            plainSummary: "Charging IC healthy: active AC charge verified at +34.2W avg.",
+            summary: "PASS: Charging IC healthy.",
+          },
+          {
+            status: "warn",
+            verdict: "CANCELLED",
+            plainSummary: "Charging IC check cancelled by technician.",
+            summary: "CANCELLED: Charging IC check cancelled.",
+          }
+        ),
+      cancel_battery_charge_test: async () => {
+        cancelledFlags.battery_charge = true;
+        return null;
+      },
       list_usb_devices: async () => fixture.usbDevices || [],
       start_usb_monitor: async () => {
         if (usbMonitorTimer) clearTimeout(usbMonitorTimer);

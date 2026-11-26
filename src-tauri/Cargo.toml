@@ -1,6 +1,6 @@
 [package]
 name = "laptopbench-qc"
-version = "2.9.0"
+version = "2.10.0"
 description = "LaptopBench QC — Created by Hein Htet Zaw (@ich8g92)"
 authors = ["Hein Htet Zaw (@ich8g92)"]
 edition = "2021"

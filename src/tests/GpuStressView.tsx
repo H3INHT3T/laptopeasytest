@@ -371,6 +371,22 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
             verdict: result.low1pctFps >= result.avgFps * 0.65 ? "PASS" : "WARN",
             meaning: "Measures micro-stutter and frame consistency under sustained 3D load.",
           },
+          ...(result.cooldownVerdict && result.cooldownVerdict !== "UNAVAILABLE"
+            ? [
+                {
+                  parameter: "12s Post-Load GPU Cool-Down Recovery",
+                  measured:
+                    result.cooldownDropC != null
+                      ? `-${result.cooldownDropC.toFixed(1)}°C (${result.cooldownStartTempC?.toFixed(0) ?? "—"}°C -> ${result.cooldownEndTempC?.toFixed(0) ?? "—"}°C)`
+                      : result.cooldownVerdict,
+                  limit: ">= 8.0°C drop & <= 78°C after >= 80°C load",
+                  verdict: (result.cooldownVerdict === "POOR_COOLING" ? "WARN" : "PASS") as "PASS" | "WARN",
+                  meaning:
+                    result.cooldownNote ||
+                    "Verifies GPU fan/heatsink recovery right after 3D burn-in to catch clogged vents or dried paste.",
+                },
+              ]
+            : []),
         ]
       : tab === "vram" && vramResult
       ? [
@@ -642,9 +658,9 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                 {runningMode === "furmark" ? (
                   <button
                     onClick={() => invoke("cancel_gpu_stress").catch(() => {})}
-                    className="w-full py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Square className="w-3.5 h-3.5" /> Abort Stress
+                    <Square className="w-3.5 h-3.5" /> {progress?.inCooldown ? "Skip Cool-Down" : "Abort Stress"}
                   </button>
                 ) : (
                   <button
@@ -804,12 +820,43 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           )}
 
           {result && runningMode !== "furmark" && (
-            <BaselineCard
-              baseline={result.baseline}
-              plainSummary={result.plainSummary}
-              userbenchmarkRating={gpuUbRating}
-              title="GPU 3D & THERMAL CALIBRATION"
-            />
+            <>
+              {result.cooldownVerdict && result.cooldownVerdict !== "UNAVAILABLE" && (
+                <div
+                  className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-3 flex-wrap text-xs ${
+                    result.cooldownVerdict === "POOR_COOLING"
+                      ? "border-black bg-black text-white"
+                      : "border-zinc-200 bg-white text-black"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Thermometer className={`w-4 h-4 shrink-0 ${result.cooldownVerdict === "POOR_COOLING" ? "text-blue-400" : "text-blue-600"}`} />
+                    <span>
+                      <strong>12s GPU Cool-Down:</strong>{" "}
+                      {result.cooldownDropC != null
+                        ? `-${result.cooldownDropC.toFixed(1)}°C (${result.cooldownStartTempC?.toFixed(0)}°C -> ${result.cooldownEndTempC?.toFixed(0)}°C)`
+                        : result.cooldownVerdict}
+                      {result.cooldownNote ? ` — ${result.cooldownNote}` : ""}
+                    </span>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-bold ${
+                      result.cooldownVerdict === "POOR_COOLING"
+                        ? "bg-white text-black"
+                        : "bg-blue-600 text-white"
+                    }`}
+                  >
+                    {result.cooldownVerdict.replace(/_/g, " ")}
+                  </span>
+                </div>
+              )}
+              <BaselineCard
+                baseline={result.baseline}
+                plainSummary={result.plainSummary}
+                userbenchmarkRating={gpuUbRating}
+                title="GPU 3D & THERMAL CALIBRATION"
+              />
+            </>
           )}
         </div>
       )}

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
+  BatteryChargeResult,
   BatteryDischargeResult,
   BatteryHealthReport,
   BatterySagResult,
@@ -153,6 +154,7 @@ export const App: React.FC = () => {
   const [batteryReport, setBatteryReport] = useState<BatteryHealthReport | null>(null);
   const [batterySagResult, setBatterySagResult] = useState<BatterySagResult | null>(null);
   const [batteryDischargeResult, setBatteryDischargeResult] = useState<BatteryDischargeResult | null>(null);
+  const [batteryChargeResult, setBatteryChargeResult] = useState<BatteryChargeResult | null>(null);
   const [errorLogsReport, setErrorLogsReport] = useState<ErrorLogsReport | null>(null);
   const [smartReport, setSmartReport] = useState<StorageSmartReport | null>(null);
   const [storageBench, setStorageBench] = useState<StorageBenchResult | null>(null);
@@ -883,12 +885,15 @@ export const App: React.FC = () => {
 
   const batteryViewProps: React.ComponentProps<typeof BatteryView> & {
     dischargeResult?: BatteryDischargeResult | null;
+    chargeResult?: BatteryChargeResult | null;
     onDischargeComplete?: (res: BatteryDischargeResult) => void;
+    onChargeComplete?: (res: BatteryChargeResult) => void;
     specs?: SystemSpecs | null;
   } = {
     report: batteryReport,
     sagResult: batterySagResult,
     dischargeResult: batteryDischargeResult,
+    chargeResult: batteryChargeResult,
     specs,
     loading: modules.battery.status === "running",
     status: modules.battery.status,
@@ -899,6 +904,16 @@ export const App: React.FC = () => {
       setBatterySagResult(res);
       if (res.status === "fail") {
         updateModule("battery", "fail", res.summary);
+      }
+    },
+    onChargeComplete: (res) => {
+      setBatteryChargeResult(res);
+      if (res.status === "fail") {
+        updateModule("battery", "fail", res.plainSummary);
+      } else if (res.status === "warn" && modulesRef.current.battery.status !== "fail") {
+        updateModule("battery", "warn", res.plainSummary);
+      } else if (res.status === "pass" && modulesRef.current.battery.status === "pending") {
+        updateModule("battery", "pass", res.plainSummary);
       }
     },
     onDischargeComplete: (res) => {
@@ -1107,6 +1122,7 @@ export const App: React.FC = () => {
     batteryReport,
     batterySagResult,
     batteryDischargeResult,
+    batteryChargeResult,
     errorLogsReport,
     smartReport,
     storageBench,

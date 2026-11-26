@@ -1,10 +1,16 @@
-# LaptopBench QC v2.9.0
+# LaptopBench QC v2.10.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.9.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
+**LaptopBench QC v2.10.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
 
-## What's New in v2.9.0 — Computrace/Autopilot Lock Audit, Live External Display & USB-C Flip, Active BT/Ethernet, Auto Mic-Verified Speaker THD & Full Strict Minimal UI
+## What's New in v2.10.0 — Battery Cycle XML Fallback, Active Charging IC Check & 12s CPU/GPU Cool-Down Recovery
+
+- **Real Battery Cycle Count & Wear History (`powercfg` XML Fallback):** Unlocks real OEM battery cycle counts on Dell, HP, Lenovo, and ASUS laptops where WMI `BatteryCycleCount` returns `0`, plus extracts historical capacity checkpoints into Stage 03's collapsed `Details` drawer.
+- **Active AC Charging IC & Conservation-Mode Check (12s):** Verifies real AC charging wattage and SoC response in Stage 03, automatically distinguishing OEM 80%/90% Battery Conservation Mode (`WARN`) from genuine "plugged in, not charging" charging IC / DC-IN MOSFET faults (`FAIL` when `<75%` and `<= 0W` on AC).
+- **Automatic 12s Post-Load Heatsink Cool-Down Recovery (Stage 12 CPU & Stage 13 GPU):** Measures post-load thermal recovery automatically (skippable anytime via `Skip Cool-Down` without losing benchmark scores) and flags `POOR_COOLING` (`WARN`) when hot loads (`>= 80°C`) cool by `< 8°C` or remain `> 78°C` — catching dried thermal paste and clogged fans right inside the main 14-step QC workflow.
+
+## Highlights from v2.9.0 — Computrace/Autopilot Lock Audit, Live External Display & USB-C Flip, Active BT/Ethernet, Auto Mic-Verified Speaker THD & Full Strict Minimal UI
 
 - **Computrace / Absolute & Windows Autopilot Deep Lock Check (`security_audit.rs`):** Detects active Absolute persistence services (`rpcnet`/`rpcnetp`), Dell/HP/Lenovo BIOS Computrace flags, and cached Windows Autopilot corporate provisioning policies (`AutoPilotDDSZTDFile.json` / registry tenant) right inside Stage 02.
 - **Live Port Diagnostics (`port_diagnostics.rs` — Smart Bench Mode):** Auto-detects plugged external HDMI/DisplayPort/USB-C monitors with resolution & Hz, checks USB-C reversible Side A / Flip 180° Side B charging wattage, verifies active Bluetooth devices and Gigabit Ethernet (`1000 Mbps` vs degraded `100 Mbps`) — without penalizing unplugged optional cables.
@@ -111,6 +117,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.9.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v2.10.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

@@ -301,6 +301,22 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
           verdict: result.memoryLatencyNs <= 110 ? "PASS" : "WARN",
           meaning: "Verifies responsiveness across L1/L2/L3 cache and main DRAM (catches single-channel bottlenecks).",
         },
+        ...(result.cooldownVerdict && result.cooldownVerdict !== "UNAVAILABLE"
+          ? [
+              {
+                parameter: "12s Post-Load Heatsink Cool-Down",
+                measured:
+                  result.cooldownDropC != null
+                    ? `-${result.cooldownDropC.toFixed(1)}°C (${result.cooldownStartTempC?.toFixed(0) ?? "—"}°C -> ${result.cooldownEndTempC?.toFixed(0) ?? "—"}°C)`
+                    : result.cooldownVerdict,
+                limit: ">= 8.0°C drop & <= 78°C after >= 80°C load",
+                verdict: (result.cooldownVerdict === "POOR_COOLING" ? "WARN" : "PASS") as "PASS" | "WARN",
+                meaning:
+                  result.cooldownNote ||
+                  "Checks whether cooling fans and thermal paste pull CPU temperatures down quickly right after full load.",
+              },
+            ]
+          : []),
         ...(result.shopComparison?.found && result.shopComparison.percentVsShop != null
           ? [
               {
@@ -375,14 +391,14 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
           {running ? (
             <button
               onClick={() => invoke("cancel_performance_benchmark").catch(() => {})}
-              className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
             >
-              <Square className="w-3.5 h-3.5" /> Abort Suite
+              <Square className="w-3.5 h-3.5" /> {progress?.inCooldown ? "Skip Cool-Down" : "Abort Suite"}
             </button>
           ) : (
             <button
               onClick={startBench}
-              className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5" /> Run 14-Stage Suite
             </button>
@@ -491,6 +507,18 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                 <p className="text-zinc-200">
                   The benchmark stopped mid-stage to protect the processor from overheating. Clean dust from cooling fins, verify fan spin, or replace dried thermal paste before sale.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {result.cooldownVerdict === "POOR_COOLING" && (
+            <div className="rounded-xl border-2 border-black bg-black text-white p-3.5 flex items-start gap-3">
+              <Thermometer className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-0.5">
+                <div className="font-mono font-bold text-blue-400">
+                  Poor Heatsink Cool-Down Recovery ({result.cooldownStartTempC?.toFixed(0)}°C -&gt; {result.cooldownEndTempC?.toFixed(0)}°C in 12s)
+                </div>
+                <p className="text-zinc-200">{result.cooldownNote}</p>
               </div>
             </div>
           )}
@@ -639,6 +667,9 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                   <div className="font-mono text-[11px] text-zinc-300 mt-0.5">
                     {result.tier} • {result.simdIsa} • Throttle Drop: {result.throttleDropPct.toFixed(1)}%
                     {result.peakCpuTempC != null ? ` • Peak ${result.peakCpuTempC.toFixed(1)}°C` : ""}
+                    {result.cooldownDropC != null
+                      ? ` • Cool-Down -${result.cooldownDropC.toFixed(1)}°C (${result.cooldownVerdict})`
+                      : ""}
                   </div>
                 </div>
               </div>

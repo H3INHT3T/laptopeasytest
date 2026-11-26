@@ -1,6 +1,6 @@
 use crate::modules::{
     baselines::{self, CpuSubtestScores, MemorySubtestMetrics},
-    raytracer, shop_history, simd_kernels,
+    cpu_stress, raytracer, shop_history, simd_kernels,
     telemetry::{TelemetryReader, ThermalSafetyCheck},
     userbenchmark,
 };
@@ -409,9 +409,12 @@ pub fn run_performance_benchmark(
         base_stage_secs
     };
 
+    let mut last_temp: Option<f32> = peak_temp;
+
     let mut emit_and_check = |phase: &str, pct: f64, preview: Option<String>, tel: &mut TelemetryReader| -> Option<f32> {
         let snap = tel.sample_throttled(false, Duration::from_millis(850));
         if let Some(t) = snap.cpu_temp_c {
+            last_temp = Some(t);
             peak_temp = Some(peak_temp.map_or(t, |p| p.max(t)));
         }
         if snap.cpu_temp_available {
@@ -422,6 +425,7 @@ pub fn run_performance_benchmark(
         }
         let cutoff = match TelemetryReader::is_thermal_safe(&snap, CPU_THERMAL_CUTOFF_DEFAULT_C, f32::INFINITY) {
             ThermalSafetyCheck::CutoffTriggered { temp_c, .. } => {
+                last_temp = Some(temp_c);
                 peak_temp = Some(peak_temp.map_or(temp_c, |p| p.max(temp_c)));
                 Some(temp_c)
             }
@@ -438,6 +442,7 @@ pub fn run_performance_benchmark(
                 cpu_temp_c: snap.cpu_temp_c,
                 raytrace_preview_url: preview,
                 telemetry: Some(snap),
+                in_cooldown: false,
             },
         );
         cutoff
@@ -953,9 +958,78 @@ pub fn run_performance_benchmark(
     let throttle_drop_pct = (((ref_rate - late_int_rate) / ref_rate) * 100.0).clamp(0.0, 99.0);
     let throttle_drop_pct = (throttle_drop_pct * 10.0).round() / 10.0;
 
-    if let Some(tc) = emit_and_check("Completed", 100.0, raytrace_preview_url.clone(), &mut telemetry) {
+    if let Some(tc) = emit_and_check("14/14 Load Complete — Starting Cool-Down Check", 96.0, raytrace_preview_url.clone(), &mut telemetry) {
         return Ok(thermal_cutoff_result(preset, &simd_isa, started.elapsed().as_secs_f64(), tc));
     }
+
+    // Automatic 12-Second Post-Load Cool-Down Recovery Check (skippable via Abort without losing scores)
+    let cooldown_start_temp_c = last_temp.or(peak_temp).map(|t| (t * 10.0).round() / 10.0);
+    let mut cooldown_end_temp_c: Option<f32> = None;
+    let mut cooldown_skipped = false;
+    let mut cd_elapsed_secs = 0.0f32;
+    if sensor_available_ever && cooldown_start_temp_c.is_some() && !cancel.load(Ordering::Relaxed) {
+        let cd_secs = 12u64;
+        let cd_started = Instant::now();
+        while cd_started.elapsed().as_secs() < cd_secs {
+            if cancel.load(Ordering::Relaxed) {
+                cooldown_skipped = true;
+                break;
+            }
+            let snap = telemetry.sample(false);
+            if let Some(t) = snap.cpu_temp_c {
+                cooldown_end_temp_c = Some((t * 10.0).round() / 10.0);
+            }
+            let cd_now = cd_started.elapsed().as_secs_f64();
+            let pct = 96.0 + ((cd_now / cd_secs as f64) * 4.0).min(4.0);
+            let _ = app.emit(
+                "perf:progress",
+                PerfBenchProgress {
+                    phase: format!("Cool-Down Recovery ({:.0}s / {}s)", cd_now.min(cd_secs as f64), cd_secs),
+                    percent: (pct * 10.0).round() / 10.0,
+                    elapsed_secs: (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+                    cpu_usage_pct: snap.cpu_usage_pct,
+                    cpu_clock_mhz: snap.cpu_clock_mhz,
+                    cpu_temp_c: snap.cpu_temp_c,
+                    raytrace_preview_url: raytrace_preview_url.clone(),
+                    telemetry: Some(snap),
+                    in_cooldown: true,
+                },
+            );
+            for _ in 0..5 {
+                if cancel.load(Ordering::Relaxed) || cd_started.elapsed().as_secs() >= cd_secs {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+        cd_elapsed_secs = cd_started.elapsed().as_secs_f32().max(1.0);
+    }
+
+    let (cooldown_drop_c, cooldown_rate_c_per_sec, cooldown_verdict, cooldown_note) = if cooldown_skipped {
+        (
+            None,
+            None,
+            "SKIPPED".to_string(),
+            "Cool-down phase skipped by technician; benchmark scores preserved.".to_string(),
+        )
+    } else {
+        cpu_stress::classify_smart_cooldown(cooldown_start_temp_c, cooldown_end_temp_c, cd_elapsed_secs.max(12.0))
+    };
+
+    let _ = app.emit(
+        "perf:progress",
+        PerfBenchProgress {
+            phase: "Completed".to_string(),
+            percent: 100.0,
+            elapsed_secs: (started.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+            cpu_usage_pct: 0.0,
+            cpu_clock_mhz: 0,
+            cpu_temp_c: cooldown_end_temp_c.or(last_temp),
+            raytrace_preview_url: raytrace_preview_url.clone(),
+            telemetry: None,
+            in_cooldown: false,
+        },
+    );
 
     let cpu_subtests = CpuSubtestScores {
         single_core: single_core_score.max(1) as f64,
@@ -1068,6 +1142,7 @@ pub fn run_performance_benchmark(
     let status = if peak_temp.map(|t| t >= CPU_THERMAL_CUTOFF_DEFAULT_C - 2.0).unwrap_or(false)
         || throttle_drop_pct >= 25.0
         || baseline.percent_of_normal < 60.0
+        || cooldown_verdict == "POOR_COOLING"
     {
         TestStatus::Warn
     } else {
@@ -1084,8 +1159,18 @@ pub fn run_performance_benchmark(
     } else {
         ""
     };
+    let cooldown_summary_part = if let Some(drop_c) = cooldown_drop_c {
+        format!(" Cool-Down: -{:.1}°C ({}).", drop_c, cooldown_verdict)
+    } else {
+        String::new()
+    };
+    let cooldown_short_tag = if let Some(drop_c) = cooldown_drop_c {
+        format!(" | Cool-Down -{:.1}°C ({})", drop_c, cooldown_verdict)
+    } else {
+        String::new()
+    };
     let plain_summary = format!(
-        "{} ({}C/{}T) scored {} Composite ({:.0}% of expected class) — Single-Core {}, Multi-Core {}, Memory Mark {} ({:.1} GB/s, {:.1}ns), Thermal Drop {:.1}%.{}{}",
+        "{} ({}C/{}T) scored {} Composite ({:.0}% of expected class) — Single-Core {}, Multi-Core {}, Memory Mark {} ({:.1} GB/s, {:.1}ns), Thermal Drop {:.1}%.{}{}{}",
         cpu_brand,
         phys_cores,
         log_cores,
@@ -1097,6 +1182,7 @@ pub fn run_performance_benchmark(
         memory_bandwidth_gb_s,
         memory_latency_ns,
         throttle_drop_pct,
+        cooldown_summary_part,
         ub_summary_part,
         sensor_note
     );
@@ -1138,7 +1224,7 @@ pub fn run_performance_benchmark(
         baseline: baseline.clone(),
         shop_comparison,
         summary: format!(
-            "[Grade {} • {:.0}% of Normal] Mark {} (Office {} | Creator {} | Mem {}) | Throttle {:.1}%",
+            "[Grade {} • {:.0}% of Normal] Mark {} (Office {} | Creator {} | Mem {}) | Throttle {:.1}%{}",
             durability_grade,
             baseline.percent_of_normal,
             composite_score,
@@ -1146,6 +1232,7 @@ pub fn run_performance_benchmark(
             creator_score,
             memory_mark,
             throttle_drop_pct,
+            cooldown_short_tag,
         ),
         memory_uncached_read_gb_s,
         memory_threaded_gb_s,
@@ -1155,6 +1242,12 @@ pub fn run_performance_benchmark(
         sensor_unavailable,
         userbenchmark_rating,
         plain_summary,
+        cooldown_start_temp_c,
+        cooldown_end_temp_c,
+        cooldown_drop_c,
+        cooldown_rate_c_per_sec,
+        cooldown_verdict,
+        cooldown_note,
     })
 }
 

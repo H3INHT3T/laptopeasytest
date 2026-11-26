@@ -1,5 +1,5 @@
 use crate::modules::{
-    baselines,
+    baselines, cpu_stress,
     telemetry::{TelemetryReader, ThermalSafetyCheck},
     userbenchmark,
     vram_test::clamp_gpu_thermal_cutoff,
@@ -751,6 +751,7 @@ pub fn run_gpu_stress_test(
                     artifact_errors,
                     gpu_temp_available: sensor_available_ever,
                     throttle_state,
+                    in_cooldown: false,
                 },
             );
 
@@ -760,6 +761,72 @@ pub fn run_gpu_stress_test(
     }
 
     let elapsed = started.elapsed().as_secs_f64().max(0.001);
+
+    // Automatic 12-Second Post-Load GPU Cool-Down Recovery Check (skippable via Stop without losing GPU scores)
+    let cooldown_start_temp_c = cur_temp.or(peak_temp).map(|t| (t * 10.0).round() / 10.0);
+    let mut cooldown_end_temp_c: Option<f32> = None;
+    let mut cooldown_skipped = false;
+    let mut cd_elapsed_secs = 0.0f32;
+    if !cancelled && !thermal_cutoff_triggered && sensor_available_ever && cooldown_start_temp_c.is_some() {
+        let cd_secs = 12u64;
+        let cd_started = Instant::now();
+        while cd_started.elapsed().as_secs() < cd_secs {
+            if cancel.load(Ordering::Relaxed) {
+                cooldown_skipped = true;
+                break;
+            }
+            let (t, l, p) = telemetry.sample_gpu_only();
+            if let Some(tv) = t {
+                cooldown_end_temp_c = Some((tv * 10.0).round() / 10.0);
+            }
+            let cd_now = cd_started.elapsed().as_secs_f64();
+            let _ = app.emit(
+                "gpu:progress",
+                GpuStressProgress {
+                    running: true,
+                    adapter_name: adapter_name.clone(),
+                    width,
+                    height,
+                    fps: 0.0,
+                    avg_fps: ((frames_rendered as f64 / elapsed) * 10.0).round() / 10.0,
+                    min_fps: if min_fps < f64::MAX { (min_fps * 10.0).round() / 10.0 } else { 0.0 },
+                    low_1pct_fps: (compute_low_1pct(&fps_samples, 0.0) * 10.0).round() / 10.0,
+                    frame_time_ms: 0.0,
+                    frames_rendered,
+                    elapsed_secs: ((elapsed + cd_now) * 10.0).round() / 10.0,
+                    duration_secs,
+                    gpu_temp_c: t,
+                    gpu_load_pct: l,
+                    gpu_power_w: p,
+                    thermal_warning: false,
+                    preview_data_url: None,
+                    artifact_errors,
+                    gpu_temp_available: sensor_available_ever,
+                    throttle_state: format!("Cool-Down Recovery ({:.0}s / {}s)", cd_now.min(cd_secs as f64), cd_secs),
+                    in_cooldown: true,
+                },
+            );
+            for _ in 0..5 {
+                if cancel.load(Ordering::Relaxed) || cd_started.elapsed().as_secs() >= cd_secs {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+        cd_elapsed_secs = cd_started.elapsed().as_secs_f32().max(1.0);
+    }
+
+    let (cooldown_drop_c, cooldown_rate_c_per_sec, cooldown_verdict, cooldown_note) = if cooldown_skipped {
+        (
+            None,
+            None,
+            "SKIPPED".to_string(),
+            "Cool-down phase skipped by technician; GPU scores preserved.".to_string(),
+        )
+    } else {
+        cpu_stress::classify_smart_cooldown(cooldown_start_temp_c, cooldown_end_temp_c, cd_elapsed_secs.max(12.0))
+    };
+
     let avg_fps = ((frames_rendered as f64 / elapsed) * 10.0).round() / 10.0;
     let final_min = if min_fps < f64::MAX {
         (min_fps * 10.0).round() / 10.0
@@ -826,11 +893,18 @@ pub fn run_gpu_stress_test(
     } else if cancelled
         || thermal_throttling_detected
         || power_limit_throttling
+        || cooldown_verdict == "POOR_COOLING"
         || peak_temp.map(|t| t >= safe_cutoff_c - 6.0).unwrap_or(false)
     {
         TestStatus::Warn
     } else {
         TestStatus::Pass
+    };
+
+    let cooldown_summary_tag = if let Some(drop_c) = cooldown_drop_c {
+        format!(", Cool-Down -{:.1}°C ({})", drop_c, cooldown_verdict)
+    } else {
+        String::new()
     };
 
     let summary = if thermal_cutoff_triggered {
@@ -852,7 +926,7 @@ pub fn run_gpu_stress_test(
         )
     } else {
         format!(
-            "[{} — {:.0}% of Normal] {} @ {} — Avg {:.1} FPS (1% Low {:.1}, Drop {:.1}%, Throttle: {}){}.",
+            "[{} — {:.0}% of Normal] {} @ {} — Avg {:.1} FPS (1% Low {:.1}, Drop {:.1}%, Throttle: {}){}{}.",
             baseline.grade,
             baseline.percent_of_normal,
             adapter_name,
@@ -861,7 +935,8 @@ pub fn run_gpu_stress_test(
             low_1pct_fps,
             fps_drop_pct,
             throttle_reason,
-            peak_temp.map(|t| format!(", Peak {:.0}°C", t)).unwrap_or_default()
+            peak_temp.map(|t| format!(", Peak {:.0}°C", t)).unwrap_or_default(),
+            cooldown_summary_tag
         )
     };
 
@@ -873,6 +948,11 @@ pub fn run_gpu_stress_test(
         " GPU thermal sensor unavailable — duration safely bounded."
     } else {
         ""
+    };
+    let cooldown_plain_part = if let Some(drop_c) = cooldown_drop_c {
+        format!(" Cool-Down: -{:.1}°C ({}).", drop_c, cooldown_verdict)
+    } else {
+        String::new()
     };
     let plain_summary = if thermal_cutoff_triggered {
         format!(
@@ -888,8 +968,8 @@ pub fn run_gpu_stress_test(
         )
     } else {
         format!(
-            "{} @ {}: Avg {:.1} FPS (1% Low {:.1} FPS, {:.1}% FPS drop, Throttle: {}).{}{}",
-            adapter_name, res_label, avg_fps, low_1pct_fps, fps_drop_pct, throttle_reason, ub_txt, sensor_note
+            "{} @ {}: Avg {:.1} FPS (1% Low {:.1} FPS, {:.1}% FPS drop, Throttle: {}).{}{}{}",
+            adapter_name, res_label, avg_fps, low_1pct_fps, fps_drop_pct, throttle_reason, cooldown_plain_part, ub_txt, sensor_note
         )
     };
 
@@ -922,6 +1002,12 @@ pub fn run_gpu_stress_test(
         effective_cutoff_c: safe_cutoff_c,
         plain_summary,
         userbenchmark_rating,
+        cooldown_start_temp_c,
+        cooldown_end_temp_c,
+        cooldown_drop_c,
+        cooldown_rate_c_per_sec,
+        cooldown_verdict,
+        cooldown_note,
     })
 }
 

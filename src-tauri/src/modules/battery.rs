@@ -1,5 +1,6 @@
 use crate::modules::simd_kernels;
 use crate::types::{
+    BatteryCapacityHistoryPoint, BatteryChargeProgress, BatteryChargeResult,
     BatteryDischargeProgress, BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample,
     BatterySagProgress, BatterySagResult, TestStatus, BATTERY_DISCHARGE_MAX_SECS,
     BATTERY_LOW_SOC_ABORT_PCT,
@@ -89,8 +90,272 @@ pub fn get_battery_health() -> BatteryHealthReport {
             rate_mw: None,
             adapter_watts: None,
             notes: "Battery query not supported on this OS.".to_string(),
+            cycle_source: String::new(),
+            capacity_history: Vec::new(),
         }
     }
+}
+
+/// Smart-Bench Active Charging IC & Conservation-Mode Classifier (v2.10.0).
+/// Distinguishes healthy AC charging, OEM 80%/90% Battery Conservation Mode (WARN, not FAIL),
+/// trickle/slow USB-C PD negotiation (WARN), and real "Plugged in, not charging" IC/MOSFET faults (FAIL).
+pub fn classify_battery_charge_test(
+    samples: &[BatteryLiveSample],
+    duration_secs: f64,
+    cancelled: bool,
+) -> BatteryChargeResult {
+    if samples.is_empty() {
+        let msg = "No internal battery detected (AC-only desktop or battery disconnected).".to_string();
+        return BatteryChargeResult {
+            status: TestStatus::NotApplicable,
+            verdict: "NOT_APPLICABLE".to_string(),
+            duration_secs: round1(duration_secs),
+            plain_summary: msg.clone(),
+            summary: format!("NOT_APPLICABLE: {}", msg),
+            ..Default::default()
+        };
+    }
+
+    let first = &samples[0];
+    let last = &samples[samples.len() - 1];
+    let any_ac = samples.iter().any(|s| s.ac_plugged);
+    let any_charging = samples.iter().any(|s| s.is_charging);
+    let start_pct = round1(first.charge_percent);
+    let end_pct = round1(last.charge_percent);
+    let gain_pct = round1(end_pct - start_pct);
+
+    let finite_watts: Vec<f64> = samples
+        .iter()
+        .filter_map(|s| s.watts.filter(|w| w.is_finite()))
+        .collect();
+    let avg_w = if finite_watts.is_empty() {
+        None
+    } else {
+        Some(round2(finite_watts.iter().sum::<f64>() / finite_watts.len() as f64))
+    };
+    let peak_w = finite_watts
+        .iter()
+        .copied()
+        .reduce(f64::max)
+        .map(round2);
+
+    if cancelled && duration_secs < 4.0 {
+        let msg = format!(
+            "Charging IC check stopped early at {:.1}s before enough AC telemetry was captured.",
+            duration_secs
+        );
+        return BatteryChargeResult {
+            status: TestStatus::Warn,
+            verdict: "CANCELLED".to_string(),
+            duration_secs: round1(duration_secs),
+            ac_plugged: last.ac_plugged,
+            start_charge_pct: start_pct,
+            end_charge_pct: end_pct,
+            charge_gain_pct: gain_pct,
+            avg_charge_watts: avg_w,
+            peak_charge_watts: peak_w,
+            start_voltage_mv: first.voltage_mv,
+            end_voltage_mv: last.voltage_mv,
+            plain_summary: msg.clone(),
+            summary: format!("CANCELLED: {}", msg),
+        };
+    }
+
+    if !any_ac || !last.ac_plugged {
+        let msg = "AC power adapter is not connected. Plug in the charger and re-run to verify the charging IC.".to_string();
+        return BatteryChargeResult {
+            status: TestStatus::Warn,
+            verdict: "AC_UNPLUGGED".to_string(),
+            duration_secs: round1(duration_secs),
+            ac_plugged: false,
+            start_charge_pct: start_pct,
+            end_charge_pct: end_pct,
+            charge_gain_pct: gain_pct,
+            avg_charge_watts: avg_w,
+            peak_charge_watts: peak_w,
+            start_voltage_mv: first.voltage_mv,
+            end_voltage_mv: last.voltage_mv,
+            plain_summary: msg.clone(),
+            summary: format!("AC_UNPLUGGED: {}", msg),
+        };
+    }
+
+    let eff_avg_w = avg_w.unwrap_or(0.0);
+    let eff_peak_w = peak_w.unwrap_or(0.0);
+    let has_watt_sensor = avg_w.is_some();
+
+    let (status, verdict, plain_summary) = if eff_avg_w >= 2.0
+        || eff_peak_w >= 2.5
+        || gain_pct >= 0.5
+        || (end_pct >= 96.0 && (!has_watt_sensor || eff_avg_w >= -0.5))
+    {
+        let w_txt = avg_w
+            .map(|w| format!(" at {:+.1}W avg (peak {:+.1}W)", w, eff_peak_w))
+            .unwrap_or_default();
+        let detail = if end_pct >= 96.0 && eff_avg_w < 2.0 {
+            format!(
+                "AC adapter verified at {:.0}% full charge{} — charging circuit holding full float voltage.",
+                end_pct, w_txt
+            )
+        } else {
+            format!(
+                "Charging IC healthy: active AC charge verified{} ({:.1}% -> {:.1}% over {:.0}s).",
+                w_txt, start_pct, end_pct, duration_secs
+            )
+        };
+        (TestStatus::Pass, "PASS".to_string(), detail)
+    } else if ((77.0..=84.0).contains(&end_pct) || (87.0..=95.9).contains(&end_pct))
+        && (!has_watt_sensor || eff_avg_w > -1.5)
+    {
+        (
+            TestStatus::Warn,
+            "CONSERVATION_MODE".to_string(),
+            format!(
+                "AC connected at {:.0}% with ~{:.1}W net charge — likely OEM Battery Conservation / Charge Limit (80% or 90% threshold) rather than a dead charging IC. Temporarily disable conservation mode in BIOS/OEM app to confirm full charge.",
+                end_pct, eff_avg_w
+            ),
+        )
+    } else if eff_avg_w >= 0.3 || eff_peak_w >= 0.5 || (!has_watt_sensor && any_charging) {
+        (
+            TestStatus::Warn,
+            "SLOW_CHARGE".to_string(),
+            format!(
+                "Slow/trickle AC charging detected ({:+.1}W avg at {:.0}% SoC) — verify charger wattage or USB-C PD handshake.",
+                eff_avg_w, end_pct
+            ),
+        )
+    } else if end_pct < 75.0 && (!has_watt_sensor || eff_avg_w <= 0.0) {
+        (
+            TestStatus::Fail,
+            "CHARGING_IC_FAULT".to_string(),
+            format!(
+                "FAIL: Plugged into AC at {:.0}% (< 75%) but battery is NOT charging ({:+.1}W avg, {:.1}% gain over {:.0}s) — inspect DC-IN MOSFET, charging IC, USB-C PD controller, or battery BMS.",
+                end_pct, eff_avg_w, gain_pct, duration_secs
+            ),
+        )
+    } else {
+        (
+            TestStatus::Warn,
+            "SLOW_CHARGE".to_string(),
+            format!(
+                "AC connected at {:.0}% with minimal net charge ({:+.1}W avg) — verify charger output and OEM battery charge thresholds.",
+                end_pct, eff_avg_w
+            ),
+        )
+    };
+
+    BatteryChargeResult {
+        status,
+        verdict: verdict.clone(),
+        duration_secs: round1(duration_secs),
+        ac_plugged: true,
+        start_charge_pct: start_pct,
+        end_charge_pct: end_pct,
+        charge_gain_pct: gain_pct,
+        avg_charge_watts: avg_w,
+        peak_charge_watts: peak_w,
+        start_voltage_mv: first.voltage_mv,
+        end_voltage_mv: last.voltage_mv,
+        summary: format!("{}: {}", verdict, plain_summary),
+        plain_summary,
+    }
+}
+
+/// Bounded 12-second Active AC Charging IC Verification Test (v2.10.0).
+pub fn run_battery_charge_test(
+    duration_secs: Option<u64>,
+    app: &AppHandle,
+    cancel: &AtomicBool,
+) -> Result<BatteryChargeResult, String> {
+    let dur = duration_secs.unwrap_or(12).clamp(6, 30);
+    let Some(init) = sample_battery_live() else {
+        return Ok(classify_battery_charge_test(&[], 0.0, false));
+    };
+
+    if !init.ac_plugged {
+        let _ = app.emit(
+            "battery:charge",
+            BatteryChargeProgress {
+                running: false,
+                elapsed_secs: 0.0,
+                duration_secs: dur,
+                charge_percent: init.charge_percent,
+                ac_plugged: false,
+                is_charging: init.is_charging,
+                voltage_mv: init.voltage_mv,
+                watts: init.watts,
+                note: "AC adapter unplugged — connect charger to verify charging IC.".to_string(),
+            },
+        );
+        return Ok(classify_battery_charge_test(&[init], 0.0, false));
+    }
+
+    let started = Instant::now();
+    let mut samples = vec![init.clone()];
+
+    while started.elapsed().as_secs() < dur {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        if let Some(s) = sample_battery_live() {
+            let note = if !s.ac_plugged {
+                "AC adapter disconnected mid-check!".to_string()
+            } else if let Some(w) = s.watts {
+                if w >= 2.0 {
+                    format!("Active AC charging detected ({:+.1}W).", w)
+                } else if s.charge_percent >= 77.0 && s.charge_percent <= 84.0 && w.abs() < 1.5 {
+                    "Holding ~80% on AC — checking for OEM Conservation Mode.".to_string()
+                } else if w <= 0.0 {
+                    format!("AC plugged in at {:.0}% with {:+.1}W — monitoring charging IC response...", s.charge_percent, w)
+                } else {
+                    format!("Trickle charge ({:+.1}W) — monitoring ramp-up...", w)
+                }
+            } else {
+                format!("Sampling AC charging state ({:.1}%)...", s.charge_percent)
+            };
+            let _ = app.emit(
+                "battery:charge",
+                BatteryChargeProgress {
+                    running: true,
+                    elapsed_secs: round1(started.elapsed().as_secs_f64()),
+                    duration_secs: dur,
+                    charge_percent: s.charge_percent,
+                    ac_plugged: s.ac_plugged,
+                    is_charging: s.is_charging,
+                    voltage_mv: s.voltage_mv,
+                    watts: s.watts,
+                    note,
+                },
+            );
+            samples.push(s);
+        }
+        for _ in 0..5 {
+            if cancel.load(Ordering::Relaxed) || started.elapsed().as_secs() >= dur {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    let elapsed = started.elapsed().as_secs_f64();
+    let cancelled = cancel.load(Ordering::Relaxed);
+    let result = classify_battery_charge_test(&samples, elapsed, cancelled);
+    let last = samples.last();
+    let _ = app.emit(
+        "battery:charge",
+        BatteryChargeProgress {
+            running: false,
+            elapsed_secs: round1(elapsed),
+            duration_secs: dur,
+            charge_percent: last.map(|s| s.charge_percent).unwrap_or(0.0),
+            ac_plugged: last.map(|s| s.ac_plugged).unwrap_or(false),
+            is_charging: last.map(|s| s.is_charging).unwrap_or(false),
+            voltage_mv: last.and_then(|s| s.voltage_mv),
+            watts: last.and_then(|s| s.watts),
+            note: result.plain_summary.clone(),
+        },
+    );
+    Ok(result)
 }
 
 pub fn sample_battery_live() -> Option<BatteryLiveSample> {
@@ -1450,6 +1715,8 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
         rate_mw: None,
         adapter_watts: None,
         notes: "No battery detected (desktop PC or battery disconnected).".to_string(),
+        cycle_source: String::new(),
+        capacity_history: Vec::new(),
     };
 
     if let Ok(raw) = run_powershell(ps) {
@@ -1463,36 +1730,44 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
             let mut design = v["design"].as_u64().filter(|&x| x > 0);
             let mut full = v["full"].as_u64().filter(|&x| x > 0);
             let mut cycles = v["cycles"].as_u64().filter(|&x| x > 0).map(|x| x as u32);
+            let mut cycle_source = if cycles.is_some() {
+                "ACPI/WMI".to_string()
+            } else {
+                String::new()
+            };
 
-            // Fallback to `powercfg /batteryreport /xml` when WMI root\wmi returns 0
-            // (works reliably on Dell/HP/Lenovo/ASUS even without Administrator elevation)
-            if design.is_none() || full.is_none() {
-                if let Some((p_design, p_full, p_cycles, p_mfg, p_chem)) =
-                    read_windows_powercfg_battery_xml()
-                {
-                    if design.is_none() {
-                        design = p_design;
+            // Enrich via `powercfg /batteryreport /xml` to unlock real CycleCount on Dell/HP/Lenovo
+            // where WMI BatteryCycleCount returns 0, plus historical capacity wear checkpoints.
+            if let Some(parsed_xml) = read_windows_powercfg_battery_xml() {
+                if design.is_none() {
+                    design = parsed_xml.design_mwh;
+                }
+                if full.is_none() {
+                    full = parsed_xml.full_charge_mwh;
+                }
+                if cycles.is_none() {
+                    if let Some(c) = parsed_xml.cycle_count {
+                        cycles = Some(c);
+                        cycle_source = "Windows Battery Report XML".to_string();
                     }
-                    if full.is_none() {
-                        full = p_full;
+                }
+                if report.manufacturer == "OEM" || report.manufacturer.is_empty() {
+                    if let Some(m) = parsed_xml.manufacturer {
+                        report.manufacturer = m;
                     }
-                    if cycles.is_none() {
-                        cycles = p_cycles;
-                    }
-                    if report.manufacturer == "OEM" || report.manufacturer.is_empty() {
-                        if let Some(m) = p_mfg {
-                            report.manufacturer = m;
-                        }
-                    }
-                    if let Some(c) = p_chem {
+                }
+                if let Some(c) = parsed_xml.chemistry {
+                    if report.chemistry == "Unknown" || report.chemistry.is_empty() {
                         report.chemistry = c;
                     }
                 }
+                report.capacity_history = parsed_xml.capacity_history;
             }
 
             report.design_capacity_mwh = design;
             report.full_charge_capacity_mwh = full;
             report.cycle_count = cycles;
+            report.cycle_source = cycle_source;
             report.current_charge_percent = v["chargePct"].as_f64();
             report.ac_plugged = v["ac"].as_bool().unwrap_or(false);
             report.is_charging = v["charging"].as_bool().unwrap_or(false);
@@ -1531,14 +1806,153 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
     report
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ParsedPowercfgBatteryXml {
+    pub design_mwh: Option<u64>,
+    pub full_charge_mwh: Option<u64>,
+    pub cycle_count: Option<u32>,
+    pub manufacturer: Option<String>,
+    pub chemistry: Option<String>,
+    pub capacity_history: Vec<BatteryCapacityHistoryPoint>,
+}
+
+/// Pure XML parser for `powercfg /batteryreport /xml` output (cross-platform unit-testable).
+/// Extracts static battery info (including CycleCount when WMI reports 0) plus up to 8 recent
+/// historical capacity checkpoints from `<History><HistoryEntry .../>` blocks.
+pub fn parse_windows_powercfg_battery_xml(content: &str) -> Option<ParsedPowercfgBatteryXml> {
+    if content.trim().is_empty() {
+        return None;
+    }
+
+    let extract_tag = |slice: &str, tag: &str| -> Option<String> {
+        let open = format!("<{}>", tag);
+        let close = format!("</{}>", tag);
+        let start = slice.find(&open)? + open.len();
+        let end = slice[start..].find(&close)? + start;
+        let val = slice[start..end].trim().to_string();
+        if val.is_empty() {
+            None
+        } else {
+            Some(val)
+        }
+    };
+
+    let extract_attr = |slice: &str, attr: &str| -> Option<String> {
+        let needle = format!("{}=\"", attr);
+        let start = slice.find(&needle)? + needle.len();
+        let end = slice[start..].find('"')? + start;
+        let val = slice[start..end].trim().to_string();
+        if val.is_empty() {
+            None
+        } else {
+            Some(val)
+        }
+    };
+
+    // Scope static fields to <Batteries> section if present so we don't accidentally match a
+    // stale <HistoryEntry> capacity before the current <Battery> block.
+    let battery_scope = if let Some(b_start) = content.find("<Batteries>") {
+        let rest = &content[b_start..];
+        if let Some(b_end) = rest.find("</Batteries>") {
+            &rest[..b_end]
+        } else {
+            rest
+        }
+    } else {
+        content
+    };
+
+    let design_mwh = extract_tag(battery_scope, "DesignCapacity")
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&x| x > 0);
+    let full_charge_mwh = extract_tag(battery_scope, "FullChargeCapacity")
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&x| x > 0);
+    let cycle_count = extract_tag(battery_scope, "CycleCount")
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|&c| c > 0);
+    let manufacturer = extract_tag(battery_scope, "Manufacturer");
+    let chemistry = extract_tag(battery_scope, "Chemistry");
+
+    // Parse <HistoryEntry ...> records (Windows emits StartDate/EndDate attributes or child tags)
+    let mut history: Vec<BatteryCapacityHistoryPoint> = Vec::new();
+    let mut cursor = content;
+    while let Some(pos) = cursor.find("<HistoryEntry") {
+        let after = &cursor[pos..];
+        let tag_end = match after.find('>') {
+            Some(i) => i,
+            None => break,
+        };
+        let is_self_closing = tag_end > 0 && after.as_bytes()[tag_end - 1] == b'/';
+        let (entry_slice, advance) = if is_self_closing {
+            (&after[..=tag_end], tag_end + 1)
+        } else if let Some(close_pos) = after.find("</HistoryEntry>") {
+            (&after[..close_pos + "</HistoryEntry>".len()], close_pos + "</HistoryEntry>".len())
+        } else {
+            (&after[..=tag_end], tag_end + 1)
+        };
+
+        let raw_date = extract_attr(entry_slice, "StartDate")
+            .or_else(|| extract_attr(entry_slice, "EndDate"))
+            .or_else(|| extract_tag(entry_slice, "Date"))
+            .unwrap_or_default();
+        let date = raw_date.split('T').next().unwrap_or(&raw_date).trim().to_string();
+
+        let h_full = extract_attr(entry_slice, "FullChargeCapacity")
+            .or_else(|| extract_tag(entry_slice, "FullChargeCapacity"))
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|&x| x > 0);
+        let h_design = extract_attr(entry_slice, "DesignCapacity")
+            .or_else(|| extract_tag(entry_slice, "DesignCapacity"))
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|&x| x > 0)
+            .or(design_mwh);
+
+        if let (Some(f), Some(d)) = (h_full, h_design) {
+            if !date.is_empty() && d > 0 {
+                let hp = round1(((f as f64 / d as f64) * 100.0).min(100.0));
+                if history.last().map(|p| p.date.as_str()) != Some(date.as_str()) {
+                    history.push(BatteryCapacityHistoryPoint {
+                        date,
+                        full_charge_mwh: f,
+                        design_mwh: d,
+                        health_pct: hp,
+                    });
+                }
+            }
+        }
+        cursor = &after[advance..];
+    }
+
+    // Keep at most 8 evenly spaced / recent checkpoints so the UI & PDF stay clean
+    if history.len() > 8 {
+        let step = history.len() / 8;
+        let mut sampled: Vec<BatteryCapacityHistoryPoint> = history
+            .iter()
+            .step_by(step.max(1))
+            .take(7)
+            .cloned()
+            .collect();
+        if let Some(last) = history.last() {
+            if sampled.last().map(|p| p.date.as_str()) != Some(last.date.as_str()) {
+                sampled.push(last.clone());
+            }
+        }
+        history = sampled;
+    }
+
+    Some(ParsedPowercfgBatteryXml {
+        design_mwh,
+        full_charge_mwh,
+        cycle_count,
+        manufacturer,
+        chemistry,
+        capacity_history: history,
+    })
+}
+
 #[cfg(target_os = "windows")]
-fn read_windows_powercfg_battery_xml() -> Option<(
-    Option<u64>,
-    Option<u64>,
-    Option<u32>,
-    Option<String>,
-    Option<String>,
-)> {
+fn read_windows_powercfg_battery_xml() -> Option<ParsedPowercfgBatteryXml> {
     use crate::cmd_util::run_cmd_stdout;
     let xml_path = std::env::temp_dir().join(format!(
         "laptopbench_battery_{}.xml",
@@ -1548,26 +1962,7 @@ fn read_windows_powercfg_battery_xml() -> Option<(
     let _ = run_cmd_stdout("powercfg", &["/batteryreport", "/xml", "/output", &xml_str]);
     let content = std::fs::read_to_string(&xml_path).ok()?;
     let _ = std::fs::remove_file(&xml_path);
-
-    let extract = |tag: &str| -> Option<String> {
-        let open = format!("<{}>", tag);
-        let close = format!("</{}>", tag);
-        let start = content.find(&open)? + open.len();
-        let end = content[start..].find(&close)? + start;
-        let val = content[start..end].trim().to_string();
-        if val.is_empty() {
-            None
-        } else {
-            Some(val)
-        }
-    };
-
-    let design = extract("DesignCapacity").and_then(|s| s.parse::<u64>().ok()).filter(|&x| x > 0);
-    let full = extract("FullChargeCapacity").and_then(|s| s.parse::<u64>().ok()).filter(|&x| x > 0);
-    let cycles = extract("CycleCount").and_then(|s| s.parse::<u32>().ok());
-    let mfg = extract("Manufacturer");
-    let chem = extract("Chemistry");
-    Some((design, full, cycles, mfg, chem))
+    parse_windows_powercfg_battery_xml(&content)
 }
 
 #[allow(dead_code)]
@@ -1740,6 +2135,8 @@ fn get_macos_battery_health() -> BatteryHealthReport {
         rate_mw: None,
         adapter_watts: None,
         notes: "No internal battery detected.".to_string(),
+        cycle_source: String::new(),
+        capacity_history: Vec::new(),
     };
 
     if let Ok(out) = run_cmd_stdout("ioreg", &["-r", "-c", "AppleSmartBattery", "-d", "1"]) {
@@ -1756,6 +2153,9 @@ fn get_macos_battery_health() -> BatteryHealthReport {
             .max_mah
             .map(|m| (m as f64 * nom_v).round() as u64);
         report.cycle_count = parsed.cycle_count;
+        if parsed.cycle_count.is_some() {
+            report.cycle_source = "macOS IORegistry".to_string();
+        }
         report.current_charge_percent = parsed.current_charge_percent;
         report.voltage_mv = parsed.voltage_mv;
         report.is_charging = parsed.is_charging;
@@ -1818,6 +2218,8 @@ mod tests {
             rate_mw: Some(-6_000),
             adapter_watts: None,
             notes: String::new(),
+            cycle_source: "Test".into(),
+            capacity_history: Vec::new(),
         }
     }
 
@@ -2170,5 +2572,78 @@ mod tests {
             classify_battery_discharge(&late_cancel_samples, 10, &health, 20.0, None, true);
         assert_eq!(late_cancel_res.status, TestStatus::Warn);
         assert_eq!(late_cancel_res.verdict, "CANCELLED");
+    }
+
+    #[test]
+    fn test_parse_windows_powercfg_battery_xml_cycles_and_history() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<BatteryReport>
+  <Batteries>
+    <Battery>
+      <Manufacturer>BYD</Manufacturer>
+      <Chemistry>LiP</Chemistry>
+      <DesignCapacity>54000</DesignCapacity>
+      <FullChargeCapacity>47520</FullChargeCapacity>
+      <CycleCount>184</CycleCount>
+    </Battery>
+  </Batteries>
+  <History>
+    <HistoryEntry StartDate="2025-01-05" EndDate="2025-01-12" FullChargeCapacity="52800" DesignCapacity="54000" />
+    <HistoryEntry StartDate="2025-06-01T00:00:00" EndDate="2025-06-08" FullChargeCapacity="49680" DesignCapacity="54000" />
+    <HistoryEntry StartDate="2026-01-10" EndDate="2026-01-17" FullChargeCapacity="47520" DesignCapacity="54000" />
+  </History>
+</BatteryReport>"#;
+        let parsed = parse_windows_powercfg_battery_xml(xml).expect("XML should parse");
+        assert_eq!(parsed.design_mwh, Some(54_000));
+        assert_eq!(parsed.full_charge_mwh, Some(47_520));
+        assert_eq!(parsed.cycle_count, Some(184));
+        assert_eq!(parsed.manufacturer.as_deref(), Some("BYD"));
+        assert_eq!(parsed.chemistry.as_deref(), Some("LiP"));
+        assert_eq!(parsed.capacity_history.len(), 3);
+        assert_eq!(parsed.capacity_history[0].date, "2025-01-05");
+        assert!((parsed.capacity_history[2].health_pct - 88.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_classify_battery_charge_ic_and_conservation_mode() {
+        let mk_ac = |t: i64, soc: f64, w: f64, chg: bool| BatteryLiveSample {
+            timestamp_ms: 1_700_000_000_000 + t * 1000,
+            charge_percent: soc,
+            ac_plugged: true,
+            is_charging: chg,
+            voltage_mv: Some(12_400),
+            rate_mw: Some((w * 1000.0) as i64),
+            watts: Some(w),
+        };
+
+        // 1. Healthy active charging (+35W)
+        let ok_samples = vec![mk_ac(0, 52.0, 34.5, true), mk_ac(12, 53.0, 35.2, true)];
+        let res_ok = classify_battery_charge_test(&ok_samples, 12.0, false);
+        assert_eq!(res_ok.status, TestStatus::Pass);
+        assert_eq!(res_ok.verdict, "PASS");
+
+        // 2. OEM 80% Conservation Mode (holding 80% at 0W on AC -> WARN, NOT FAIL!)
+        let cons_samples = vec![mk_ac(0, 80.0, 0.0, false), mk_ac(12, 80.0, 0.0, false)];
+        let res_cons = classify_battery_charge_test(&cons_samples, 12.0, false);
+        assert_eq!(res_cons.status, TestStatus::Warn);
+        assert_eq!(res_cons.verdict, "CONSERVATION_MODE");
+
+        // 3. Dead Charging IC / MOSFET (<75% on AC, 0W / draining -> FAIL!)
+        let dead_ic = vec![mk_ac(0, 48.0, 0.0, false), mk_ac(12, 47.8, -4.5, false)];
+        let res_dead = classify_battery_charge_test(&dead_ic, 12.0, false);
+        assert_eq!(res_dead.status, TestStatus::Fail);
+        assert_eq!(res_dead.verdict, "CHARGING_IC_FAULT");
+
+        // 4. Slow / trickle USB-C PD charge (+1.1W at 40% -> WARN)
+        let slow = vec![mk_ac(0, 40.0, 1.1, true), mk_ac(12, 40.0, 1.2, true)];
+        let res_slow = classify_battery_charge_test(&slow, 12.0, false);
+        assert_eq!(res_slow.status, TestStatus::Warn);
+        assert_eq!(res_slow.verdict, "SLOW_CHARGE");
+
+        // 5. Unplugged AC -> WARN AC_UNPLUGGED
+        let unplugged = vec![mk_sample(0, 60.0, Some(11_400), Some(12.0))];
+        let res_unp = classify_battery_charge_test(&unplugged, 0.0, false);
+        assert_eq!(res_unp.status, TestStatus::Warn);
+        assert_eq!(res_unp.verdict, "AC_UNPLUGGED");
     }
 }

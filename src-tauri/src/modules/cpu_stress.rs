@@ -54,7 +54,7 @@ pub fn classify_cooldown_recovery(
                     Some(drop),
                     "EXCELLENT".to_string(),
                     format!(
-                        "Fast heatsink recovery: cooled {:.1}°C ({:.0}°C → {:.0}°C) right after load.",
+                        "Fast heatsink recovery: cooled {:.1}°C ({:.0}°C -> {:.0}°C) right after load.",
                         drop, peak, end
                     ),
                 )
@@ -63,7 +63,7 @@ pub fn classify_cooldown_recovery(
                     Some(drop),
                     "NORMAL".to_string(),
                     format!(
-                        "Healthy cooling recovery: dropped {:.1}°C ({:.0}°C → {:.0}°C) during cool-down.",
+                        "Healthy cooling recovery: dropped {:.1}°C ({:.0}°C -> {:.0}°C) during cool-down.",
                         drop, peak, end
                     ),
                 )
@@ -72,7 +72,7 @@ pub fn classify_cooldown_recovery(
                     Some(drop),
                     "SLOW_COOLING".to_string(),
                     format!(
-                        "Slow thermal recovery: only dropped {:.1}°C ({:.0}°C → {:.0}°C) — check for clogged fan vents or dried thermal paste.",
+                        "Slow thermal recovery: only dropped {:.1}°C ({:.0}°C -> {:.0}°C) — check for clogged fan vents or dried thermal paste.",
                         drop, peak, end
                     ),
                 )
@@ -82,6 +82,75 @@ pub fn classify_cooldown_recovery(
             None,
             "SENSOR_UNAVAILABLE".to_string(),
             "CPU temperature sensor unavailable on this firmware; cool-down recovery delta skipped.".to_string(),
+        ),
+    }
+}
+
+/// Smart-Bench Post-Load Cool-Down Classifier (v2.10.0) shared by Stage 12 (CPU) & Stage 13 (GPU).
+/// Evaluates 12-second post-load heatsink recovery without false-flagging cool-running laptops (<75°C).
+/// Returns `(drop_c, rate_c_per_sec, verdict, note)`:
+/// - `COOL_LOAD`: Load peak/end stayed below 75°C (plenty of thermal headroom)
+/// - `POOR_COOLING`: Load reached >= 80°C and 12s drop was < 8°C (or remained > 78°C) -> WARN
+/// - `EXCELLENT`: Dropped >= 14°C or recovered to <= 62°C
+/// - `NORMAL`: Dropped >= 8°C and recovered to <= 78°C
+/// - `UNAVAILABLE`: Sensor did not report temperature
+pub fn classify_smart_cooldown(
+    start_temp_c: Option<f32>,
+    end_temp_c: Option<f32>,
+    duration_secs: f32,
+) -> (Option<f32>, Option<f32>, String, String) {
+    let dur = duration_secs.max(1.0);
+    match (start_temp_c, end_temp_c) {
+        (Some(start), Some(end)) if start.is_finite() && end.is_finite() => {
+            let drop = (((start - end).max(0.0)) * 10.0).round() / 10.0;
+            let rate = ((drop / dur) * 100.0).round() / 100.0;
+            if start < 75.0 {
+                (
+                    Some(drop),
+                    Some(rate),
+                    "COOL_LOAD".to_string(),
+                    format!(
+                        "Ran cool under load ({:.0}°C -> {:.0}°C over {:.0}s) — ample heatsink headroom.",
+                        start, end, dur
+                    ),
+                )
+            } else if start >= 80.0 && (drop < 8.0 || end > 78.0) {
+                (
+                    Some(drop),
+                    Some(rate),
+                    "POOR_COOLING".to_string(),
+                    format!(
+                        "Poor cooling recovery: only cooled {:.1}°C ({:.0}°C -> {:.0}°C in {:.0}s) — inspect for clogged fan vents or dried thermal paste.",
+                        drop, start, end, dur
+                    ),
+                )
+            } else if drop >= 14.0 || end <= 62.0 {
+                (
+                    Some(drop),
+                    Some(rate),
+                    "EXCELLENT".to_string(),
+                    format!(
+                        "Fast heatsink recovery: cooled {:.1}°C ({:.0}°C -> {:.0}°C in {:.0}s, {:.2}°C/s).",
+                        drop, start, end, dur, rate
+                    ),
+                )
+            } else {
+                (
+                    Some(drop),
+                    Some(rate),
+                    "NORMAL".to_string(),
+                    format!(
+                        "Healthy cooling recovery: dropped {:.1}°C ({:.0}°C -> {:.0}°C in {:.0}s, {:.2}°C/s).",
+                        drop, start, end, dur, rate
+                    ),
+                )
+            }
+        }
+        _ => (
+            None,
+            None,
+            "UNAVAILABLE".to_string(),
+            "Thermal sensor unavailable; 12s cool-down recovery delta skipped.".to_string(),
         ),
     }
 }
@@ -437,5 +506,33 @@ mod tests {
         let (drop_na, v_na, _) = classify_cooldown_recovery(None, None);
         assert!(drop_na.is_none());
         assert_eq!(v_na, "SENSOR_UNAVAILABLE");
+    }
+
+    #[test]
+    fn test_smart_cooldown_classifier_v210() {
+        // Cool-running laptop (<75C) must NOT be false-flagged even with small drop
+        let (_, _, v_cool, _) = classify_smart_cooldown(Some(64.0), Some(60.0), 12.0);
+        assert_eq!(v_cool, "COOL_LOAD");
+
+        // Hot laptop (>=80C) that barely cools (<8C drop or stays >78C) -> POOR_COOLING
+        let (d_poor, _, v_poor, note_poor) = classify_smart_cooldown(Some(88.0), Some(83.0), 12.0);
+        assert_eq!(v_poor, "POOR_COOLING");
+        assert!((d_poor.unwrap() - 5.0).abs() < 0.01);
+        assert!(note_poor.contains("thermal paste"));
+
+        // Hot laptop that drops >=14C -> EXCELLENT
+        let (d_ex, rate_ex, v_ex, _) = classify_smart_cooldown(Some(86.0), Some(68.0), 12.0);
+        assert_eq!(v_ex, "EXCELLENT");
+        assert!((d_ex.unwrap() - 18.0).abs() < 0.01);
+        assert!(rate_ex.unwrap() >= 1.4);
+
+        // Hot laptop that drops 10C to 74C -> NORMAL
+        let (_, _, v_norm, _) = classify_smart_cooldown(Some(84.0), Some(74.0), 12.0);
+        assert_eq!(v_norm, "NORMAL");
+
+        // Unavailable sensor -> UNAVAILABLE
+        let (d_unavail, _, v_unavail, _) = classify_smart_cooldown(None, None, 12.0);
+        assert!(d_unavail.is_none());
+        assert_eq!(v_unavail, "UNAVAILABLE");
     }
 }

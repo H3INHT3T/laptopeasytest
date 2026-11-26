@@ -274,8 +274,19 @@ pub struct HardwareControlsReport {
     pub summary: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct BatteryCapacityHistoryPoint {
+    pub date: String,
+    pub full_charge_mwh: u64,
+    pub design_mwh: u64,
+    pub health_pct: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct BatteryHealthReport {
     pub present: bool,
     pub status: TestStatus,
@@ -293,6 +304,44 @@ pub struct BatteryHealthReport {
     pub rate_mw: Option<i64>,
     pub adapter_watts: Option<u32>,
     pub notes: String,
+    #[serde(default)]
+    pub cycle_source: String,
+    #[serde(default)]
+    pub capacity_history: Vec<BatteryCapacityHistoryPoint>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct BatteryChargeProgress {
+    pub running: bool,
+    pub elapsed_secs: f64,
+    pub duration_secs: u64,
+    pub charge_percent: f64,
+    pub ac_plugged: bool,
+    pub is_charging: bool,
+    pub voltage_mv: Option<u64>,
+    pub watts: Option<f64>,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct BatteryChargeResult {
+    pub status: TestStatus,
+    pub verdict: String, // "PASS" | "CONSERVATION_MODE" | "SLOW_CHARGE" | "CHARGING_IC_FAULT" | "AC_UNPLUGGED" | "NOT_APPLICABLE" | "CANCELLED"
+    pub duration_secs: f64,
+    pub ac_plugged: bool,
+    pub start_charge_pct: f64,
+    pub end_charge_pct: f64,
+    pub charge_gain_pct: f64,
+    pub avg_charge_watts: Option<f64>,
+    pub peak_charge_watts: Option<f64>,
+    pub start_voltage_mv: Option<u64>,
+    pub end_voltage_mv: Option<u64>,
+    pub plain_summary: String,
+    pub summary: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -688,6 +737,8 @@ pub struct PerfBenchProgress {
     pub cpu_temp_c: Option<f32>,
     pub raytrace_preview_url: Option<String>,
     pub telemetry: Option<LiveTelemetrySnapshot>,
+    #[serde(default)]
+    pub in_cooldown: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -746,6 +797,18 @@ pub struct PerfBenchResult {
     pub userbenchmark_rating: Option<UserBenchmarkComponentRating>,
     #[serde(default)]
     pub plain_summary: String,
+    #[serde(default)]
+    pub cooldown_start_temp_c: Option<f32>,
+    #[serde(default)]
+    pub cooldown_end_temp_c: Option<f32>,
+    #[serde(default)]
+    pub cooldown_drop_c: Option<f32>,
+    #[serde(default)]
+    pub cooldown_rate_c_per_sec: Option<f32>,
+    #[serde(default)]
+    pub cooldown_verdict: String,
+    #[serde(default)]
+    pub cooldown_note: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -942,6 +1005,8 @@ pub struct GpuStressProgress {
     pub gpu_temp_available: bool,
     #[serde(default)]
     pub throttle_state: String,
+    #[serde(default)]
+    pub in_cooldown: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -986,6 +1051,18 @@ pub struct GpuStressResult {
     pub plain_summary: String,
     #[serde(default)]
     pub userbenchmark_rating: Option<UserBenchmarkComponentRating>,
+    #[serde(default)]
+    pub cooldown_start_temp_c: Option<f32>,
+    #[serde(default)]
+    pub cooldown_end_temp_c: Option<f32>,
+    #[serde(default)]
+    pub cooldown_drop_c: Option<f32>,
+    #[serde(default)]
+    pub cooldown_rate_c_per_sec: Option<f32>,
+    #[serde(default)]
+    pub cooldown_verdict: String,
+    #[serde(default)]
+    pub cooldown_note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1082,6 +1159,8 @@ pub struct ExportReportPayload {
     pub user_benchmark: Option<UserBenchmarkComparison>,
     #[serde(default, alias = "batteryDischargeResult")]
     pub battery_discharge: Option<BatteryDischargeResult>,
+    #[serde(default, alias = "batteryChargeResult")]
+    pub battery_charge: Option<BatteryChargeResult>,
     #[serde(default, alias = "touchscreenResult")]
     pub touchscreen: Option<TouchscreenTestResult>,
     #[serde(default, alias = "networkDiagnostics")]

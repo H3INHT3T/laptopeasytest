@@ -16,6 +16,8 @@ import {
 import {
   BATTERY_DISCHARGE_MAX_SECS,
   BATTERY_LOW_SOC_ABORT_PCT,
+  type BatteryChargeProgress,
+  type BatteryChargeResult,
   type BatteryDischargeProgress,
   type BatteryDischargeResult,
   type BatteryHealthReport,
@@ -29,11 +31,13 @@ import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 import { LiveChart } from "../components/LiveChart";
 import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface BatteryViewProps {
   report: BatteryHealthReport | null;
   sagResult: BatterySagResult | null;
   dischargeResult?: BatteryDischargeResult | null;
+  chargeResult?: BatteryChargeResult | null;
   specs?: SystemSpecs | null;
   loading: boolean;
   status: TestStatus;
@@ -42,6 +46,7 @@ interface BatteryViewProps {
   onRefresh: () => void;
   onSagComplete: (res: BatterySagResult) => void;
   onDischargeComplete?: (res: BatteryDischargeResult) => void;
+  onChargeComplete?: (res: BatteryChargeResult) => void;
   onUpdateStatus: (status: TestStatus, summary: string) => void;
   onNext: () => void;
   onSkip: () => void;
@@ -51,6 +56,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
   report,
   sagResult,
   dischargeResult,
+  chargeResult,
   specs,
   loading,
   status,
@@ -59,6 +65,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
   onRefresh,
   onSagComplete,
   onDischargeComplete,
+  onChargeComplete,
   onUpdateStatus,
   onNext,
   onSkip,
@@ -68,6 +75,11 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
   const [dischargeVerified, setDischargeVerified] = useState(false);
   const [chargeVerified, setChargeVerified] = useState(false);
   const [verdictLocked, setVerdictLocked] = useState(false);
+
+  // Active Charging IC & Conservation-Mode Check state (v2.10.0)
+  const [chargeRunning, setChargeRunning] = useState(false);
+  const [chargeProg, setChargeProg] = useState<BatteryChargeProgress | null>(null);
+  const [chargeError, setChargeError] = useState<string | null>(null);
 
   // Voltage-Sag Load Pulse state
   const [sagRunning, setSagRunning] = useState(false);
@@ -106,6 +118,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
   useEffect(() => {
     let unlistenSag: (() => void) | null = null;
     let unlistenDischarge: (() => void) | null = null;
+    let unlistenCharge: (() => void) | null = null;
 
     listen<BatterySagProgress>("battery:sag", (ev) => {
       const p = ev.payload;
@@ -136,11 +149,35 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
       unlistenDischarge = fn;
     });
 
+    listen<BatteryChargeProgress>("battery:charge", (ev) => {
+      setChargeProg(ev.payload);
+    }).then((fn) => {
+      unlistenCharge = fn;
+    });
+
     return () => {
       if (unlistenSag) unlistenSag();
       if (unlistenDischarge) unlistenDischarge();
+      if (unlistenCharge) unlistenCharge();
     };
   }, []);
+
+  const startChargeCheck = async () => {
+    setChargeError(null);
+    setChargeRunning(true);
+    setChargeProg(null);
+    try {
+      const res = await invoke<BatteryChargeResult>("run_battery_charge_test", {
+        durationSecs: 12,
+      });
+      if (res.verdict === "PASS") setChargeVerified(true);
+      onChargeComplete?.(res);
+    } catch (e) {
+      setChargeError(String(e));
+    } finally {
+      setChargeRunning(false);
+    }
+  };
 
   const startSagPulse = async () => {
     setSagError(null);
@@ -318,8 +355,8 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
               <div className="text-2xl font-black mt-0.5 text-black">
                 {report.cycleCount != null ? report.cycleCount : "N/A"}
               </div>
-              <div className="text-[10.5px] text-zinc-500">
-                {report.manufacturer} ({report.chemistry})
+              <div className="text-[10.5px] text-zinc-500 truncate" title={report.cycleSource || report.manufacturer}>
+                {report.cycleSource ? report.cycleSource : `${report.manufacturer} (${report.chemistry})`}
               </div>
             </div>
             <div className="p-3.5">
@@ -342,6 +379,137 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Active AC Charging IC & Conservation-Mode Check (v2.10.0) */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-black flex items-center gap-1.5">
+                  <Plug className="w-4 h-4 text-blue-600" />
+                  Active AC Charging IC Check (12s)
+                </h2>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Verifies real AC charging wattage and distinguishes OEM 80% Conservation Mode from "plugged in, not charging" IC/MOSFET faults.
+                </p>
+              </div>
+              {chargeRunning ? (
+                <button
+                  type="button"
+                  onClick={() => invoke("cancel_battery_charge_test").catch(() => {})}
+                  className="px-4 py-2 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Square className="w-3.5 h-3.5" /> Stop Check
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startChargeCheck}
+                  disabled={dischargeRunning || sagRunning}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Zap className="w-3.5 h-3.5" /> Verify AC Charging IC
+                </button>
+              )}
+            </div>
+
+            {chargeError && (
+              <div className="rounded-xl bg-black text-white px-3.5 py-2 font-mono text-xs">{chargeError}</div>
+            )}
+
+            {chargeRunning && chargeProg && (
+              <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3.5 space-y-2 font-mono text-xs tabular-nums">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="font-bold text-blue-700">
+                    {chargeProg.acPlugged ? "Sampling AC Charging IC..." : "AC Adapter Disconnected"}
+                  </span>
+                  <span className="text-black font-bold">
+                    {chargeProg.elapsedSecs.toFixed(0)}s / {chargeProg.durationSecs}s •{" "}
+                    {chargeProg.watts != null ? `${chargeProg.watts >= 0 ? "+" : ""}${chargeProg.watts.toFixed(1)} W` : "— W"} •{" "}
+                    SoC {chargeProg.chargePercent.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-1.5 bg-zinc-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-600 transition-all"
+                    style={{
+                      width: `${Math.min(100, (chargeProg.elapsedSecs / Math.max(chargeProg.durationSecs, 1)) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <div className="font-sans text-[11px] text-zinc-600">{chargeProg.note}</div>
+              </div>
+            )}
+
+            {chargeResult && !chargeRunning && (
+              <div
+                className={`rounded-xl border p-3.5 flex items-start justify-between gap-3 flex-wrap ${
+                  chargeResult.verdict === "CHARGING_IC_FAULT" || chargeResult.status === "fail"
+                    ? "border-black bg-black text-white"
+                    : chargeResult.verdict === "PASS"
+                    ? "border-blue-600 bg-[#F8FAFC] text-black"
+                    : "border-zinc-300 bg-[#F8FAFC] text-black"
+                }`}
+              >
+                <div className="space-y-1 flex-1 min-w-[220px]">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-bold ${
+                        chargeResult.verdict === "CHARGING_IC_FAULT"
+                          ? "bg-white text-black"
+                          : chargeResult.verdict === "PASS"
+                          ? "bg-blue-600 text-white"
+                          : "bg-black text-white"
+                      }`}
+                    >
+                      {chargeResult.verdict.replace(/_/g, " ")}
+                    </span>
+                    <StatusBadge
+                      status={chargeResult.status}
+                      darkSurface={chargeResult.verdict === "CHARGING_IC_FAULT" || chargeResult.status === "fail"}
+                      compact
+                    />
+                    <span className="font-mono text-[11px] opacity-80 tabular-nums">
+                      {chargeResult.startChargePct.toFixed(1)}% -&gt; {chargeResult.endChargePct.toFixed(1)}%
+                      {chargeResult.avgChargeWatts != null
+                        ? ` • Avg ${chargeResult.avgChargeWatts >= 0 ? "+" : ""}${chargeResult.avgChargeWatts.toFixed(1)}W`
+                        : ""}
+                    </span>
+                  </div>
+                  <div className="text-xs leading-relaxed">{chargeResult.plainSummary}</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {report.capacityHistory && report.capacityHistory.length > 0 && (
+            <TechnicalDetailsDrawer
+              title="Battery Wear History (Windows Power Report)"
+              summary={`${report.capacityHistory.length} historical capacity checkpoints`}
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-left font-mono text-xs tabular-nums">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-[10px] uppercase text-zinc-500">
+                      <th className="py-1.5 pr-3">Date</th>
+                      <th className="py-1.5 pr-3">Full Charge</th>
+                      <th className="py-1.5 pr-3">Design</th>
+                      <th className="py-1.5">Health</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {report.capacityHistory.map((pt, idx) => (
+                      <tr key={`${pt.date}-${idx}`}>
+                        <td className="py-1.5 pr-3 text-black">{pt.date}</td>
+                        <td className="py-1.5 pr-3 text-zinc-700">{(pt.fullChargeMwh / 1000).toFixed(1)} Wh</td>
+                        <td className="py-1.5 pr-3 text-zinc-500">{(pt.designMwh / 1000).toFixed(1)} Wh</td>
+                        <td className="py-1.5 font-bold text-blue-700">{pt.healthPct.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </TechnicalDetailsDrawer>
+          )}
 
           {/* Two-Phase Battery Discharge Normality Test (R3) */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-3">
@@ -738,7 +906,8 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
           verdictLocked ||
           !report?.present ||
           (dischargeVerified && chargeVerified) ||
-          Boolean(dischargeResult && !dischargeRunning)
+          Boolean(dischargeResult && !dischargeRunning) ||
+          Boolean(chargeResult && !chargeRunning)
         }
         requirementHint="Run the Discharge Normality Test, 15s Sag Pulse, or live charge/discharge check and record verdict (or Skip Step)."
         onNext={onNext}
