@@ -1490,7 +1490,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </section>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.3.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.4.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Tamper-Check ID: {cert_id}</span>
   </footer>
 </div>
@@ -1504,7 +1504,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </table>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.3.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.4.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Cert ID: {cert_id}</span>
   </footer>
 </div>
@@ -1592,7 +1592,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         spk_ok = if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         spk_notes = html_escape(&payload.signoff.speakers_notes),
         notes_esc = if payload.technician_notes.trim().is_empty() {
-            format!("Unit inspected per {}-stage LaptopBench QC v3.3.0 protocol.", stage_count)
+            format!("Unit inspected per {}-stage LaptopBench QC v3.4.0 protocol.", stage_count)
         } else {
             html_escape(payload.technician_notes.trim())
         },
@@ -1648,7 +1648,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
     let json_val = serde_json::json!({
         "certificateId": cert_id,
         "generatedAt": generated_at,
-        "version": "3.3.0",
+        "version": "3.4.0",
         "report": payload
     });
     let json_str = serde_json::to_string_pretty(&json_val).map_err(|e| e.to_string())?;
@@ -1867,7 +1867,7 @@ mod tests {
         let payload = sample_v230_payload(None, "ABNORMAL");
         let html = render_qc_html(&payload, "2026-11-26 10:00:00");
 
-        assert!(html.contains("LaptopBench QC v3.3.0"));
+        assert!(html.contains("LaptopBench QC v3.4.0"));
         assert!(html.contains("Created by Hein Htet Zaw"));
         assert!(html.contains("@ich8g92"));
         assert!(html.contains("14-STAGE TECHNICAL DIAGNOSTIC AUDIT LEDGER"));
@@ -1907,9 +1907,9 @@ mod tests {
 
         assert!(pdf_bytes.starts_with(b"%PDF-1.4"));
         assert!(pdf_bytes.ends_with(b"%%EOF\n"));
-        assert!(html_text.contains("LaptopBench QC v3.3.0"));
+        assert!(html_text.contains("LaptopBench QC v3.4.0"));
         let parsed: serde_json::Value = serde_json::from_str(&json_text).expect("valid JSON");
-        assert_eq!(parsed["version"], "3.3.0");
+        assert_eq!(parsed["version"], "3.4.0");
         assert_eq!(parsed["report"]["userBenchmark"]["overallVehicleTier"], "Aircraft Carrier");
         assert_eq!(parsed["report"]["batteryDischarge"]["verdict"], "NORMAL");
         assert_eq!(parsed["report"]["touchscreen"]["coveredCells"], 160);

@@ -226,7 +226,7 @@ export function createCliRunner({ rootDir, noBuild = false } = {}) {
     return cache.runSelfTest;
   }
 
-  function checkVersionAlignment(expectedVersion = "3.3.0") {
+  function checkVersionAlignment(expectedVersion = "3.4.0") {
     const findings = [];
     const expectedMajorMinor = expectedVersion.split(".").slice(0, 2).join(".");
 

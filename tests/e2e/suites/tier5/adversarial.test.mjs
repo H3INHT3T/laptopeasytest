@@ -1416,4 +1416,83 @@ export const tests = [
       });
     },
   },
+
+  {
+    id: "T5-13",
+    tier: 5,
+    feature: "F15",
+    title: "Three.js 3D+2D Fullscreen Graphics Lab never resets every 2-3s across telemetry polls, pauses timer in Play Mode, and advances cleanly to Next scene",
+    tags: ["tier5", "adversarial", "graphics_lab", "threejs", "no_reset", "F15"],
+    async run(ctx) {
+      const fixture = enrichScenario(ctx.fixtures.healthyUltrabook());
+
+      await withApp(ctx, fixture, { maxTouchPoints: 10, mockOptions: { stepDelayMs: 15 } }, async (app) => {
+        await navigateToStage(app, /GPU Burn-In, Dedicated VRAM Integrity/i);
+        await app.clickButton(/04\. Graphics & FPS Lab/i);
+        await app.waitForText(/Three\.js 3D Game Engine & 2D Graphics Benchmark Suite/i, 5000);
+
+        await app.clickButton(/Launch Three\.js 3D\+2D Suite/i);
+
+        // Wait for fullscreen portal & initial HUD tick
+        const waitPortalDeadline = Date.now() + 5000;
+        let portalReady = false;
+        while (Date.now() < waitPortalDeadline) {
+          portalReady = await app.evaluate(() => Boolean(document.querySelector('[data-testid="graphics-fullscreen-portal"]')));
+          if (portalReady) break;
+          await sleep(50);
+        }
+        ctx.assert.equal(portalReady, true, "Fullscreen portal must mount when launching Three.js 3D+2D Suite");
+
+        const readClockSecs = async () =>
+          app.evaluate(() => {
+            const el = document.querySelector('[data-testid="graphics-elapsed-clock"]');
+            if (!el) return null;
+            const m = (el.textContent || "").match(/([0-9]+(?:\.[0-9]+)?)s/);
+            return m ? parseFloat(m[1]) : null;
+          });
+
+        // Sample across >3.4s (spanning multiple 1.4s telemetry polls & native compute completion)
+        // to prove the v3.2/v3.3 2-3s scene reset loop bug is permanently fixed.
+        await sleep(1100);
+        const t1 = await readClockSecs();
+        await sleep(2300);
+        const t2 = await readClockSecs();
+
+        ctx.assert.ok(typeof t1 === "number" && t1 >= 0.4, `Expected initial elapsed clock >= 0.4s, got ${t1}`);
+        ctx.assert.ok(
+          typeof t2 === "number" && t2 > t1 && t2 >= 2.4,
+          `Scene clock reset or stalled across telemetry ticks (t1=${t1}s, t2=${t2}s) — 2-3s loop regression!`
+        );
+
+        // Activate Play Mode: countdown timer must pause (PAUSED (PLAY) + Resume Suite)
+        await app.clickButton(/Take Control \(Play\)/i);
+        await app.waitForText(/PAUSED \(PLAY\)/i, 3000);
+        const pausedBody = await app.getBodyText();
+        ctx.assert.match(pausedBody, /Resume Suite/, "Play Mode in suite must show Resume Suite button");
+
+        // Advance cleanly to Scene 02 (3D Studio) via Next button
+        await app.clickButton(/^Next$/i);
+        await app.waitForText(/02\/9/, 4000);
+        await app.waitForText(/3D Studio/i, 4000);
+
+        // Exit fullscreen cleanly with Escape
+        await app.pressKey("Escape");
+        const closeDeadline = Date.now() + 4000;
+        let stillOpen = true;
+        while (Date.now() < closeDeadline) {
+          stillOpen = await app.evaluate(() => Boolean(document.querySelector('[data-testid="graphics-fullscreen-portal"]')));
+          if (!stillOpen) break;
+          await sleep(50);
+        }
+        ctx.assert.equal(stillOpen, false, "Pressing Escape must cleanly unmount the fullscreen graphics portal");
+
+        const invokeLog = await assertCleanRuntime(ctx, app);
+        ctx.assert.equal(
+          invokeLog.some((e) => e.cmd === "sample_live_telemetry" && e.ok),
+          true,
+          "Fullscreen HUD should poll sample_live_telemetry cleanly without restarting scene"
+        );
+      });
+    },
+  },
 ];

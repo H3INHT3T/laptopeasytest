@@ -7,6 +7,18 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
+  build: {
+    chunkSizeWarningLimit: 650,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/three")) {
+            return "three-engine";
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

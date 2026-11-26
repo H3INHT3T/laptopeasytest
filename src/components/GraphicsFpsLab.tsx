@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Activity,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Cpu,
   Gamepad2,
@@ -11,6 +13,7 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  Pause,
   Play,
   Rocket,
   Search,
@@ -30,27 +33,17 @@ import type {
 import { StatusBadge } from "./StatusBadge";
 import { NovabenchScoreBar } from "./NovabenchScoreBar";
 import {
-  buildBoxGeometry,
-  buildMegacityInstances,
-  FULLSCREEN_QUAD_VS,
-  linkGlProgram,
-  MEGACITY_3D_FS,
-  MEGACITY_3D_VS,
-  RAYTRACE_STUDIO_FS,
-  TERRAIN_OCEAN_FS,
-  VOLUMETRIC_REACTOR_FS,
-} from "./graphicsLab/shaders3d";
+  createThreeSceneController,
+  type ThreeSceneController,
+  type ThreeSceneId,
+} from "./graphicsLab/threeEngine";
 import {
-  createPhysicsSimState,
-  createStarfighterState,
   createTextBenchState,
   createVectorBenchState,
   createZoomBenchState,
   render2DRichTypographyScroll,
   render2DTextureDeepZoom,
   render2DVectorCeiling,
-  renderPhysicsSandbox,
-  renderStarfighterArena,
   type PointerInput,
 } from "./graphicsLab/engines2d";
 
@@ -67,22 +60,14 @@ export interface GraphicsFpsLabProps {
 
 type LoadTier = "light" | "standard" | "heavy" | "ultra";
 type DurationMode = 10 | 15 | 30;
-type SceneId =
-  | "world_terrain"
-  | "world_raytrace"
-  | "world_megacity"
-  | "world_reactor"
-  | "bench_2d_vectors"
-  | "bench_2d_zoom"
-  | "bench_2d_text"
-  | "game_starfighter"
-  | "game_physics_sim";
+type SceneId = ThreeSceneId | "bench_2d_vectors" | "bench_2d_zoom" | "bench_2d_text";
 
 interface SceneDef {
   id: SceneId;
   shortName: string;
   name: string;
-  kind: "3D World" | "2D Graphics" | "Mini-Game";
+  kind: "3D World" | "3D Game" | "2D Graphics";
+  isThree: boolean;
   badge: string;
   playable: boolean;
   controlHint: string;
@@ -91,135 +76,111 @@ interface SceneDef {
 
 const SCENES: SceneDef[] = [
   {
-    id: "world_terrain",
-    shortName: "3D Terrain",
-    name: "3D Alpine Terrain, Ocean Water & Volumetric Sun Flythrough",
+    id: "three_island",
+    shortName: "3D Island",
+    name: "3D Sunlit Island, Terrain & Reflective Ocean Shadows",
     kind: "3D World",
-    badge: "3D WORLD • UNIGINE STYLE",
+    isThree: true,
+    badge: "THREE.JS PBR • DYNAMIC SHADOWS",
     playable: true,
-    controlHint: "Mouse: Steer Flight Pitch & Yaw through Mountain Canyon",
-    description: "Full-color 3D snow peaks, dynamic sun shadows, reflective Fresnel ocean waves & 3-act canyon flight.",
+    controlHint: "Mouse: Orbit Drone Flight & Altitude around Island",
+    description: "Three.js high-poly vertex-biome mountain island, animated ocean waves, shadow-casting pines & 3-act sun.",
   },
   {
-    id: "world_raytrace",
-    shortName: "3D Raytrace",
-    name: "3D Real-Time Ray-Traced Chrome, Glass & Soft Shadows",
+    id: "three_studio",
+    shortName: "3D Studio",
+    name: "3D PBR Metallic, Glass & Dynamic Multi-Light Studio",
     kind: "3D World",
-    badge: "3D RAYTRACING • 2→6 BOUNCES",
+    isThree: true,
+    badge: "THREE.JS PHYSICAL • 4 POINT LIGHTS",
     playable: true,
-    controlHint: "Mouse: Orbit 3D Ray-Traced Studio Camera",
-    description: "True multi-bounce GLSL ray tracer with gold/chrome spheres, Snell glass refraction & soft shadows.",
+    controlHint: "Mouse: Orbit 360° around PBR Metallic & Crystal Sculpture",
+    description: "Clearcoat torus-knot, refractive glass crystal, 10 metallic spheres & 4 dynamic shadow-casting studio lights.",
   },
   {
-    id: "world_megacity",
+    id: "three_megacity",
     shortName: "3D Megacity",
-    name: "3D PBR Cyberpunk Megacity Flythrough (Instanced Geometry)",
+    name: "3D Instanced Neon Cyberpunk Megacity Flythrough",
     kind: "3D World",
-    badge: "3D GEOMETRY • UP TO 7.5K MESHES",
+    isThree: true,
+    badge: "THREE.JS INSTANCED • UP TO 7.5K TOWERS",
     playable: true,
-    controlHint: "Mouse: Steer Flight Bank & Altitude Between Skyscrapers",
-    description: "Thousands of lit 3D skyscraper meshes, glowing window facades, aerial traffic & street canyon dive.",
+    controlHint: "Mouse: Steer Flight Bank & Altitude between Skyscrapers",
+    description: "Thousands of lit 3D skyscraper meshes, glowing aerial traffic lanes, wet boulevard & street canyon dive.",
   },
   {
-    id: "world_reactor",
-    shortName: "3D Reactor",
-    name: "3D Volumetric Plasma Nebula & Fusion Reactor Torture",
-    kind: "3D World",
-    badge: "3D VOLUMETRIC • 32→112 STEPS",
+    id: "three_game_fighter",
+    shortName: "3D Fighter",
+    name: "Playable 3D Game 1: Space Fighter Trench Combat & Boss",
+    kind: "3D Game",
+    isThree: true,
+    badge: "3D GAME • SPACE COMBAT",
     playable: true,
-    controlHint: "Mouse: Orbit Crystalline Containment Rings",
-    description: "Heavy 3D volumetric plasma raymarch pushing GPU shader ALUs, fillrate, and memory bandwidth.",
+    controlHint: "Mouse / WASD: Fly & Bank 3D Ship • Click / Space: Overdrive Fire",
+    description: "Banking 3D Starfighter, 3D starfield trench, enemy waves, laser explosions & 3D Dreadnought Boss.",
+  },
+  {
+    id: "three_game_racer",
+    shortName: "3D Racer",
+    name: "Playable 3D Game 2: Neon Highway Turbo Racer",
+    kind: "3D Game",
+    isThree: true,
+    badge: "3D GAME • TURBO RACER",
+    playable: true,
+    controlHint: "A/D / Arrows / Mouse X: Steer Car • W / Space / Click: Nitro Boost",
+    description: "3D sports car with chase camera, glowing neon highway, traffic weaving & 360 km/h FOV Nitro Boost.",
+  },
+  {
+    id: "three_game_cannon",
+    shortName: "3D Cannon",
+    name: "Playable 3D Game 3: Physics Tower Destruction Cannon",
+    kind: "3D Game",
+    isThree: true,
+    badge: "3D GAME • TOWER DESTRUCTION",
+    playable: true,
+    controlHint: "Aim Mouse + Click / Space: Fire Cannonball • R: Rebuild Mega-Tower",
+    description: "Sunlit 3D shadow-casting towers blasted apart by glowing cannonballs with real 3D gravity, bounce & spin.",
   },
   {
     id: "bench_2d_vectors",
     shortName: "2D Vectors",
     name: "2D Escalating Vector Ceiling, PCB & Clockwork Engine",
     kind: "2D Graphics",
+    isThree: false,
     badge: "2D PASSMARK • MOTIONMARK",
     playable: false,
     controlHint: "Auto-escalating vector count (750 -> 6,000+) to find true 60 FPS ceiling",
-    description: "Full-color PCB schematics, interlocking gears & prism shards measuring Max Vectors @ 60 FPS.",
+    description: "Full-color PCB schematics, interlocking clockwork gears & prism shards measuring Max Vectors @ 60 FPS.",
   },
   {
     id: "bench_2d_zoom",
     shortName: "2D 64x Zoom",
     name: "2D Satellite Topographic Map & CAD Deep-Zoom (0.35x -> 64x)",
     kind: "2D Graphics",
+    isThree: false,
     badge: "2D TEXTURE ZOOM • MP/S",
     playable: true,
     controlHint: "Mouse Wheel: Deep Zoom (0.3x-128x) • Drag: Pan Map",
-    description: "Real high-res shaded relief satellite bitmap + hairline CAD overlay with multi-layer compositing.",
+    description: "High-res shaded-relief satellite bitmap + hairline CAD overlay with multi-layer compositing.",
   },
   {
     id: "bench_2d_text",
     shortName: "2D Text/IDE",
     name: "2D Rich Code IDE, Data Table & Multi-Script Typography",
     kind: "2D Graphics",
+    isThree: false,
     badge: "2D TYPOGRAPHY • GLYPHS/S",
     playable: true,
     controlHint: "Wheel / Up-Down: Scroll Velocity • +/-: Live Font Scale",
     description: "Syntax-highlighted code, live telemetry table, Myanmar & CJK scripts with 120Hz+ scroll & zoom.",
   },
-  {
-    id: "game_starfighter",
-    shortName: "Starfighter",
-    name: "Mini-Game 1: 3-Act Starfighter Wave & Dreadnought Boss",
-    kind: "Mini-Game",
-    badge: "PLAYABLE • BOSS ARENA",
-    playable: true,
-    controlHint: "Mouse / WASD: Fly Starfighter • Click / Space: Nova Pulse",
-    description: "Escalating scout squadrons, heavy cruiser bullet curtains & Dreadnought Boss with explosions.",
-  },
-  {
-    id: "game_physics_sim",
-    shortName: "3000-Body Sim",
-    name: "Mini-Game 2: 3-Act Rigid-Body Demolition & Gravity Sandbox",
-    kind: "Mini-Game",
-    badge: "PLAYABLE • PHYSICS WALL",
-    playable: true,
-    controlHint: "Click / Drag: Detonate Kinetic Shockwave Blast",
-    description: "Destructible tower collapse -> gravity vortex -> 3,500 spatial-hash colliding velocity-lit bodies.",
-  },
 ];
 
-const LOAD_CONFIG: Record<
-  LoadTier,
-  {
-    label: string;
-    quality3d: number;
-    cityInstances: number;
-    physicsMaxBodies: number;
-    weightMult: number;
-  }
-> = {
-  light: {
-    label: "Light (Ultrabook iGPU)",
-    quality3d: 1,
-    cityInstances: 1400,
-    physicsMaxBodies: 1100,
-    weightMult: 0.78,
-  },
-  standard: {
-    label: "Standard (Balanced QC)",
-    quality3d: 2,
-    cityInstances: 3200,
-    physicsMaxBodies: 2000,
-    weightMult: 1.0,
-  },
-  heavy: {
-    label: "Heavy (Creator / dGPU)",
-    quality3d: 3,
-    cityInstances: 5400,
-    physicsMaxBodies: 2800,
-    weightMult: 1.38,
-  },
-  ultra: {
-    label: "Ultra (RTX Extreme)",
-    quality3d: 4,
-    cityInstances: 7800,
-    physicsMaxBodies: 3500,
-    weightMult: 1.85,
-  },
+const LOAD_CONFIG: Record<LoadTier, { label: string; weightMult: number }> = {
+  light: { label: "Light (Ultrabook iGPU)", weightMult: 0.78 },
+  standard: { label: "Standard (Balanced QC)", weightMult: 1.0 },
+  heavy: { label: "Heavy (Creator / dGPU)", weightMult: 1.38 },
+  ultra: { label: "Ultra (RTX Extreme)", weightMult: 1.85 },
 };
 
 function computeFrameStats(frameDtsMs: number[]): {
@@ -319,12 +280,12 @@ function classifySuiteResult(
 
   const plainSummary =
     status === "fail"
-      ? `Severe graphics stall detected in Real 2D & 3D Suite (Composite ${compositeScore}, ${smoothnessTier}). Check GPU driver acceleration and thermal clocks.`
+      ? `Severe graphics stall detected in Three.js 3D & 2D Suite (Composite ${compositeScore}, ${smoothnessTier}). Check GPU drivers and cooling.`
       : status === "warn"
-      ? `${smoothnessTier} 2D/3D benchmark performance (Composite ${compositeScore}, Avg ${meanFps.toFixed(
+      ? `${smoothnessTier} Three.js 3D/2D performance (Composite ${compositeScore}, Avg ${meanFps.toFixed(
           1
         )} FPS${!webgl2Supported ? ", WebGL2 unavailable" : softwareFallback ? ", software renderer active" : `, peak stutter ${maxStutter.toFixed(1)}%`})${nativeBit}.`
-      : `All ${scenes.length} real 3D worlds, 2D graphics & wave mini-game benchmarks verified (${smoothnessTier} • Composite ${compositeScore} • Avg ${meanFps.toFixed(
+      : `All ${scenes.length} Three.js PBR 3D worlds, playable 3D games & 2D benchmarks verified (${smoothnessTier} • Composite ${compositeScore} • Avg ${meanFps.toFixed(
           1
         )} FPS${nativeBit}).`;
 
@@ -370,9 +331,10 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
   const [durationSecs, setDurationSecs] = useState<DurationMode>(15);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [suiteMode, setSuiteMode] = useState(false);
-  const [activeScene, setActiveScene] = useState<SceneId>("world_terrain");
+  const [activeScene, setActiveScene] = useState<SceneId>("three_island");
   const [manualPlay, setManualPlay] = useState(false);
   const [sceneScores, setSceneScores] = useState<Partial<Record<SceneId, GraphicsFpsSceneScore>>>({});
+  const [transitionBanner, setTransitionBanner] = useState<string | null>(null);
 
   const [computeRunning, setComputeRunning] = useState(false);
   const [computeError, setComputeError] = useState<string | null>(null);
@@ -390,8 +352,20 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
     metricLabel: "Ready",
     metricValue: "—",
     sparkline: [] as number[],
-    webglLabel: "WebGL2",
+    webglLabel: "Three.js WebGL2",
   });
+
+  // -------------------------------------------------------------------------
+  // CRITICAL ZERO-RESET ARCHITECTURE:
+  // Store ALL parent callbacks in stable refs so parent telemetry re-renders
+  // NEVER restart the fullscreen Three.js / Canvas2D animation useEffect!
+  // -------------------------------------------------------------------------
+  const onSuiteCompleteRef = useRef(onSuiteComplete);
+  onSuiteCompleteRef.current = onSuiteComplete;
+  const onComputeCompleteRef = useRef(onComputeComplete);
+  onComputeCompleteRef.current = onComputeComplete;
+  const onRunningChangeRef = useRef(onRunningChange);
+  onRunningChangeRef.current = onRunningChange;
 
   const canvas2dRef = useRef<HTMLCanvasElement | null>(null);
   const canvasGlRef = useRef<HTMLCanvasElement | null>(null);
@@ -413,8 +387,10 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
   const suiteStartMsRef = useRef<number>(0);
   const glSupportRef = useRef<{ supported: boolean; renderer: string }>({
     supported: true,
-    renderer: adapterName || "GPU WebGL2",
+    renderer: adapterName || "Three.js WebGL2",
   });
+  // Trigger hook for instant Next/Prev skip inside active scene
+  const forceFinishSceneRef = useRef<((direction: 1 | -1) => void) | null>(null);
 
   const pointerRef = useRef<PointerInput>({
     x: 0.5,
@@ -435,6 +411,18 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
     }
   }, []);
 
+  const exitFullscreen = useCallback(() => {
+    setFullscreenOpen(false);
+    setSuiteMode(false);
+    setManualPlay(false);
+    setTransitionBanner(null);
+    onRunningChangeRef.current(false);
+    setNativeFullscreen(false);
+  }, [setNativeFullscreen]);
+
+  const exitFullscreenRef = useRef(exitFullscreen);
+  exitFullscreenRef.current = exitFullscreen;
+
   const runComputeBench = useCallback(async () => {
     setComputeError(null);
     setComputeRunning(true);
@@ -443,7 +431,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
         adapterIndex: selectedAdapter,
       });
       computeResultRef.current = res;
-      onComputeComplete(res);
+      onComputeCompleteRef.current(res);
       return res;
     } catch (e) {
       setComputeError(String(e));
@@ -451,26 +439,19 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
     } finally {
       setComputeRunning(false);
     }
-  }, [selectedAdapter, onComputeComplete]);
-
-  const exitFullscreen = useCallback(() => {
-    setFullscreenOpen(false);
-    setSuiteMode(false);
-    setManualPlay(false);
-    onRunningChange(false);
-    setNativeFullscreen(false);
-  }, [onRunningChange, setNativeFullscreen]);
+  }, [selectedAdapter]);
 
   const launchScene = useCallback(
     (sceneId: SceneId, asPlayable: boolean) => {
       setSuiteMode(false);
       setActiveScene(sceneId);
       setManualPlay(asPlayable);
+      setTransitionBanner(null);
       setFullscreenOpen(true);
-      onRunningChange(true);
+      onRunningChangeRef.current(true);
       setNativeFullscreen(true);
     },
-    [onRunningChange, setNativeFullscreen]
+    [setNativeFullscreen]
   );
 
   const launchFullSuite = useCallback(() => {
@@ -480,14 +461,36 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
     setManualPlay(false);
     setSuiteMode(true);
     setActiveScene(SCENES[0].id);
+    setTransitionBanner(`01 / ${SCENES.length} • ${SCENES[0].name}`);
     setFullscreenOpen(true);
-    onRunningChange(true);
+    onRunningChangeRef.current(true);
     setNativeFullscreen(true);
+    // Run uncapped native Rust wgpu 1080p 3D + FP32 compute in background if not yet measured
     if (!computeResultRef.current && !computeRunning) {
       runComputeBench().catch(() => {});
     }
-  }, [computeRunning, onRunningChange, runComputeBench, setNativeFullscreen]);
+  }, [computeRunning, runComputeBench, setNativeFullscreen]);
 
+  const jumpScene = useCallback((delta: 1 | -1) => {
+    if (forceFinishSceneRef.current) {
+      forceFinishSceneRef.current(delta);
+    } else {
+      setActiveScene((cur) => {
+        const idx = SCENES.findIndex((s) => s.id === cur);
+        const nextIdx = (idx + delta + SCENES.length) % SCENES.length;
+        return SCENES[nextIdx].id;
+      });
+    }
+  }, []);
+
+  // Auto-hide 1.1s clean transition banner
+  useEffect(() => {
+    if (!transitionBanner) return;
+    const t = window.setTimeout(() => setTransitionBanner(null), 1150);
+    return () => window.clearTimeout(t);
+  }, [transitionBanner]);
+
+  // Restore native window chrome cleanly on unmount
   useEffect(() => {
     return () => {
       if (fullscreenOpenRef.current) {
@@ -496,7 +499,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
     };
   }, []);
 
-  // Poll REAL live hardware telemetry (GPU Temp / Clock / Load / CPU %) while fullscreen is open!
+  // Poll live hardware telemetry inside fullscreen HUD (does NOT restart scene loop!)
   useEffect(() => {
     if (!fullscreenOpen) return;
     let alive = true;
@@ -508,20 +511,30 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
         .catch(() => {});
     };
     poll();
-    const id = window.setInterval(poll, 1300);
+    const id = window.setInterval(poll, 1400);
     return () => {
       alive = false;
       window.clearInterval(id);
     };
   }, [fullscreenOpen]);
 
-  // Global keyboard controls in fullscreen
+  // Keyboard shortcuts while fullscreen is open (Esc = Exit, N = Next, P = Prev)
   useEffect(() => {
     if (!fullscreenOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        exitFullscreen();
+        exitFullscreenRef.current();
+        return;
+      }
+      if (!manualPlayRef.current && (e.key === "n" || e.key === "N")) {
+        e.preventDefault();
+        jumpScene(1);
+        return;
+      }
+      if (!manualPlayRef.current && (e.key === "p" || e.key === "P")) {
+        e.preventDefault();
+        jumpScene(-1);
         return;
       }
       keysRef.current.add(e.key.toLowerCase());
@@ -536,138 +549,102 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
       window.removeEventListener("keyup", onKeyUp);
       keysRef.current.clear();
     };
-  }, [fullscreenOpen, exitFullscreen]);
+  }, [fullscreenOpen, jumpScene]);
 
-  // Main Fullscreen 9-Scene Real 3D & 2D Benchmark Loop
+  // =========================================================================
+  // MAIN FULLSCREEN 9-SCENE RENDER LOOP (THREE.JS 3D ENGINE + 2D ENGINES)
+  // Dependency array contains ONLY [fullscreenOpen, activeScene, loadTier, durationSecs]!
+  // Guaranteed ZERO unwanted 2-3s restarts!
+  // =========================================================================
   useEffect(() => {
     if (!fullscreenOpen) return;
 
     const sceneDef = SCENES.find((s) => s.id === activeScene) ?? SCENES[0];
     const cfg = LOAD_CONFIG[loadTier];
-    const sceneDuration = durationRef.current;
-    const is3dGlScene = sceneDef.kind === "3D World";
+    const sceneDuration = durationSecs;
 
     let rafId = 0;
     let cancelled = false;
-    const sceneStartedAt = performance.now();
-    let lastFrameAt = sceneStartedAt;
-    let lastHudAt = sceneStartedAt;
+    let finished = false;
+    let lastFrameAt = performance.now();
+    let lastHudAt = lastFrameAt;
+    let animElapsed = 0; // Continuous simulation time (never resets!)
+    let suiteElapsed = 0; // Countdown progress (pauses cleanly when manualPlay is ON!)
     let playedManuallyInScene = manualPlayRef.current;
 
     const frameDts: number[] = [];
     const sparkBuf: number[] = [];
 
-    // Real physical pixel backing buffer (capped cleanly at 1.5x DPR for heavy raymarching or 2x for 2D)
-    const dpr = is3dGlScene
-      ? Math.min(window.devicePixelRatio || 1, loadTier === "ultra" ? 1.5 : 1.25)
-      : Math.min(window.devicePixelRatio || 1, 2);
     const width = Math.max(640, window.innerWidth);
     const height = Math.max(400, window.innerHeight);
 
-    const c2d = canvas2dRef.current;
-    let ctx: CanvasRenderingContext2D | null = null;
-    if (c2d) {
-      c2d.width = Math.round(width * dpr);
-      c2d.height = Math.round(height * dpr);
-      ctx = c2d.getContext("2d", { alpha: false });
-      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
+    // Setup Three.js 3D Engine OR 2D Canvas Engine
+    let threeCtrl: ThreeSceneController | null = null;
+    let ctx2d: CanvasRenderingContext2D | null = null;
 
-    const cgl = canvasGlRef.current;
-    let gl: WebGL2RenderingContext | null = null;
-    let glProg: WebGLProgram | null = null;
-    let glVao: WebGLVertexArrayObject | null = null;
-    const glBufs: WebGLBuffer[] = [];
-
-    if (is3dGlScene && cgl) {
-      cgl.width = Math.round(width * dpr);
-      cgl.height = Math.round(height * dpr);
-      gl = cgl.getContext("webgl2", { antialias: true, powerPreference: "high-performance" });
-      if (gl) {
+    if (sceneDef.isThree && canvasGlRef.current) {
+      threeCtrl = createThreeSceneController(
+        canvasGlRef.current,
+        sceneDef.id as ThreeSceneId,
+        width,
+        height,
+        cfg.weightMult
+      );
+      if (threeCtrl) {
         glSupportRef.current.supported = true;
-        const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-        if (dbg) {
-          const r = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
-          if (typeof r === "string" && r.trim()) {
-            glSupportRef.current.renderer = r.trim();
-          }
-        }
-        gl.viewport(0, 0, cgl.width, cgl.height);
-
-        if (activeScene === "world_terrain") {
-          glProg = linkGlProgram(gl, FULLSCREEN_QUAD_VS, TERRAIN_OCEAN_FS);
-          glVao = gl.createVertexArray();
-        } else if (activeScene === "world_raytrace") {
-          glProg = linkGlProgram(gl, FULLSCREEN_QUAD_VS, RAYTRACE_STUDIO_FS);
-          glVao = gl.createVertexArray();
-        } else if (activeScene === "world_reactor") {
-          glProg = linkGlProgram(gl, FULLSCREEN_QUAD_VS, VOLUMETRIC_REACTOR_FS);
-          glVao = gl.createVertexArray();
-        } else if (activeScene === "world_megacity") {
-          glProg = linkGlProgram(gl, MEGACITY_3D_VS, MEGACITY_3D_FS);
-          if (glProg) {
-            glVao = gl.createVertexArray();
-            gl.bindVertexArray(glVao);
-            const box = buildBoxGeometry();
-            const vbo = gl.createBuffer();
-            if (vbo) {
-              glBufs.push(vbo);
-              gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-              gl.bufferData(gl.ARRAY_BUFFER, box, gl.STATIC_DRAW);
-              gl.enableVertexAttribArray(0);
-              gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
-              gl.enableVertexAttribArray(1);
-              gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
-            }
-            const city = buildMegacityInstances(cfg.cityInstances);
-            const ibo1 = gl.createBuffer();
-            if (ibo1) {
-              glBufs.push(ibo1);
-              gl.bindBuffer(gl.ARRAY_BUFFER, ibo1);
-              gl.bufferData(gl.ARRAY_BUFFER, city.originHeight, gl.STATIC_DRAW);
-              gl.enableVertexAttribArray(2);
-              gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 16, 0);
-              gl.vertexAttribDivisor(2, 1);
-            }
-            const ibo2 = gl.createBuffer();
-            if (ibo2) {
-              glBufs.push(ibo2);
-              gl.bindBuffer(gl.ARRAY_BUFFER, ibo2);
-              gl.bufferData(gl.ARRAY_BUFFER, city.footprintSeed, gl.STATIC_DRAW);
-              gl.enableVertexAttribArray(3);
-              gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 16, 0);
-              gl.vertexAttribDivisor(3, 1);
-            }
-            gl.enable(gl.DEPTH_TEST);
-          }
-        }
+        glSupportRef.current.renderer = threeCtrl.rendererName;
       } else {
         glSupportRef.current.supported = false;
       }
     }
 
-    // Initialize 2D / Mini-Game states
+    if ((!sceneDef.isThree || !threeCtrl) && canvas2dRef.current) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas2dRef.current.width = Math.round(width * dpr);
+      canvas2dRef.current.height = Math.round(height * dpr);
+      ctx2d = canvas2dRef.current.getContext("2d", { alpha: false });
+      if (ctx2d) ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    const onResize = () => {
+      const w = Math.max(640, window.innerWidth);
+      const h = Math.max(400, window.innerHeight);
+      if (threeCtrl) {
+        threeCtrl.resize(w, h);
+      } else if (canvas2dRef.current) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas2dRef.current.width = Math.round(w * dpr);
+        canvas2dRef.current.height = Math.round(h * dpr);
+        const c = canvas2dRef.current.getContext("2d", { alpha: false });
+        if (c) c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx2d = c;
+      }
+    };
+    window.addEventListener("resize", onResize);
+
+    // 2D Engine States
     const vecState = createVectorBenchState();
     const zoomState = createZoomBenchState();
     const textState = createTextBenchState();
-    const shooterState = createStarfighterState(width, height);
-    const physicsState = createPhysicsSimState(width, height, cfg.physicsMaxBodies);
 
     let primaryLabel = sceneDef.shortName;
     let primaryValue = "—";
     let actLabel = "ACT I • Baseline";
     let throughputFactor = 1.0;
 
-    const finalizeScene = (nowMs: number) => {
+    const finalizeAndMove = (direction: 1 | -1) => {
+      if (finished || cancelled) return;
+      finished = true;
+
       const stats = computeFrameStats(frameDts);
       const score = Math.max(
         100,
         Math.round((stats.avgFps * 68 + stats.low1pctFps * 32) * cfg.weightMult * throughputFactor)
       );
       const sceneStatus: TestStatus =
-        stats.avgFps < 10
+        stats.avgFps > 0 && stats.avgFps < 10
           ? "fail"
-          : stats.stutterPct > 28 || (is3dGlScene && !gl)
+          : stats.stutterPct > 28 || (sceneDef.isThree && !threeCtrl)
           ? "warn"
           : "pass";
 
@@ -692,199 +669,134 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
 
       setSceneScores((prev) => ({ ...prev, [sceneDef.id]: sceneScore }));
 
+      const curIdx = SCENES.findIndex((s) => s.id === sceneDef.id);
       if (suiteModeRef.current) {
         suiteAccRef.current = [
           ...suiteAccRef.current.filter((s) => s.id !== sceneDef.id),
           sceneScore,
         ];
-        const curIdx = SCENES.findIndex((s) => s.id === sceneDef.id);
-        if (curIdx >= 0 && curIdx + 1 < SCENES.length) {
-          setActiveScene(SCENES[curIdx + 1].id);
-        } else {
-          const totalSecs = (nowMs - suiteStartMsRef.current) / 1000;
+        const nextIdx = curIdx + direction;
+        if (nextIdx >= 0 && nextIdx < SCENES.length) {
+          const nextScene = SCENES[nextIdx];
+          setManualPlay(false);
+          setTransitionBanner(`${String(nextIdx + 1).padStart(2, "0")} / ${SCENES.length} • ${nextScene.name}`);
+          setActiveScene(nextScene.id);
+        } else if (direction === 1) {
+          const totalSecs = (performance.now() - suiteStartMsRef.current) / 1000;
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
           const finalSuite = classifySuiteResult(
             suiteAccRef.current,
             loadTierRef.current,
-            `${Math.round(width * dpr)}x${Math.round(height * dpr)}`,
+            `${Math.round(window.innerWidth * dpr)}x${Math.round(window.innerHeight * dpr)}`,
             glSupportRef.current.supported,
             glSupportRef.current.renderer,
             totalSecs,
             computeResultRef.current
           );
-          onSuiteComplete(finalSuite);
-          exitFullscreen();
+          onSuiteCompleteRef.current(finalSuite);
+          exitFullscreenRef.current();
         }
+      } else {
+        const nextIdx = (curIdx + direction + SCENES.length) % SCENES.length;
+        const nextScene = SCENES[nextIdx];
+        setTransitionBanner(`${String(nextIdx + 1).padStart(2, "0")} / ${SCENES.length} • ${nextScene.name}`);
+        setActiveScene(nextScene.id);
       }
     };
 
+    forceFinishSceneRef.current = finalizeAndMove;
+
     const tick = (now: number) => {
-      if (cancelled) return;
+      if (cancelled || finished) return;
       const dtMs = Math.max(0.5, Math.min(250, now - lastFrameAt));
       lastFrameAt = now;
+      const realDt = dtMs / 1000; // True wall-clock elapsed (10s scene = 10 real seconds even on slow iGPUs)
+      const simDt = Math.min(0.05, realDt); // Clamped physics step to keep 3D physics rock-solid
+      animElapsed += realDt;
+
+      // Countdown timer pauses smoothly whenever user activates Play Mode!
+      if (suiteModeRef.current && !manualPlayRef.current) {
+        suiteElapsed += realDt;
+      }
+      if (manualPlayRef.current) {
+        playedManuallyInScene = true;
+      }
+
       frameDts.push(dtMs);
       sparkBuf.push(dtMs);
       if (sparkBuf.length > 72) sparkBuf.shift();
 
-      const t = (now - sceneStartedAt) / 1000;
-      const dt = Math.min(0.05, dtMs / 1000);
-      // In solo explore mode, smoothly progress across 3 acts over sceneDuration and keep evolving smoothly
       const prog = suiteModeRef.current
-        ? Math.min(1, t / sceneDuration)
-        : (t % (sceneDuration * 1.5)) / (sceneDuration * 1.5);
-      if (manualPlayRef.current) playedManuallyInScene = true;
+        ? Math.min(1, suiteElapsed / sceneDuration)
+        : (animElapsed % (sceneDuration * 2)) / (sceneDuration * 2);
 
-      if (is3dGlScene) {
-        const pxCount = (cgl?.width ?? width) * (cgl?.height ?? height);
-        const curFpsEst = 1000 / Math.max(1, dtMs);
-        if (gl && glProg && glVao) {
-          gl.useProgram(glProg);
-          gl.bindVertexArray(glVao);
-          gl.uniform1f(gl.getUniformLocation(glProg, "uTime"), t);
-          gl.uniform1f(gl.getUniformLocation(glProg, "uProgress"), prog);
-          gl.uniform2f(
-            gl.getUniformLocation(glProg, "uPointer"),
-            pointerRef.current.x,
-            pointerRef.current.y
-          );
-          gl.uniform1f(
-            gl.getUniformLocation(glProg, "uManual"),
-            manualPlayRef.current ? 1.0 : 0.0
-          );
-
-          if (activeScene === "world_megacity") {
-            gl.clearColor(0.04, 0.07, 0.16, 1.0);
-            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            gl.uniform1f(gl.getUniformLocation(glProg, "uAspect"), width / Math.max(1, height));
-            // Progressive Act I -> II -> III active building count escalation!
-            const activeInst = Math.max(
-              600,
-              Math.round(cfg.cityInstances * (prog < 0.33 ? 0.45 : prog < 0.66 ? 0.75 : 1.0))
-            );
-            gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, activeInst);
-            const mTriPerSec = (activeInst * 12 * curFpsEst) / 1_000_000;
-            primaryLabel = "3D Geometry";
-            primaryValue = `${activeInst.toLocaleString()} meshes • ${mTriPerSec.toFixed(1)} MTri/s`;
-            actLabel =
-              prog < 0.33
-                ? "ACT I • Skyline Approach"
-                : prog < 0.66
-                ? "ACT II • Downtown Street Canyon Dive"
-                : "ACT III • Full Megacity Orbital Stress";
-            throughputFactor = Math.max(0.7, activeInst / 3200);
-          } else {
-            gl.uniform2f(gl.getUniformLocation(glProg, "uRes"), cgl!.width, cgl!.height);
-            gl.uniform1i(gl.getUniformLocation(glProg, "uQuality"), cfg.quality3d);
-            gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-            if (activeScene === "world_terrain") {
-              const mpSec = (pxCount * curFpsEst) / 1_000_000;
-              primaryLabel = "3D Terrain";
-              primaryValue = `${mpSec.toFixed(0)} MP/s • ${4 + cfg.quality3d + (prog > 0.66 ? 2 : 0)} FBM octaves`;
-              actLabel =
-                prog < 0.33
-                  ? "ACT I • Coastal Ocean Skim"
-                  : prog < 0.66
-                  ? "ACT II • Alpine Ridge & Sunset"
-                  : "ACT III • Ultra-Octave Canyon Dive";
-              throughputFactor = Math.max(0.8, cfg.quality3d * 0.55);
-            } else if (activeScene === "world_raytrace") {
-              const bounces = Math.min(6, 1 + cfg.quality3d + (prog > 0.66 ? 2 : 0));
-              const mRays = (pxCount * bounces * curFpsEst) / 1_000_000;
-              primaryLabel = "Ray Tracing";
-              primaryValue = `${mRays.toFixed(0)} MRays/s • ${bounces} bounces`;
-              actLabel =
-                prog < 0.33
-                  ? "ACT I • Metallic Reflections"
-                  : prog < 0.66
-                  ? "ACT II • Floor Glaze & Soft Shadows"
-                  : "ACT III • 6-Bounce Glass Refraction Stress";
-              throughputFactor = Math.max(0.8, bounces / 3.5);
-            } else {
-              const steps = Math.min(116, 28 + cfg.quality3d * 18 + Math.floor(prog * 28));
-              const gSteps = (pxCount * steps * curFpsEst) / 1_000_000_000;
-              primaryLabel = "Volumetric 3D";
-              primaryValue = `${gSteps.toFixed(1)} GSteps/s • ${steps} steps/px`;
-              actLabel =
-                prog < 0.33
-                  ? "ACT I • Containment Core Ignition"
-                  : prog < 0.66
-                  ? "ACT II • Volumetric Nebula Density Ramp"
-                  : "ACT III • Peak 112-Step Fillrate Torture";
-              throughputFactor = Math.max(0.8, steps / 64);
-            }
-          }
-        } else if (ctx) {
-          ctx.fillStyle = "#09090B";
-          ctx.fillRect(0, 0, width, height);
-          ctx.fillStyle = "#F8FAFC";
-          ctx.font = "700 16px Consolas, monospace";
-          ctx.fillText("WebGL2 context unavailable on this GPU driver — Software Fallback Flagged.", 48, height * 0.5);
+      if (sceneDef.isThree && threeCtrl) {
+        const out = threeCtrl.step(
+          animElapsed,
+          simDt,
+          prog,
+          manualPlayRef.current,
+          pointerRef.current,
+          keysRef.current
+        );
+        primaryLabel = out.metricLabel;
+        primaryValue = out.metricValue;
+        actLabel = out.actLabel;
+        throughputFactor = out.throughputScoreFactor;
+      } else if (ctx2d) {
+        const w = Math.max(640, window.innerWidth);
+        const h = Math.max(400, window.innerHeight);
+        if (sceneDef.isThree && !threeCtrl) {
+          ctx2d.fillStyle = "#09090B";
+          ctx2d.fillRect(0, 0, w, h);
+          ctx2d.fillStyle = "#F8FAFC";
+          ctx2d.font = "700 16px Consolas, monospace";
+          ctx2d.fillText("WebGL2 / Three.js context unavailable on this driver — Fallback active.", 48, h * 0.5);
           primaryLabel = "WebGL2";
           primaryValue = "Unavailable (Fallback)";
-        }
-      } else if (ctx) {
-        let out;
-        if (activeScene === "bench_2d_vectors") {
-          out = render2DVectorCeiling(ctx, width, height, t, prog, dtMs, cfg.weightMult, vecState);
+        } else if (activeScene === "bench_2d_vectors") {
+          const out = render2DVectorCeiling(ctx2d, w, h, animElapsed, prog, dtMs, cfg.weightMult, vecState);
+          primaryLabel = out.metricLabel;
+          primaryValue = out.metricValue;
+          actLabel = out.actLabel;
+          throughputFactor = out.throughputScoreFactor;
         } else if (activeScene === "bench_2d_zoom") {
-          out = render2DTextureDeepZoom(
-            ctx,
-            width,
-            height,
-            t,
+          const out = render2DTextureDeepZoom(
+            ctx2d,
+            w,
+            h,
+            animElapsed,
             prog,
             manualPlayRef.current,
             pointerRef.current,
             cfg.weightMult,
             zoomState
           );
-        } else if (activeScene === "bench_2d_text") {
-          out = render2DRichTypographyScroll(
-            ctx,
-            width,
-            height,
-            t,
+          primaryLabel = out.metricLabel;
+          primaryValue = out.metricValue;
+          actLabel = out.actLabel;
+          throughputFactor = out.throughputScoreFactor;
+        } else {
+          const out = render2DRichTypographyScroll(
+            ctx2d,
+            w,
+            h,
+            animElapsed,
             prog,
-            dt,
+            simDt,
             manualPlayRef.current,
             pointerRef.current,
             keysRef.current,
             textState
           );
-        } else if (activeScene === "game_starfighter") {
-          out = renderStarfighterArena(
-            ctx,
-            width,
-            height,
-            t,
-            prog,
-            dt,
-            manualPlayRef.current,
-            pointerRef.current,
-            keysRef.current,
-            cfg.weightMult,
-            shooterState
-          );
-        } else {
-          out = renderPhysicsSandbox(
-            ctx,
-            width,
-            height,
-            t,
-            prog,
-            dt,
-            manualPlayRef.current,
-            pointerRef.current,
-            physicsState
-          );
+          primaryLabel = out.metricLabel;
+          primaryValue = out.metricValue;
+          actLabel = out.actLabel;
+          throughputFactor = out.throughputScoreFactor;
         }
-        primaryLabel = out.metricLabel;
-        primaryValue = out.metricValue;
-        actLabel = out.actLabel;
-        throughputFactor = out.throughputScoreFactor;
       }
 
-      if (now - lastHudAt >= 120) {
+      if (now - lastHudAt >= 110) {
         lastHudAt = now;
         const recent = computeFrameStats(frameDts.slice(-140));
         setHud({
@@ -892,19 +804,19 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
           low1: recent.low1pctFps,
           low01: recent.low01pctFps,
           frameMs: recent.avgFrameMs,
-          elapsed: t,
-          remaining: Math.max(0, sceneDuration - t),
-          progressPct: Math.min(100, Math.round(prog * 100)),
+          elapsed: animElapsed,
+          remaining: Math.max(0, sceneDuration - suiteElapsed),
+          progressPct: Math.min(100, Math.round((suiteElapsed / sceneDuration) * 100)),
           actLabel,
           metricLabel: primaryLabel,
           metricValue: primaryValue,
           sparkline: [...sparkBuf],
-          webglLabel: glSupportRef.current.supported ? "WebGL2 HW" : "Fallback",
+          webglLabel: glSupportRef.current.supported ? "Three.js WebGL2" : "Fallback",
         });
       }
 
-      if (suiteModeRef.current && t >= sceneDuration) {
-        finalizeScene(now);
+      if (suiteModeRef.current && !manualPlayRef.current && suiteElapsed >= sceneDuration) {
+        finalizeAndMove(1);
         return;
       }
 
@@ -915,14 +827,12 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
 
     return () => {
       cancelled = true;
+      forceFinishSceneRef.current = null;
       cancelAnimationFrame(rafId);
-      if (gl) {
-        glBufs.forEach((b) => gl?.deleteBuffer(b));
-        if (glVao) gl.deleteVertexArray(glVao);
-        if (glProg) gl.deleteProgram(glProg);
-      }
+      window.removeEventListener("resize", onResize);
+      if (threeCtrl) threeCtrl.dispose();
     };
-  }, [fullscreenOpen, activeScene, loadTier, durationSecs, exitFullscreen, onSuiteComplete]);
+  }, [fullscreenOpen, activeScene, loadTier, durationSecs]);
 
   const activeDef = SCENES.find((s) => s.id === activeScene) ?? SCENES[0];
   const activeSceneIdx = SCENES.findIndex((s) => s.id === activeScene);
@@ -949,12 +859,12 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <Globe className="w-4 h-4 text-blue-600" />
               <h2 className="text-base font-bold text-black tracking-tight">
-                Real 2D &amp; 3D Fullscreen Graphics Benchmark Suite (v3.3.0)
+                Three.js 3D Game Engine &amp; 2D Graphics Benchmark Suite (v3.4.0)
               </h2>
               {suiteResult && <StatusBadge status={suiteResult.status} compact />}
             </div>
             <p className="text-xs text-zinc-500 max-w-2xl">
-              Full-color 3DMark/Unigine-class 3D worlds (Alpine Terrain &amp; Ocean, Multi-Bounce Ray Tracing, 7,500-Mesh Cyberpunk Megacity, Volumetric Reactor) + PassMark-2D Vector Ceiling, 64x Satellite Map Zoom, Rich IDE Typography &amp; 3-Act Boss/Physics Games — plus native uncapped Rust <code className="font-mono text-black">wgpu</code> 1080p 3D FPS.
+              Powered by real <strong>Three.js</strong> PBR shadows &amp; InstancedMesh: 3 full-color 3D Worlds (Sunlit Island, PBR Metallic Studio, Cyberpunk Megacity), 3 Playable 3D Games (Space Fighter Boss, Neon Highway Racer, Physics Tower Cannon) &amp; 3 PassMark-2D engines — with Play-Mode timer pause and uncapped native Rust <code className="font-mono text-black">wgpu</code> 1080p 3D FPS.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -989,7 +899,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
               className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Maximize2 className="w-3.5 h-3.5" />
-              Launch Real 2D+3D Suite ({fmtClock(totalSuiteSecs)})
+              Launch Three.js 3D+2D Suite ({fmtClock(totalSuiteSecs)})
             </button>
           </div>
         </div>
@@ -1027,7 +937,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                     • {computeResult.tier} • Compile {computeResult.pipelineCompileMs.toFixed(1)} ms
                   </>
                 ) : (
-                  "Breaks 60Hz WebView VSync cap: renders photorealistic 1080p 3D terrain + chrome orb directly on DX12/Vulkan/Metal alongside verified FP32 shader GFLOPS."
+                  "Breaks 60Hz WebView VSync cap: renders photorealistic 1080p 3D terrain + chrome orb directly on DX12/Vulkan/Metal alongside verified FP32 GFLOPS."
                 )}
               </div>
               {computeError && (
@@ -1052,9 +962,9 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
       {/* Composite Score Plate */}
       {suiteResult && (
         <NovabenchScoreBar
-          scoreLabel="2D+3D MARK"
+          scoreLabel="3D+2D MARK"
           scoreValue={suiteResult.compositeScore.toLocaleString()}
-          title={`Real 2D & 3D Graphics Suite — ${suiteResult.smoothnessTier} (${suiteResult.resolution})`}
+          title={`Three.js 3D & 2D Graphics Suite — ${suiteResult.smoothnessTier} (${suiteResult.resolution})`}
           takeaway={suiteResult.plainSummary}
           percent={Math.min(100, Math.max(15, Math.round(suiteResult.compositeScore / 110)))}
           medianLabel={
@@ -1068,28 +978,28 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
         />
       )}
 
-      {/* 9-Scene Gallery (Grouped Visually with Clear 3D World / 2D Graphics / Mini-Game Badges) */}
+      {/* 9-Scene Gallery */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {SCENES.map((sc, idx) => {
           const score =
             suiteResult?.scenes.find((s) => s.id === sc.id) ?? sceneScores[sc.id] ?? null;
           const Icon =
-            sc.id === "world_terrain"
+            sc.id === "three_island"
               ? Globe
-              : sc.id === "world_raytrace"
+              : sc.id === "three_studio"
               ? Sparkles
-              : sc.id === "world_megacity"
+              : sc.id === "three_megacity"
               ? Layers
-              : sc.id === "world_reactor"
+              : sc.id === "three_game_fighter"
+              ? Rocket
+              : sc.id === "three_game_racer"
               ? Zap
+              : sc.id === "three_game_cannon"
+              ? Gamepad2
               : sc.id === "bench_2d_zoom"
               ? Search
               : sc.id === "bench_2d_text"
               ? Type
-              : sc.id === "game_starfighter"
-              ? Rocket
-              : sc.id === "game_physics_sim"
-              ? Gamepad2
               : Activity;
           return (
             <div
@@ -1106,7 +1016,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                     <StatusBadge status={score.status} compact />
                   ) : (
                     <span className="px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono text-[9px] font-bold">
-                      {sc.playable ? "3-ACT • PLAYABLE" : "3-ACT RAMP"}
+                      {sc.kind === "3D Game" ? "PLAYABLE 3D" : sc.isThree ? "THREE.JS 3D" : "2D ENGINE"}
                     </span>
                   )}
                 </div>
@@ -1136,7 +1046,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                   onClick={() => launchScene(sc.id, false)}
                   className="flex-1 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-[#F8FAFC] hover:border-black text-[11px] font-semibold text-black flex items-center justify-center gap-1 cursor-pointer"
                 >
-                  <Play className="w-3 h-3 text-blue-600" /> Run ({durationSecs}s)
+                  <Play className="w-3 h-3 text-blue-600" /> Benchmark
                 </button>
                 {sc.playable && (
                   <button
@@ -1145,7 +1055,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                     onClick={() => launchScene(sc.id, true)}
                     className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
                   >
-                    <Gamepad2 className="w-3 h-3" /> Play
+                    <Gamepad2 className="w-3 h-3" /> Play 3D
                   </button>
                 )}
               </div>
@@ -1158,6 +1068,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
       {fullscreenOpen &&
         createPortal(
           <div
+            data-testid="graphics-fullscreen-portal"
             className="fixed inset-0 z-[99999] bg-[#09090B] text-white select-none overflow-hidden"
             onPointerMove={(e) => {
               const nx = e.clientX / Math.max(1, window.innerWidth);
@@ -1179,17 +1090,29 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
             }}
           >
             <canvas
+              key={`2d-${activeScene}`}
               ref={canvas2dRef}
               className={`absolute inset-0 w-full h-full ${
-                activeDef.kind === "3D World" && glSupportRef.current.supported ? "hidden" : "block"
+                activeDef.isThree && glSupportRef.current.supported ? "hidden" : "block"
               }`}
             />
             <canvas
+              key={`3d-${activeScene}`}
               ref={canvasGlRef}
               className={`absolute inset-0 w-full h-full ${
-                activeDef.kind === "3D World" && glSupportRef.current.supported ? "block" : "hidden"
+                activeDef.isThree && glSupportRef.current.supported ? "block" : "hidden"
               }`}
             />
+
+            {/* Clean 1s Scene Transition Banner */}
+            {transitionBanner && (
+              <div className="fixed inset-x-0 top-20 z-50 flex justify-center pointer-events-none">
+                <div className="px-5 py-2.5 rounded-xl bg-black/85 backdrop-blur-md border border-blue-500/60 shadow-2xl font-mono text-xs font-bold text-white tracking-wide flex items-center gap-2.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  <span>{transitionBanner}</span>
+                </div>
+              </div>
+            )}
 
             {/* Top Floating Translucent Swiss-Lab Telemetry HUD */}
             <div className="fixed top-3 left-3 right-3 z-50 flex items-center justify-between gap-2 flex-wrap pointer-events-auto">
@@ -1217,14 +1140,24 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                   <span className="text-zinc-300">
                     <strong className="text-white">{hud.frameMs.toFixed(1)}</strong>ms
                   </span>
+                  <span data-testid="graphics-elapsed-clock" className="text-zinc-400 hidden md:inline">
+                    {hud.elapsed.toFixed(1)}s
+                  </span>
                   {suiteMode && (
                     <span className="text-blue-300 flex items-center gap-1 font-bold">
-                      <Clock className="w-3 h-3" /> {fmtClock(hud.remaining)}
+                      {manualPlay ? (
+                        <>
+                          <Pause className="w-3 h-3" /> PAUSED (PLAY)
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="w-3 h-3" /> {fmtClock(hud.remaining)}
+                        </>
+                      )}
                     </span>
                   )}
                 </div>
 
-                {/* Live Hardware GPU / CPU Telemetry */}
                 {liveHw && (
                   <div className="hidden lg:flex items-center gap-2.5 text-[10.5px] border-l border-white/15 pl-3 text-zinc-300">
                     <Thermometer className="w-3.5 h-3.5 text-blue-400" />
@@ -1259,7 +1192,25 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                 </svg>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Prev / Next Scene Skip Buttons */}
+                <button
+                  type="button"
+                  onClick={() => jumpScene(-1)}
+                  title="Previous Scene (P)"
+                  className="px-2.5 py-1.5 rounded-xl bg-black/80 hover:bg-zinc-800 border border-white/20 text-white font-mono text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => jumpScene(1)}
+                  title="Next Scene (N)"
+                  className="px-2.5 py-1.5 rounded-xl bg-black/80 hover:bg-zinc-800 border border-white/20 text-white font-mono text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+
                 {activeDef.playable && (
                   <button
                     type="button"
@@ -1271,7 +1222,11 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                     }`}
                   >
                     <Gamepad2 className="w-3.5 h-3.5" />
-                    {manualPlay ? "Manual Play ON" : "Take Control (Play)"}
+                    {manualPlay
+                      ? suiteMode
+                        ? "Resume Suite"
+                        : "Manual Play ON"
+                      : "Take Control (Play)"}
                   </button>
                 )}
 
@@ -1300,7 +1255,7 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
               </div>
             </div>
 
-            {/* Bottom Throughput Pill + Progress Bar + Scene Switcher */}
+            {/* Bottom Throughput Pill + Suite Progress / Scene Switcher */}
             <div className="fixed bottom-3 left-3 right-3 z-50 flex flex-col items-center gap-2 pointer-events-auto">
               <div className="px-3.5 py-1.5 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 font-mono text-[11px] flex items-center gap-3 flex-wrap justify-center">
                 <span className="text-blue-400 font-bold">
@@ -1308,17 +1263,19 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                 </span>
                 <span className="text-zinc-400 hidden md:inline">•</span>
                 <span className="text-zinc-300 hidden md:inline">
-                  {manualPlay ? `MANUAL: ${activeDef.controlHint}` : activeDef.badge}
+                  {manualPlay ? `PLAY MODE (TIMER PAUSED): ${activeDef.controlHint}` : activeDef.badge}
                 </span>
                 <span className="text-zinc-500">• {hud.webglLabel}</span>
               </div>
 
               {suiteMode ? (
-                <div className="w-full max-w-2xl h-1.5 rounded-full bg-white/15 overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-150"
-                    style={{ width: `${hud.progressPct}%` }}
-                  />
+                <div className="w-full max-w-2xl space-y-1">
+                  <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 transition-all duration-150"
+                      style={{ width: `${hud.progressPct}%` }}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 flex-wrap justify-center bg-black/80 backdrop-blur-md border border-white/15 px-2.5 py-1.5 rounded-xl">
@@ -1326,7 +1283,10 @@ export const GraphicsFpsLab: React.FC<GraphicsFpsLabProps> = ({
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setActiveScene(s.id)}
+                      onClick={() => {
+                        setTransitionBanner(`${String(idx + 1).padStart(2, "0")} / ${SCENES.length} • ${s.name}`);
+                        setActiveScene(s.id);
+                      }}
                       className={`px-2.5 py-1 rounded-lg font-mono text-[10.5px] font-bold transition cursor-pointer ${
                         activeScene === s.id
                           ? "bg-blue-600 text-white"

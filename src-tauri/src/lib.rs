@@ -684,7 +684,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v3.3.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v3.4.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -1014,8 +1014,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v3.3.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v3.3.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v3.4.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v3.4.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -1182,7 +1182,7 @@ pub fn run_self_test() -> Result<(), String> {
     let nv_throt = telemetry::decode_nvml_throttle_reasons(0x40 | 0x04);
     let chg_warn = battery::evaluate_charger_adequacy(true, Some(45), true);
     let tf_rep = hardware_faults::evaluate_tamper_forensics(Some(&sp), Some(&bat), Some(&smart), Some(&hw_faults));
-    let (port_ok, _) = portable::evaluate_portable_mode(std::path::Path::new("E:\\LaptopBench.QC_3.3.0_x64-portable.exe"), true, false);
+    let (port_ok, _) = portable::evaluate_portable_mode(std::path::Path::new("E:\\LaptopBench.QC_3.4.0_x64-portable.exe"), true, false);
     if nv_throt.len() < 2 || chg_warn.is_none() || !port_ok {
         return Err("v3.1.0 Forensics / NVML / Charger Adequacy / Portable USB check failed".into());
     }
@@ -1195,12 +1195,12 @@ pub fn run_self_test() -> Result<(), String> {
     let (sha_mbs, scale_ratio, scale_eff) = perf_bench::run_sha256_throughput_bench(2, 2);
     let json_mbs = perf_bench::run_json_throughput_bench(2);
     if vid_fps <= 0.0 || sha_mbs <= 0.0 || json_mbs <= 0.0 || scale_ratio <= 0.0 {
-        return Err("v3.3.0 Video DCT / SHA-256 / JSON / Core-Scaling kernel check failed".into());
+        return Err("v3.4.0 Video DCT / SHA-256 / JSON / Core-Scaling kernel check failed".into());
     }
     let gpu_comp_summary = match gpu_stress::run_gpu_compute_bench(None) {
         Ok(gc) => {
             if !gc.verified_ok || gc.fp32_gflops <= 0.0 {
-                return Err(format!("v3.3.0 GPU FP32 compute verification failed: {}", gc.plain_summary));
+                return Err(format!("v3.4.0 GPU FP32 compute verification failed: {}", gc.plain_summary));
             }
             format!(
                 "{:.1} GFLOPS | 1080p3D={:.1} FPS (preview={}) ({})",
@@ -1213,7 +1213,7 @@ pub fn run_self_test() -> Result<(), String> {
         Err(e) => format!("Skipped ({})", e),
     };
     println!(
-        "[PASS] v3.3.0 Graphics & Performance Expansion (Video4K={:.1} FPS | SHA256={:.1} MB/s | JSON={:.1} MB/s | Scaling={:.2}x [{:.0}%] | GPU_FP32={})",
+        "[PASS] v3.4.0 Graphics & Performance Expansion (Video4K={:.1} FPS | SHA256={:.1} MB/s | JSON={:.1} MB/s | Scaling={:.2}x [{:.0}%] | GPU_FP32={})",
         vid_fps, sha_mbs, json_mbs, scale_ratio, scale_eff, gpu_comp_summary
     );
 
@@ -1232,7 +1232,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v3.3.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v3.4.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 

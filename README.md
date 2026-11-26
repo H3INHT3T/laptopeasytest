@@ -1,10 +1,26 @@
-# LaptopBench QC v3.3.0
+# LaptopBench QC v3.4.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v3.3.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, photorealistic real 2D & 3D fullscreen graphics benchmark, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, **WebGL2**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) interface.
+**LaptopBench QC v3.4.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, **Three.js 3D Game Engine & 2D Graphics Benchmark**, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, **Three.js (WebGL2 PBR)**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) interface.
 
-## What's New in v3.3.0 — Real Full-Color 2D & 3D Graphics Benchmarks, 3-Act 15s Progression & Uncapped Native 1080p wgpu 3D FPS
+## What's New in v3.4.0 — Real Three.js 3D Game Engine, 3 Playable 3D Games, Unlimited Play Mode & Zero-Reset Suite Flow
+
+- **100% Fixed 2–3s Scene Reset Bug:** Isolated all fullscreen Three.js / Canvas2D benchmark loops from background telemetry and parent callback re-renders so every test runs continuously from start to finish, auto-advances smoothly `01 → 09` with a clean transition banner, and supports instant **`Prev (P)` / `Next (N)`** navigation.
+- **Play Mode Timer Pause:** Clicking **`Take Control (Play)`** (or launching via **`Play 3D`**) pauses the countdown timer immediately so you can play any 3D game or fly through any 3D world as long as you want without interruption or reset, until you click **`Resume Suite`** or **`Exit (Esc)`**.
+- **Real Three.js 3D Game & PBR Rendering Engine (`threeEngine.ts` — Lazy-Loaded):** Full `WebGLRenderer` with `ACESFilmicToneMapping`, `PCFSoftShadowMap` real-time shadows, `MeshPhysicalMaterial` clearcoat/refraction, `InstancedMesh` rendering, and live triangle/draw-call counters:
+  1. **3D Sunlit Island, Terrain & Reflective Ocean Shadows** — Displaced vertex-biome mountain island, animated ocean waves, shadow-casting 3D pines & 3-act daylight-to-dusk sun.
+  2. **3D PBR Metallic, Glass & Dynamic Multi-Light Studio** — Clearcoat torus-knot, refractive glass crystal, 10 metallic spheres & 4 dynamic shadow-casting colored point lights on a glossy marble floor.
+  3. **3D Instanced Neon Cyberpunk Megacity** — Up to `7,500` textured lit 3D skyscraper towers, glowing aerial traffic lanes & street canyon flythrough.
+  4. **Playable 3D Game 1: Space Fighter Trench Combat & Boss** — Banking 3D Starfighter, 3D starfield trench, enemy fighters, laser explosions & 3D Dreadnought Boss (`Mouse / WASD + Click / Space`).
+  5. **Playable 3D Game 2: Neon Highway Turbo Racer** — 3D futuristic sports car, chase camera with FOV Nitro Boost, traffic weaving & `360 km/h` turbo runs (`A/D`/`←/→`/`Mouse` + `W`/`Space`).
+  6. **Playable 3D Game 3: Physics Tower Destruction Cannon** — Sunlit shadow-casting 3D towers blasted apart by glowing cannonballs with real 3D gravity, bounce & spin (`Aim + Click / Space`, `R` rebuilds mega-tower).
+  7. **2D Escalating Vector Ceiling Engine** — PCB schematics, clockwork gears & prism shards finding **Max Vectors @ 60 FPS**.
+  8. **2D Satellite Topographic Map & CAD Deep-Zoom (`0.35× → 64×`)** — High-res shaded-relief satellite bitmap + hairline CAD compositing + Mouse Wheel/Drag zoom.
+  9. **2D Rich Code IDE, Data Table & Multi-Script Typography** — Syntax-highlighted code, Myanmar (`မင်္ဂလာပါ`) & CJK scripts + 120Hz scroll & font scaling.
+- **Native Rust `wgpu` Uncapped 1080p 3D FPS + FP32 Compute (`gpu_render_3d.wgsl`):** Breaks 60Hz VSync with real DX12/Vulkan/Metal 1080p 3D rendering, verified GFLOPS/TFLOPS, and live rendered JPEG preview.
+
+## Highlights from v3.3.0 — Native Uncapped 1080p wgpu 3D Render & 3-Act Progression
 
 - **Real Selectable Benchmark Durations & 3-Act Progression (Zero Toy Loops):** Choose **Quick (10s/scene • ~1.5m)**, **Standard (15s/scene • ~2.2m, default)**, or **Extended Stress (30s/scene • ~4.5m)**. Every scene progresses continuously through **Act I (Baseline) → Act II (Dynamic Lighting/Ramp) → Act III (Peak Stress Saturation)** with live countdown clock, live **GPU Temp (°C) / GPU Load (%) / GPU Clock (MHz) / CPU (%)** hardware telemetry HUD, and real throughput counters (**MTri/s, MRays/s, MP/s, Max Vectors @ 60 FPS, Glyphs/s**).
 - **4 Photorealistic Full-Color WebGL2 3D Worlds (`shaders3d.ts`):**
