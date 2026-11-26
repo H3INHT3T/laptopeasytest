@@ -10,6 +10,7 @@ import {
   Download,
   Flame,
   Gauge,
+  Mic,
   Play,
   ShieldAlert,
   Sparkles,
@@ -85,6 +86,122 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
   const lastPhaseRef = useRef<string>("");
   const [historyNotice, setHistoryNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Optional 6s Mic-Verified Fan Acoustic & Bearing-Grind Check (v3.0.0)
+  const [fanAcousticRunning, setFanAcousticRunning] = useState(false);
+  const [fanAcousticResult, setFanAcousticResult] = useState<{
+    status: TestStatus;
+    verdict: string;
+    rmsDb: number;
+    tonalPeakRatio: number;
+    rattleClicks: number;
+    summary: string;
+  } | null>(null);
+  const [fanAcousticError, setFanAcousticError] = useState<string | null>(null);
+
+  const runFanAcousticCheck = async () => {
+    setFanAcousticError(null);
+    setFanAcousticResult(null);
+    setFanAcousticRunning(true);
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      ctx = new AudioContext();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      src.connect(analyser);
+
+      const timeData = new Float32Array(analyser.fftSize);
+      const freqData = new Float32Array(analyser.frequencyBinCount);
+      const binHz = ctx.sampleRate / analyser.fftSize;
+
+      const rmsSamples: number[] = [];
+      const tonalRatios: number[] = [];
+      let rattleClicks = 0;
+
+      const started = performance.now();
+      while (performance.now() - started < 6000) {
+        analyser.getFloatTimeDomainData(timeData);
+        analyser.getFloatFrequencyData(freqData);
+
+        let sumSq = 0;
+        let peakAbs = 0;
+        for (let i = 0; i < timeData.length; i++) {
+          const v = timeData[i];
+          sumSq += v * v;
+          if (Math.abs(v) > peakAbs) peakAbs = Math.abs(v);
+        }
+        const rms = Math.sqrt(sumSq / timeData.length);
+        const rmsDb = 20 * Math.log10(Math.max(rms, 1e-6));
+        rmsSamples.push(rmsDb);
+
+        // Crest-factor impulsive spike check (bearing click/rattle)
+        if (rms > 0.004 && peakAbs / Math.max(rms, 1e-6) > 7.5) {
+          rattleClicks += 1;
+        }
+
+        // High-frequency narrowband tonal whine ratio (1.5 kHz - 6.0 kHz vs broadband floor)
+        const loBin = Math.max(1, Math.floor(1500 / binHz));
+        const hiBin = Math.min(freqData.length - 1, Math.ceil(6000 / binHz));
+        let sumDb = 0;
+        let maxDb = -140;
+        let count = 0;
+        for (let b = loBin; b <= hiBin; b++) {
+          const v = freqData[b];
+          if (Number.isFinite(v)) {
+            sumDb += v;
+            if (v > maxDb) maxDb = v;
+            count++;
+          }
+        }
+        if (count > 0) {
+          const avgDb = sumDb / count;
+          tonalRatios.push(Math.max(0, maxDb - avgDb));
+        }
+
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      const avgRmsDb = Number(
+        (rmsSamples.reduce((a, b) => a + b, 0) / Math.max(1, rmsSamples.length)).toFixed(1)
+      );
+      const peakTonal = Number(
+        (tonalRatios.reduce((a, b) => Math.max(a, b), 0)).toFixed(1)
+      );
+
+      let st: TestStatus = "pass";
+      let verdict = "QUIET_NORMAL";
+      let summary = `Fan acoustics normal (${avgRmsDb} dBFS, tonal prominence +${peakTonal} dB, ${rattleClicks} impulse click(s)) — smooth airflow with no bearing grind.`;
+      if (rattleClicks >= 4 || (peakTonal >= 26 && avgRmsDb > -48)) {
+        st = "warn";
+        verdict = "BEARING_GRIND_SUSPECTED";
+        summary = `WARN: Possible fan bearing grind / tonal whine detected (${avgRmsDb} dBFS, +${peakTonal} dB narrowband spike, ${rattleClicks} impulse clicks) — physically inspect cooling fan.`;
+      } else if (avgRmsDb > -26) {
+        st = "warn";
+        verdict = "LOUD_AIRFLOW";
+        summary = `WARN: Elevated fan/chassis noise (${avgRmsDb} dBFS) — verify vents are dust-free and fan curve is normal.`;
+      }
+
+      setFanAcousticResult({
+        status: st,
+        verdict,
+        rmsDb: avgRmsDb,
+        tonalPeakRatio: peakTonal,
+        rattleClicks,
+        summary,
+      });
+    } catch (e) {
+      setFanAcousticError(`Microphone unavailable for fan acoustic check (${String(e)}).`);
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+      ctx?.close().catch(() => {});
+      setFanAcousticRunning(false);
+    }
+  };
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -301,6 +418,19 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
           verdict: result.memoryLatencyNs <= 110 ? "PASS" : "WARN",
           meaning: "Verifies responsiveness across L1/L2/L3 cache and main DRAM (catches single-channel bottlenecks).",
         },
+        ...(result.bdProchotSuspected
+          ? [
+              {
+                parameter: "BD PROCHOT / Stuck-Clock Fault Guard",
+                measured: `LOCKED @ ${result.minLoadClockMhz ?? 0} MHz (${(result.stuckClockSecs ?? 0).toFixed(1)}s under load)`,
+                limit: ">= 900 MHz under 100% multi-core load",
+                verdict: "FAIL" as const,
+                meaning:
+                  result.stuckClockNote ||
+                  "CPU remained stuck below 900 MHz under load — inspect charger ID pin, DC-IN jack, or motherboard VR sensor.",
+              },
+            ]
+          : []),
         ...(result.cooldownVerdict && result.cooldownVerdict !== "UNAVAILABLE"
           ? [
               {
@@ -388,21 +518,33 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               Allow Live Lookup (&le;800ms)
             </label>
           </div>
-          {running ? (
+          <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={() => invoke("cancel_performance_benchmark").catch(() => {})}
-              className="px-4 py-2 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+              type="button"
+              onClick={runFanAcousticCheck}
+              disabled={fanAcousticRunning}
+              className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:border-black disabled:opacity-50 text-black text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+              title="Optional 6-second microphone FFT scan for fan bearing grind or tonal whine"
             >
-              <Square className="w-3.5 h-3.5" /> {progress?.inCooldown ? "Skip Cool-Down" : "Abort Suite"}
+              <Mic className="w-3.5 h-3.5 text-blue-600" />
+              {fanAcousticRunning ? "Listening to Fan (6s)..." : "Check Fan Acoustics (6s)"}
             </button>
-          ) : (
-            <button
-              onClick={startBench}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5" /> Run 14-Stage Suite
-            </button>
-          )}
+            {running ? (
+              <button
+                onClick={() => invoke("cancel_performance_benchmark").catch(() => {})}
+                className="px-4 py-2 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Square className="w-3.5 h-3.5" /> {progress?.inCooldown ? "Skip Cool-Down" : "Abort Suite"}
+              </button>
+            ) : (
+              <button
+                onClick={startBench}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5" /> Run 14-Stage Suite
+              </button>
+            )}
+          </div>
         </div>
 
         {(running || cpuLoadHistory.length > 0 || previewImg) && (
@@ -486,6 +628,26 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
           </div>
         )}
 
+        {fanAcousticError && (
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] px-3.5 py-2 text-xs text-black">
+            {fanAcousticError}
+          </div>
+        )}
+        {fanAcousticResult && (
+          <div
+            className={`rounded-xl border px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap text-xs ${
+              fanAcousticResult.status === "warn"
+                ? "border-black bg-black text-white"
+                : "border-blue-600 bg-[#F8FAFC] text-black"
+            }`}
+          >
+            <span>
+              <strong>Fan Acoustic Audit ({fanAcousticResult.verdict.replace(/_/g, " ")}):</strong>{" "}
+              {fanAcousticResult.summary}
+            </span>
+            <StatusBadge status={fanAcousticResult.status} darkSurface={fanAcousticResult.status === "warn"} compact />
+          </div>
+        )}
         {error && <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>}
         {historyNotice && (
           <div className="rounded-[2px] bg-blue-50 border border-blue-600 text-blue-900 px-3 py-2 font-mono text-xs font-semibold">
@@ -507,6 +669,18 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                 <p className="text-zinc-200">
                   The benchmark stopped mid-stage to protect the processor from overheating. Clean dust from cooling fins, verify fan spin, or replace dried thermal paste before sale.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {result.bdProchotSuspected && (
+            <div className="rounded-xl border-2 border-black bg-black text-white p-3.5 flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-0.5">
+                <div className="font-mono font-bold text-blue-400">
+                  BD PROCHOT / STUCK-CLOCK FAULT ({result.minLoadClockMhz ?? 0} MHz locked for {(result.stuckClockSecs ?? 0).toFixed(1)}s)
+                </div>
+                <p className="text-zinc-200">{result.stuckClockNote}</p>
               </div>
             </div>
           )}

@@ -27,6 +27,49 @@ pub(crate) struct SsdWriteBudget {
     pub mixed_write_mb: u64,
 }
 
+/// Pure Smart-Bench classifier for SSD Thermal Throttling & Write-Collapse Audit (v3.0.0).
+/// Compares First-Third vs Final-Third sequential write throughput along with drive temperature rise.
+pub fn classify_ssd_write_collapse(
+    chunk_speeds: &[f64],
+    temp_start_c: Option<i32>,
+    temp_peak_c: Option<i32>,
+) -> (f64, f64, f64, Option<i32>, String) {
+    let temp_rise_c = match (temp_start_c, temp_peak_c) {
+        (Some(s), Some(p)) => Some((p - s).max(0)),
+        _ => None,
+    };
+    if chunk_speeds.len() < 3 {
+        let avg = if chunk_speeds.is_empty() {
+            0.0
+        } else {
+            (chunk_speeds.iter().sum::<f64>() / chunk_speeds.len() as f64 * 10.0).round() / 10.0
+        };
+        return (avg, avg, 0.0, temp_rise_c, "STEADY".to_string());
+    }
+
+    let third = (chunk_speeds.len() / 3).max(1);
+    let early = (chunk_speeds[..third].iter().sum::<f64>() / third as f64 * 10.0).round() / 10.0;
+    let late = (chunk_speeds[chunk_speeds.len() - third..].iter().sum::<f64>() / third as f64 * 10.0).round() / 10.0;
+    let collapse_pct = if early > 1.0 {
+        (((early - late).max(0.0) / early) * 100.0 * 10.0).round() / 10.0
+    } else {
+        0.0
+    };
+
+    let hot = temp_peak_c.map(|t| t >= 68).unwrap_or(false)
+        || temp_rise_c.map(|r| r >= 14).unwrap_or(false);
+
+    let verdict = if collapse_pct >= 45.0 && hot {
+        "SSD_THERMAL_THROTTLE".to_string()
+    } else if collapse_pct >= 45.0 {
+        "SLC_CACHE_DROP".to_string()
+    } else {
+        "STEADY".to_string()
+    };
+
+    (early, late, collapse_pct, temp_rise_c, verdict)
+}
+
 pub(crate) fn compute_ssd_write_budget(preset: &str) -> SsdWriteBudget {
     match preset {
         "standard" => SsdWriteBudget {
@@ -1144,6 +1187,7 @@ pub fn run_storage_benchmark(
         drive_idx,
     };
     drive_thermal.poll(mount_hint_str, true);
+    let start_drive_temp = drive_thermal.cur_temp;
 
     // Phase 1: Sustained Direct-IO Sequential Write (within safe budget + SLC cache curve)
     let mut chunk_speeds: Vec<f64> = Vec::with_capacity(total_chunks);
@@ -1541,6 +1585,8 @@ pub fn run_storage_benchmark(
     let peak_drive_temp = drive_thermal.peak_temp;
     let thermal_warning = drive_thermal.warning;
     let thermal_cutoff_triggered = drive_thermal.cutoff_triggered;
+    let (seq_write_early_mb_s, seq_write_late_mb_s, write_collapse_pct, temp_rise_c, thermal_throttle_verdict) =
+        classify_ssd_write_collapse(&chunk_speeds, start_drive_temp, peak_drive_temp);
 
     let total_written_mb = (bytes_written + (1024 * 1024 - 1)) / (1024 * 1024);
     let iface = interface_hint.unwrap_or_else(|| "NVMe".into());
@@ -1562,7 +1608,11 @@ pub fn run_storage_benchmark(
 
     let status = if thermal_cutoff_triggered || integrity_errors > 0 || baseline.percent_of_normal < 50.0 {
         TestStatus::Fail
-    } else if thermal_warning || baseline.percent_of_normal < 80.0 || p99_4k_latency_ms > 15.0 {
+    } else if thermal_warning
+        || thermal_throttle_verdict == "SSD_THERMAL_THROTTLE"
+        || baseline.percent_of_normal < 80.0
+        || p99_4k_latency_ms > 15.0
+    {
         TestStatus::Warn
     } else {
         TestStatus::Pass
@@ -1656,12 +1706,36 @@ pub fn run_storage_benchmark(
         thermal_cutoff_triggered,
         userbenchmark_rating,
         plain_summary,
+        temp_start_c: start_drive_temp,
+        temp_rise_c,
+        seq_write_early_mb_s,
+        seq_write_late_mb_s,
+        write_collapse_pct,
+        thermal_throttle_verdict,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_classify_ssd_write_collapse_thermal_vs_slc_vs_steady() {
+        let hot_drop = vec![2400.0, 2300.0, 1200.0, 600.0, 400.0, 350.0];
+        let (early, late, pct, rise, v) = classify_ssd_write_collapse(&hot_drop, Some(44), Some(72));
+        assert_eq!(v, "SSD_THERMAL_THROTTLE");
+        assert!(early > 2000.0 && late < 400.0);
+        assert!(pct > 80.0);
+        assert_eq!(rise, Some(28));
+
+        let cool_slc = vec![2200.0, 2100.0, 1400.0, 900.0, 600.0, 550.0];
+        let (_, _, _, _, v_slc) = classify_ssd_write_collapse(&cool_slc, Some(40), Some(48));
+        assert_eq!(v_slc, "SLC_CACHE_DROP");
+
+        let steady = vec![2000.0, 1980.0, 1950.0, 1920.0, 1910.0, 1900.0];
+        let (_, _, _, _, v_ok) = classify_ssd_write_collapse(&steady, Some(42), Some(50));
+        assert_eq!(v_ok, "STEADY");
+    }
 
     #[test]
     fn test_ssd_write_budget_caps_across_presets() {

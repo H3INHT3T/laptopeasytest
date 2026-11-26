@@ -1,10 +1,19 @@
-# LaptopBench QC v2.11.0
+# LaptopBench QC v3.0.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.11.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
+**LaptopBench QC v3.0.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
 
-## What's New in v2.11.0 — Display Pro Suite (Native Max-Hz Audit, UFO Motion + Frame-Skip Grid, 15s eDP Hinge-Flex Monitor & Defect Logger)
+## What's New in v3.0.0 — 6 Flagship Hardware Diagnostic Upgrades
+
+- **BD PROCHOT / Stuck-Clock Fault Detector (Stage 12 & Stress Lab):** Continuously monitors real CPU clock MHz under load and flags `FAIL` if the processor gets locked `< 900 MHz` for `>= 4s` (catching Dell/ThinkPad/HP `0.39 GHz / 0.79 GHz` charger ID-pin and VR sensor faults).
+- **Passive Sleep / Modern Standby (S0ix / S3) Drain & Wake-Crash Audit (Stage 04):** Zero-reboot audit parsing `powercfg /a`, `powercfg /devicequery wake_armed`, `powercfg /sleepstudy /xml`, and macOS `pmset -g log` to catch overnight standby battery drain (`> 5%/hr` WARN, `> 12%/hr` FAIL), rogue wake-armed devices, and sleep/wake crashes.
+- **Wi-Fi 5GHz/6GHz Band Audit & 15-Packet ICMP Jitter/Spike Burst (Stage 01):** Uses native Win32 `IcmpSendEcho` (Windows) and 15-packet `ping` (macOS) to measure Avg RTT, Std-Dev Jitter, Max Latency Spike, and Packet Loss, plus checks Wi-Fi Band & Channel (`2.4 GHz` vs `5/6 GHz`) to catch disconnected 5GHz antenna leads.
+- **Removable USB / SD-Card Real 64 MB Speed Test (Stage 14):** Safe RAII-auto-cleaned 64 MB Write/Read benchmark on any plugged USB flash drive or SD/MicroSD card, catching bent/loose USB 3.0 SuperSpeed pins silently falling back to USB 2.0 (`< 45 MB/s`).
+- **SSD Thermal Throttling & Write-Collapse Audit (Stage 05):** Compares First-Third vs Final-Third sequential write throughput alongside drive temperature rise (`tempStartC -> peakDriveTempC`) to distinguish genuine `SSD_THERMAL_THROTTLE` (`WARN`) from normal `SLC_CACHE_DROP`.
+- **Optional 6s Mic-Verified Fan Bearing-Grind & Acoustic Check (Stage 12):** On-demand Web Audio FFT scan measuring fan RMS dBFS, `1.5–6 kHz` tonal whine prominence, and impulsive bearing rattle clicks without blocking microphone-free benches.
+
+## Highlights from v2.11.0 — Display Pro Suite (Native Max-Hz Audit, UFO Motion + Frame-Skip Grid, 15s eDP Hinge-Flex Monitor & Defect Logger)
 
 - **Native Max-Hz Mismatch Audit (`display_pro.rs`):** Queries every OS-supported display mode natively (`EnumDisplaySettingsW` on Windows, `system_profiler SPDisplaysDataType` on macOS) and flags `MAX_HZ_MISMATCH` (`WARN`) whenever a 120Hz/144Hz/165Hz/240Hz panel is stuck running at 60Hz.
 - **True Delta-Time UFO Motion Clarity & Frame-Skip Camera Grid (24 Fullscreen Patterns):** Upgrades Motion Clarity with delta-time `px/s` pursuit lanes across dark/mid/light contrast bands, panel-Hz-aware dropped-frame & jitter measurement, plus a BlurBusters-style sequential 8×4 Frame-Skip Grid for 1/10s phone camera verification.
@@ -124,6 +133,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.11.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v3.0.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

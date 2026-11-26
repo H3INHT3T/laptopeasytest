@@ -14,6 +14,8 @@ pub(crate) struct NetshWlanInfo {
     pub rx_rate_mbps: Option<f64>,
     pub tx_rate_mbps: Option<f64>,
     pub radio_type: Option<String>,
+    pub channel: Option<u32>,
+    pub band: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -23,6 +25,170 @@ pub(crate) struct MacosWifiInfo {
     pub rssi_dbm: Option<i32>,
     pub signal_pct: Option<u32>,
     pub link_speed_mbps: Option<f64>,
+    pub channel: Option<u32>,
+    pub band: Option<String>,
+}
+
+/// Infers Wi-Fi frequency band ("2.4 GHz" | "5 GHz" | "6 GHz") from explicit band, channel number, or radio type.
+pub fn infer_wifi_band(
+    channel: Option<u32>,
+    radio_type: Option<&str>,
+    explicit_band: Option<&str>,
+) -> Option<String> {
+    if let Some(b) = explicit_band {
+        let low = b.to_lowercase();
+        if low.contains("6") && !low.contains("2.4") && !low.contains("5") {
+            return Some("6 GHz".to_string());
+        }
+        if low.contains("5") {
+            return Some("5 GHz".to_string());
+        }
+        if low.contains("2.4") {
+            return Some("2.4 GHz".to_string());
+        }
+    }
+    if let Some(ch) = channel {
+        if (1..=14).contains(&ch) {
+            return Some("2.4 GHz".to_string());
+        } else if (32..=177).contains(&ch) {
+            return Some("5 GHz".to_string());
+        } else if ch > 177 {
+            return Some("6 GHz".to_string());
+        }
+    }
+    if let Some(rt) = radio_type {
+        let low = rt.to_lowercase();
+        if low.contains("802.11ac") || low.contains("802.11a") {
+            return Some("5 GHz".to_string());
+        }
+        if low.contains("802.11b") || low.contains("802.11g") {
+            return Some("2.4 GHz".to_string());
+        }
+    }
+    None
+}
+
+/// Computes `(avg_ms, jitter_stddev_ms, max_spike_ms, packet_loss_pct)` from a multi-packet ping burst.
+pub fn compute_ping_burst_stats(
+    rtts_ms: &[f64],
+    total_sent: u32,
+) -> (Option<f64>, Option<f64>, Option<f64>, f64) {
+    let sent = total_sent.max(rtts_ms.len() as u32);
+    if sent == 0 {
+        return (None, None, None, 0.0);
+    }
+    let received = rtts_ms.len() as u32;
+    let loss_pct = ((((sent.saturating_sub(received)) as f64) / (sent as f64)) * 100.0 * 10.0)
+        .round()
+        / 10.0;
+    if rtts_ms.is_empty() {
+        return (None, None, None, 100.0);
+    }
+    let avg = rtts_ms.iter().sum::<f64>() / (rtts_ms.len() as f64);
+    let max_spike = rtts_ms.iter().copied().fold(0.0f64, f64::max);
+    let var = rtts_ms
+        .iter()
+        .map(|v| {
+            let d = v - avg;
+            d * d
+        })
+        .sum::<f64>()
+        / (rtts_ms.len() as f64);
+    let jitter = var.sqrt();
+    (
+        Some((avg * 10.0).round() / 10.0),
+        Some((jitter * 10.0).round() / 10.0),
+        Some((max_spike * 10.0).round() / 10.0),
+        loss_pct,
+    )
+}
+
+/// Extracts per-reply RTT values (in ms) from standard Windows or macOS `ping` output.
+pub fn extract_ping_reply_rtts(output: &str) -> Vec<f64> {
+    let mut rtts = Vec::new();
+    for line in output.lines() {
+        let low = line.to_lowercase();
+        if !low.contains("ttl=") && !low.contains("icmp_seq=") {
+            continue;
+        }
+        if low.contains("<1ms") || low.contains("<1 ms") {
+            rtts.push(0.5);
+            continue;
+        }
+        for marker in ["time=", "zeit=", "temps=", "tiempo="] {
+            if let Some(pos) = low.find(marker) {
+                let after = &line[pos + marker.len()..];
+                if let Some(val) = parse_first_f64(after) {
+                    rtts.push(val);
+                    break;
+                }
+            }
+        }
+    }
+    rtts
+}
+
+/// Enriches a base `NetworkDiagnosticsReport` with v3.0.0 Wi-Fi Band/Channel & 15-packet Jitter/Spike telemetry.
+pub fn enrich_network_v3(
+    mut rep: NetworkDiagnosticsReport,
+    wifi_band: Option<String>,
+    wifi_channel: Option<u32>,
+    radio_type: Option<&str>,
+    jitter_ms: Option<f64>,
+    max_spike_ms: Option<f64>,
+    samples_count: u32,
+) -> NetworkDiagnosticsReport {
+    let resolved_band = infer_wifi_band(wifi_channel, radio_type, wifi_band.as_deref());
+    let mut band_warning: Option<String> = None;
+    if resolved_band.as_deref() == Some("2.4 GHz") {
+        let rt_low = radio_type.unwrap_or("").to_lowercase();
+        let modern_card = rt_low.contains("ac")
+            || rt_low.contains("ax")
+            || rt_low.contains("be")
+            || rep.interface_name.to_lowercase().contains("wi-fi 6")
+            || rep.interface_name.to_lowercase().contains("ax")
+            || rep.interface_name.to_lowercase().contains("ac");
+        if modern_card || rep.wifi_ssid.is_some() {
+            band_warning = Some(
+                "Connected on 2.4 GHz band — verify 5 GHz / 6 GHz reception (disconnected internal 5 GHz antenna coax often forces laptops onto 2.4 GHz)."
+                    .to_string(),
+            );
+        }
+    }
+
+    let high_jitter = jitter_ms.map(|j| j > 25.0).unwrap_or(false);
+    let high_spike = max_spike_ms.map(|s| s > 100.0).unwrap_or(false);
+
+    if (high_jitter || high_spike) && rep.verdict == "HEALTHY" {
+        rep.status = TestStatus::Warn;
+        rep.verdict = "DEGRADED".to_string();
+        rep.plain_summary = format!(
+            "DEGRADED link stability on {}: high ping jitter/spikes (jitter {:.1} ms, max spike {:.1} ms across {} packets) — inspect Wi-Fi antenna or router interference.",
+            rep.interface_name,
+            jitter_ms.unwrap_or(0.0),
+            max_spike_ms.unwrap_or(0.0),
+            samples_count
+        );
+    } else if let Some(ref b) = resolved_band {
+        if rep.verdict == "HEALTHY" {
+            let ch_part = wifi_channel.map(|c| format!(" Ch {}", c)).unwrap_or_default();
+            let jit_part = jitter_ms
+                .map(|j| format!(", jitter {:.1} ms", j))
+                .unwrap_or_default();
+            rep.plain_summary = format!(
+                "{} [Band: {}{}{}]",
+                rep.plain_summary, b, ch_part, jit_part
+            );
+        }
+    }
+
+    rep.wifi_band = resolved_band;
+    rep.wifi_channel = wifi_channel;
+    rep.ping_jitter_ms = jitter_ms;
+    rep.ping_max_spike_ms = max_spike_ms;
+    rep.ping_samples_count = samples_count;
+    rep.band_warning = band_warning;
+    rep
 }
 
 pub fn run_network_diagnostics() -> Result<NetworkDiagnosticsReport, String> {
@@ -48,6 +214,7 @@ pub fn run_network_diagnostics() -> Result<NetworkDiagnosticsReport, String> {
             packet_loss_pct: 0.0,
             verdict: "NOT_APPLICABLE".to_string(),
             plain_summary: "Network diagnostics not supported on this operating system.".to_string(),
+            ..Default::default()
         })
     }
 }
@@ -144,6 +311,13 @@ pub(crate) fn parse_netsh_wlan(output: &str) -> NetshWlanInfo {
             }
         } else if key == "radio type" && !val.is_empty() {
             block.radio_type = Some(val.to_string());
+        } else if key == "channel" && !val.is_empty() {
+            let digits: String = val.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(ch) = digits.parse::<u32>() {
+                block.channel = Some(ch);
+            }
+        } else if key == "band" && !val.is_empty() {
+            block.band = Some(val.to_string());
         }
     }
 
@@ -504,6 +678,7 @@ pub fn classify_network_report(
         packet_loss_pct,
         verdict,
         plain_summary,
+        ..Default::default()
     }
 }
 
@@ -534,6 +709,101 @@ fn parse_signed_i32(s: &str) -> Option<i32> {
         }
     }
     buf.parse::<i32>().ok()
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_icmp_burst(gateway: &str, count: u32) -> Option<(Option<f64>, Option<f64>, Option<f64>, f64, u32)> {
+    use std::ffi::c_void;
+    use std::net::Ipv4Addr;
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+
+    let ipv4: Ipv4Addr = gateway.trim().parse().ok()?;
+    let dest_addr: u32 = u32::from_ne_bytes(ipv4.octets());
+
+    #[repr(C)]
+    struct IcmpEchoReply {
+        address: u32,
+        status: u32,
+        round_trip_time: u32,
+        data_size: u16,
+        reserved: u16,
+        data: *mut c_void,
+        ttl: u8,
+        tos: u8,
+        flags: u8,
+        options_size: u8,
+        options_data: *mut u8,
+        _pad: [u8; 64],
+    }
+
+    type IcmpCreateFileFn = unsafe extern "system" fn() -> *mut c_void;
+    type IcmpCloseHandleFn = unsafe extern "system" fn(*mut c_void) -> i32;
+    type IcmpSendEchoFn = unsafe extern "system" fn(
+        *mut c_void,
+        u32,
+        *const c_void,
+        u16,
+        *const c_void,
+        *mut c_void,
+        u32,
+        u32,
+    ) -> u32;
+
+    let hmod = unsafe { LoadLibraryA(b"iphlpapi.dll\0".as_ptr()) };
+    if hmod.is_null() {
+        return None;
+    }
+    let create_p = unsafe { GetProcAddress(hmod, b"IcmpCreateFile\0".as_ptr()) }?;
+    let close_p = unsafe { GetProcAddress(hmod, b"IcmpCloseHandle\0".as_ptr()) }?;
+    let send_p = unsafe { GetProcAddress(hmod, b"IcmpSendEcho\0".as_ptr()) }?;
+    let icmp_create: IcmpCreateFileFn = unsafe { std::mem::transmute(create_p) };
+    let icmp_close: IcmpCloseHandleFn = unsafe { std::mem::transmute(close_p) };
+    let icmp_send: IcmpSendEchoFn = unsafe { std::mem::transmute(send_p) };
+
+    let handle = unsafe { icmp_create() };
+    if handle.is_null() || handle == (-1isize) as *mut c_void {
+        return None;
+    }
+
+    let payload = [0x4Cu8; 32];
+    let mut reply_buf = vec![0u8; std::mem::size_of::<IcmpEchoReply>() + 64];
+    let mut rtts: Vec<f64> = Vec::with_capacity(count as usize);
+
+    for i in 0..count {
+        let ret = unsafe {
+            icmp_send(
+                handle,
+                dest_addr,
+                payload.as_ptr().cast::<c_void>(),
+                payload.len() as u16,
+                std::ptr::null(),
+                reply_buf.as_mut_ptr().cast::<c_void>(),
+                reply_buf.len() as u32,
+                800,
+            )
+        };
+        if ret > 0 {
+            let reply = unsafe { &*(reply_buf.as_ptr().cast::<IcmpEchoReply>()) };
+            if reply.status == 0 {
+                let rtt = if reply.round_trip_time == 0 {
+                    0.5
+                } else {
+                    reply.round_trip_time as f64
+                };
+                rtts.push(rtt);
+            }
+        }
+        if i + 1 < count {
+            std::thread::sleep(Duration::from_millis(90));
+        }
+    }
+
+    unsafe {
+        icmp_close(handle);
+    }
+
+    let (avg, jitter, max_spike, loss) = compute_ping_burst_stats(&rtts, count);
+    Some((avg, jitter, max_spike, loss, count))
 }
 
 #[cfg(target_os = "windows")]
@@ -589,15 +859,25 @@ $iface = if ($route) {
         link_speed_mbps = wlan.rx_rate_mbps.or(wlan.tx_rate_mbps);
     }
 
-    let (gateway_ping_ms, packet_loss_pct) = if is_valid_ping_target(&gateway) {
-        run_cmd_stdout("ping", &["-n", "4", "-w", "1500", &gateway])
-            .map(|out| parse_windows_ping(&out))
-            .unwrap_or((None, 100.0))
-    } else if iface_name.is_empty() {
-        (None, 100.0)
-    } else {
-        (None, 0.0)
-    };
+    let (gateway_ping_ms, ping_jitter_ms, ping_max_spike_ms, packet_loss_pct, ping_samples) =
+        if is_valid_ping_target(&gateway) {
+            if let Some(burst) = run_windows_icmp_burst(&gateway, 15) {
+                burst
+            } else {
+                run_cmd_stdout("ping", &["-n", "6", "-w", "1200", &gateway])
+                    .map(|out| {
+                        let (avg, loss) = parse_windows_ping(&out);
+                        let rtts = extract_ping_reply_rtts(&out);
+                        let (_, jit, spk, _) = compute_ping_burst_stats(&rtts, 6);
+                        (avg, jit, spk, loss, 6)
+                    })
+                    .unwrap_or((None, None, None, 100.0, 6))
+            }
+        } else if iface_name.is_empty() {
+            (None, None, None, 100.0, 0)
+        } else {
+            (None, None, None, 0.0, 0)
+        };
 
     let dns_resolve_ok = if iface_name.is_empty() {
         false
@@ -605,7 +885,7 @@ $iface = if ($route) {
         check_dns_resolution()
     };
 
-    classify_network_report(
+    let base = classify_network_report(
         iface_name,
         link_speed_mbps,
         wlan.ssid,
@@ -614,6 +894,15 @@ $iface = if ($route) {
         gateway_ping_ms,
         dns_resolve_ok,
         packet_loss_pct,
+    );
+    enrich_network_v3(
+        base,
+        wlan.band,
+        wlan.channel,
+        wlan.radio_type.as_deref(),
+        ping_jitter_ms,
+        ping_max_spike_ms,
+        ping_samples,
     )
 }
 
@@ -649,15 +938,21 @@ fn run_macos_network_diagnostics() -> NetworkDiagnosticsReport {
         }
     }
 
-    let (gateway_ping_ms, packet_loss_pct) = match gw_opt.as_deref() {
-        Some(gw) if is_valid_ping_target(gw) => {
-            run_cmd_stdout("ping", &["-c", "4", "-W", "1500", gw])
-                .map(|out| parse_macos_ping(&out))
-                .unwrap_or((None, 100.0))
-        }
-        _ if iface_name.is_empty() => (None, 100.0),
-        _ => (None, 0.0),
-    };
+    let (gateway_ping_ms, ping_jitter_ms, ping_max_spike_ms, packet_loss_pct, ping_samples) =
+        match gw_opt.as_deref() {
+            Some(gw) if is_valid_ping_target(gw) => {
+                run_cmd_stdout("ping", &["-c", "15", "-i", "0.2", "-W", "1000", gw])
+                    .map(|out| {
+                        let (avg, loss) = parse_macos_ping(&out);
+                        let rtts = extract_ping_reply_rtts(&out);
+                        let (b_avg, jit, spk, _) = compute_ping_burst_stats(&rtts, 15);
+                        (avg.or(b_avg), jit, spk, loss, 15)
+                    })
+                    .unwrap_or((None, None, None, 100.0, 15))
+            }
+            _ if iface_name.is_empty() => (None, None, None, 100.0, 0),
+            _ => (None, None, None, 0.0, 0),
+        };
 
     let dns_resolve_ok = if iface_name.is_empty() {
         false
@@ -665,7 +960,7 @@ fn run_macos_network_diagnostics() -> NetworkDiagnosticsReport {
         check_dns_resolution()
     };
 
-    classify_network_report(
+    let base = classify_network_report(
         iface_name,
         link_speed_mbps,
         wifi.ssid,
@@ -674,7 +969,52 @@ fn run_macos_network_diagnostics() -> NetworkDiagnosticsReport {
         gateway_ping_ms,
         dns_resolve_ok,
         packet_loss_pct,
+    );
+    enrich_network_v3(
+        base,
+        wifi.band,
+        wifi.channel,
+        None,
+        ping_jitter_ms,
+        ping_max_spike_ms,
+        ping_samples,
     )
+}
+
+#[cfg(test)]
+mod v3_network_tests {
+    use super::*;
+
+    #[test]
+    fn test_wifi_band_inference_and_15_packet_jitter_v300() {
+        assert_eq!(infer_wifi_band(Some(6), None, None).as_deref(), Some("2.4 GHz"));
+        assert_eq!(infer_wifi_band(Some(36), None, None).as_deref(), Some("5 GHz"));
+        assert_eq!(infer_wifi_band(Some(149), None, None).as_deref(), Some("5 GHz"));
+        assert_eq!(infer_wifi_band(None, None, Some("6 GHz")).as_deref(), Some("6 GHz"));
+
+        let rtts = vec![2.0, 2.5, 3.0, 2.2, 120.0, 2.4, 2.1, 2.3, 2.5, 2.2, 2.0, 2.1, 2.4, 2.3, 2.2];
+        let (avg, jit, spk, loss) = compute_ping_burst_stats(&rtts, 15);
+        assert!(avg.unwrap() > 5.0);
+        assert!(jit.unwrap() > 25.0);
+        assert_eq!(spk, Some(120.0));
+        assert_eq!(loss, 0.0);
+
+        let base = classify_network_report(
+            "Wi-Fi (Intel Wi-Fi 6 AX201)".into(),
+            Some(144.0),
+            Some("ShopWiFi".into()),
+            Some(85),
+            Some(-55),
+            avg,
+            true,
+            0.0,
+        );
+        let enriched = enrich_network_v3(base, None, Some(6), Some("802.11ax"), jit, spk, 15);
+        assert_eq!(enriched.wifi_band.as_deref(), Some("2.4 GHz"));
+        assert!(enriched.band_warning.is_some());
+        assert_eq!(enriched.status, TestStatus::Warn);
+        assert_eq!(enriched.verdict, "DEGRADED");
+    }
 }
 
 #[cfg(test)]

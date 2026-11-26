@@ -21,10 +21,12 @@ import type {
   PowerTortureProgress,
   PowerTortureResult,
   RamTestResult,
+  RemovableDriveBenchResult,
   SavedSessionPayload,
   SavedSessionState,
   SecurityAuditReport,
   ShopProfile,
+  SleepStandbyReport,
   StepModuleId,
   StorageBenchResult,
   StorageSmartReport,
@@ -157,6 +159,8 @@ export const App: React.FC = () => {
   const [batteryDischargeResult, setBatteryDischargeResult] = useState<BatteryDischargeResult | null>(null);
   const [batteryChargeResult, setBatteryChargeResult] = useState<BatteryChargeResult | null>(null);
   const [errorLogsReport, setErrorLogsReport] = useState<ErrorLogsReport | null>(null);
+  const [sleepAuditReport, setSleepAuditReport] = useState<SleepStandbyReport | null>(null);
+  const [removableDriveBench, setRemovableDriveBench] = useState<RemovableDriveBenchResult | null>(null);
   const [smartReport, setSmartReport] = useState<StorageSmartReport | null>(null);
   const [storageBench, setStorageBench] = useState<StorageBenchResult | null>(null);
   const [displayProResult, setDisplayProResult] = useState<DisplayProResult | null>(null);
@@ -1087,11 +1091,15 @@ export const App: React.FC = () => {
   const portsSpeakersViewProps: React.ComponentProps<typeof PortsSpeakersView> & {
     networkReport?: NetworkDiagnosticsReport | null;
     onRunNetworkDiagnostics?: () => Promise<NetworkDiagnosticsReport | null>;
+    removableDriveBench?: RemovableDriveBenchResult | null;
+    onRemovableBenchComplete?: (res: RemovableDriveBenchResult) => void;
   } = {
     status: modules.ports_speakers.status,
     signoff,
     networkReport,
     onRunNetworkDiagnostics: runNetworkDiagnostics,
+    removableDriveBench,
+    onRemovableBenchComplete: (res) => setRemovableDriveBench(res),
     stepNumber: stepNumberOf("ports_speakers"),
     totalSteps,
     onUpdateSignoff: setSignoff,
@@ -1138,6 +1146,8 @@ export const App: React.FC = () => {
     tortureResult,
     networkReport,
     hardwareFaults,
+    sleepAuditReport,
+    removableDriveBench,
     userbenchmarkComparison,
   };
 
@@ -1232,11 +1242,18 @@ export const App: React.FC = () => {
             {activeTab === "logs" && (
               <ErrorLogsView
                 report={errorLogsReport}
+                sleepReport={sleepAuditReport}
                 loading={modules.logs.status === "running"}
                 status={modules.logs.status}
                 stepNumber={stepNumberOf("logs")}
                 totalSteps={totalSteps}
-                onScan={fetchErrorLogs}
+                onScan={(d) => {
+                  fetchErrorLogs(d);
+                  invoke<SleepStandbyReport>("run_sleep_standby_audit")
+                    .then((r) => setSleepAuditReport(r))
+                    .catch(() => {});
+                }}
+                onSleepAuditLoaded={(r) => setSleepAuditReport(r)}
                 onNext={() => advanceFrom("logs")}
                 onSkip={() => skipStep("logs")}
               />

@@ -3,10 +3,10 @@
 //! 100% offline native probes for Windows & macOS — Smart Bench Mode:
 //! plugged cables & BT devices auto-verify live without penalizing unplugged optional ports.
 
-use crate::modules::battery;
+use crate::modules::{battery, storage::TempFileGuard};
 use crate::types::{
-    BluetoothScanInfo, EthernetLinkInfo, ExternalDisplayInfo, PortDiagnosticsReport, TestStatus,
-    UsbCChargerProbe,
+    BluetoothScanInfo, EthernetLinkInfo, ExternalDisplayInfo, PortDiagnosticsReport,
+    RemovableDriveBenchResult, RemovableDriveInfo, TestStatus, UsbCChargerProbe,
 };
 
 /// Decodes Windows `WmiMonitorConnectionParams.VideoOutputTechnology` integer to connector label.
@@ -402,9 +402,251 @@ fn scan_macos_port_diagnostics() -> PortDiagnosticsReport {
     }
 }
 
+/// Classifies removable USB flash drive / SD card sequential throughput (v3.0.0).
+/// Catches bent/loose USB 3.0 SuperSpeed pins that silently fall back to USB 2.0 (~35 MB/s).
+pub fn classify_removable_drive_speed(
+    mount_path: String,
+    label: String,
+    media_kind: String,
+    test_size_mb: u64,
+    seq_write_mb_s: f64,
+    seq_read_mb_s: f64,
+    elapsed_secs: f64,
+) -> RemovableDriveBenchResult {
+    let r_w = (seq_write_mb_s * 10.0).round() / 10.0;
+    let r_r = (seq_read_mb_s * 10.0).round() / 10.0;
+    let peak = r_r.max(r_w);
+    let (status, verdict, plain_summary) = if peak >= 80.0 {
+        (
+            TestStatus::Pass,
+            "USB3_VERIFIED".to_string(),
+            format!(
+                "PASS: {} ({}) verified at {:.1} MB/s Read / {:.1} MB/s Write — full USB 3.x / UHS-II SuperSpeed link confirmed.",
+                label, mount_path, r_r, r_w
+            ),
+        )
+    } else if peak >= 45.0 {
+        (
+            TestStatus::Pass,
+            "USB3_ENTRY_OR_SD".to_string(),
+            format!(
+                "PASS: {} ({}) verified at {:.1} MB/s Read / {:.1} MB/s Write (USB 3.0 entry / UHS-I SD speed).",
+                label, mount_path, r_r, r_w
+            ),
+        )
+    } else {
+        (
+            TestStatus::Warn,
+            "USB2_FALLBACK_WARN".to_string(),
+            format!(
+                "WARN: {} ({}) measured only {:.1} MB/s Read / {:.1} MB/s Write (< 45 MB/s — USB 2.0 speed). If using a USB 3.0 drive, inspect port for bent SuperSpeed pins or loose solder joints.",
+                label, mount_path, r_r, r_w
+            ),
+        )
+    };
+
+    RemovableDriveBenchResult {
+        status,
+        verdict: verdict.clone(),
+        mount_path,
+        label,
+        media_kind,
+        test_size_mb,
+        seq_write_mb_s: r_w,
+        seq_read_mb_s: r_r,
+        elapsed_secs: (elapsed_secs * 10.0).round() / 10.0,
+        summary: format!("{}: Read {:.1} / Write {:.1} MB/s", verdict, r_r, r_w),
+        plain_summary,
+    }
+}
+
+/// Lists plugged-in removable USB flash drives and SD/MicroSD cards cleanly across Windows & macOS.
+pub fn list_removable_drives() -> Vec<RemovableDriveInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        use crate::cmd_util::run_powershell;
+        use serde_json::Value;
+
+        let ps = r#"
+$drives = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2' -ErrorAction SilentlyContinue | ForEach-Object {
+    @{
+        mount = ([string]$_.DeviceID) + '\'
+        label = if ($_.VolumeName) { [string]$_.VolumeName } else { 'Removable Drive' }
+        totalGb = if ($_.Size) { [math]::Round([double]$_.Size / 1GB, 1) } else { 0 }
+        freeGb = if ($_.FreeSpace) { [math]::Round([double]$_.FreeSpace / 1GB, 1) } else { 0 }
+    }
+})
+$drives | ConvertTo-Json -Compress
+"#;
+        let mut out = Vec::new();
+        if let Ok(raw) = run_powershell(ps) {
+            if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+                let items: Vec<&Value> = if let Some(arr) = v.as_array() {
+                    arr.iter().collect()
+                } else if v.is_object() {
+                    vec![&v]
+                } else {
+                    vec![]
+                };
+                for item in items {
+                    let mount = item["mount"].as_str().unwrap_or("").trim().to_string();
+                    if mount.is_empty() {
+                        continue;
+                    }
+                    let label = item["label"].as_str().unwrap_or("Removable Drive").trim().to_string();
+                    let low = label.to_lowercase();
+                    let media_kind = if low.contains("sd") || low.contains("mmc") || low.contains("card") {
+                        "SD / MicroSD Card".to_string()
+                    } else {
+                        "USB Flash Drive".to_string()
+                    };
+                    out.push(RemovableDriveInfo {
+                        mount_path: mount,
+                        label,
+                        media_kind,
+                        total_gb: item["totalGb"].as_f64().unwrap_or(0.0),
+                        free_gb: item["freeGb"].as_f64().unwrap_or(0.0),
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut out = Vec::new();
+        if let Ok(entries) = std::fs::read_dir("/Volumes") {
+            for ent in entries.flatten() {
+                let p = ent.path();
+                if !p.is_dir() || p.is_symlink() {
+                    continue;
+                }
+                let name = ent.file_name().to_string_lossy().to_string();
+                if name.eq_ignore_ascii_case("Macintosh HD") || name.starts_with('.') {
+                    continue;
+                }
+                let low = name.to_lowercase();
+                let media_kind = if low.contains("sd") || low.contains("card") {
+                    "SD / MicroSD Card".to_string()
+                } else {
+                    "USB Flash Drive".to_string()
+                };
+                out.push(RemovableDriveInfo {
+                    mount_path: p.to_string_lossy().to_string(),
+                    label: name,
+                    media_kind,
+                    total_gb: 0.0,
+                    free_gb: 0.0,
+                });
+            }
+        }
+        out
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Vec::new()
+    }
+}
+
+/// Runs a safe, RAII-auto-cleaned 64 MB sequential Write + Read speed test on a plugged removable USB/SD drive.
+pub fn run_removable_drive_speed_test(target_mount: String) -> Result<RemovableDriveBenchResult, String> {
+    use std::fs::OpenOptions;
+    use std::io::{Read, Seek, SeekFrom, Write};
+    use std::path::PathBuf;
+    use std::time::Instant;
+
+    let mount_path = PathBuf::from(target_mount.trim());
+    if !mount_path.is_dir() {
+        return Err(format!("Removable drive '{}' is not mounted or accessible.", target_mount));
+    }
+
+    let drives = list_removable_drives();
+    let matched = drives.iter().find(|d| {
+        d.mount_path.eq_ignore_ascii_case(target_mount.trim())
+            || d.mount_path.trim_end_matches(['\\', '/']).eq_ignore_ascii_case(target_mount.trim().trim_end_matches(['\\', '/']))
+    });
+    let label = matched
+        .map(|d| d.label.clone())
+        .unwrap_or_else(|| "Removable Drive".to_string());
+    let media_kind = matched
+        .map(|d| d.media_kind.clone())
+        .unwrap_or_else(|| "USB Flash Drive".to_string());
+
+    let size_mb: u64 = 64;
+    let chunk_size: usize = 2 * 1024 * 1024; // 2 MB chunks
+    let chunks = (size_mb as usize * 1024 * 1024) / chunk_size;
+
+    let tmp_file = mount_path.join(format!("laptopbench_usb_speed_{}.tmp", std::process::id()));
+    let guard = TempFileGuard(tmp_file);
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .read(true)
+        .write(true)
+        .open(guard.path())
+        .map_err(|e| format!("Could not write test file on '{}': {}", target_mount, e))?;
+
+    let mut buf = vec![0x5Au8; chunk_size];
+    for (idx, b) in buf.iter_mut().enumerate() {
+        *b = ((idx.wrapping_mul(31) ^ 0xA5) & 0xFF) as u8;
+    }
+
+    let total_started = Instant::now();
+    let w_start = Instant::now();
+    for _ in 0..chunks {
+        file.write_all(&buf)
+            .map_err(|e| format!("Write error on '{}': {}", target_mount, e))?;
+    }
+    let _ = file.sync_all();
+    let w_secs = w_start.elapsed().as_secs_f64().max(0.001);
+    let seq_write_mb_s = (size_mb as f64) / w_secs;
+
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("Seek error on '{}': {}", target_mount, e))?;
+    let mut read_buf = vec![0u8; chunk_size];
+    let r_start = Instant::now();
+    for _ in 0..chunks {
+        file.read_exact(&mut read_buf)
+            .map_err(|e| format!("Read error on '{}': {}", target_mount, e))?;
+    }
+    let r_secs = r_start.elapsed().as_secs_f64().max(0.001);
+    let seq_read_mb_s = (size_mb as f64) / r_secs;
+
+    drop(file);
+    drop(guard);
+
+    Ok(classify_removable_drive_speed(
+        target_mount,
+        label,
+        media_kind,
+        size_mb,
+        seq_write_mb_s,
+        seq_read_mb_s,
+        total_started.elapsed().as_secs_f64(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_classify_removable_drive_speed_usb3_vs_usb2_fallback() {
+        let fast = classify_removable_drive_speed("E:\\".into(), "SanDisk Ultra".into(), "USB Flash Drive".into(), 64, 95.0, 145.0, 1.1);
+        assert_eq!(fast.status, TestStatus::Pass);
+        assert_eq!(fast.verdict, "USB3_VERIFIED");
+
+        let sd = classify_removable_drive_speed("F:\\".into(), "SDXC".into(), "SD / MicroSD Card".into(), 64, 48.0, 62.0, 2.3);
+        assert_eq!(sd.status, TestStatus::Pass);
+        assert_eq!(sd.verdict, "USB3_ENTRY_OR_SD");
+
+        let slow = classify_removable_drive_speed("E:\\".into(), "USB3 Stick".into(), "USB Flash Drive".into(), 64, 18.0, 32.0, 5.5);
+        assert_eq!(slow.status, TestStatus::Warn);
+        assert_eq!(slow.verdict, "USB2_FALLBACK_WARN");
+    }
 
     #[test]
     fn test_decode_video_output_tech_internal_vs_external() {

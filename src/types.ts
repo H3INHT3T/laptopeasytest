@@ -518,6 +518,48 @@ export interface NetworkDiagnosticsReport {
   packetLossPct: number;
   verdict: NetworkDiagnosticsVerdict | string;
   plainSummary: string;
+  wifiBand?: string | null;
+  wifiChannel?: number | null;
+  pingJitterMs?: number | null;
+  pingMaxSpikeMs?: number | null;
+  pingSamplesCount?: number;
+  bandWarning?: string | null;
+}
+
+export interface SleepStandbyReport {
+  status: TestStatus;
+  verdict: "HEALTHY" | "HIGH_STANDBY_DRAIN" | "SLEEP_FAULT" | string;
+  platform: string;
+  sleepMode: string;
+  wakeArmedDevices: string[];
+  sessionsAnalyzed: number;
+  avgDrainPctPerHr: number | null;
+  maxDrainPctPerHr: number | null;
+  sleepCrashCount: number;
+  darkWakeCount: number;
+  plainSummary: string;
+}
+
+export interface RemovableDriveInfo {
+  mountPath: string;
+  label: string;
+  mediaKind: string;
+  totalGb: number;
+  freeGb: number;
+}
+
+export interface RemovableDriveBenchResult {
+  status: TestStatus;
+  verdict: "USB3_VERIFIED" | "USB3_ENTRY_OR_SD" | "USB2_FALLBACK_WARN" | string;
+  mountPath: string;
+  label: string;
+  mediaKind: string;
+  testSizeMb: number;
+  seqWriteMbS: number;
+  seqReadMbS: number;
+  elapsedSecs: number;
+  plainSummary: string;
+  summary: string;
 }
 
 export interface UsbDeviceInfo {
@@ -731,6 +773,12 @@ export interface StorageBenchResult {
   thermalCutoffTriggered?: boolean;
   userbenchmarkRating?: UserBenchmarkComponentRating | null;
   plainSummary?: string;
+  tempStartC?: number | null;
+  tempRiseC?: number | null;
+  seqWriteEarlyMbS?: number;
+  seqWriteLateMbS?: number;
+  writeCollapsePct?: number;
+  thermalThrottleVerdict?: string;
 }
 
 export interface RamTestProgress {
@@ -909,6 +957,10 @@ export interface PerfBenchResult {
   cooldownRateCPerSec?: number | null;
   cooldownVerdict?: string;
   cooldownNote?: string;
+  bdProchotSuspected?: boolean;
+  minLoadClockMhz?: number;
+  stuckClockSecs?: number;
+  stuckClockNote?: string;
 }
 
 export interface VramTestProgress {
@@ -1171,6 +1223,8 @@ export interface ExportReportPayload {
   cosmetic?: CosmeticInspection | null;
   hardwareFaults?: HardwareFaultsReport | null;
   displayPro?: DisplayProResult | null;
+  sleepAudit?: SleepStandbyReport | null;
+  removableDriveBench?: RemovableDriveBenchResult | null;
 }
 
 export interface DeviceManagerFault {

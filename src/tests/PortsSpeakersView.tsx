@@ -23,6 +23,8 @@ import type {
   NetworkDiagnosticsReport,
   PortDiagnosticsReport,
   PortsSpeakerSignoff,
+  RemovableDriveBenchResult,
+  RemovableDriveInfo,
   TestStatus,
   UsbDeviceInfo,
   UsbHotplugEvent,
@@ -36,6 +38,8 @@ interface PortsSpeakersViewProps {
   signoff: PortsSpeakerSignoff;
   networkReport?: NetworkDiagnosticsReport | null;
   onRunNetworkDiagnostics?: () => Promise<NetworkDiagnosticsReport | null>;
+  removableDriveBench?: RemovableDriveBenchResult | null;
+  onRemovableBenchComplete?: (res: RemovableDriveBenchResult) => void;
   stepNumber: number;
   totalSteps: number;
   onUpdateSignoff: (signoff: PortsSpeakerSignoff) => void;
@@ -73,6 +77,8 @@ function formatMbps(mbps: number): string {
 export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
   status,
   signoff,
+  removableDriveBench = null,
+  onRemovableBenchComplete,
   stepNumber,
   totalSteps,
   onUpdateSignoff,
@@ -106,6 +112,13 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
   const [acousticResult, setAcousticResult] = useState<AcousticAutoResult | null>(null);
   const [acousticError, setAcousticError] = useState<string | null>(null);
 
+  // USB / SD-Card Removable Drive Real Speed Test (v3.0.0)
+  const [removableDrives, setRemovableDrives] = useState<RemovableDriveInfo[]>([]);
+  const [selectedRemovable, setSelectedRemovable] = useState<string>("");
+  const [remTesting, setRemTesting] = useState(false);
+  const [remResult, setRemResult] = useState<RemovableDriveBenchResult | null>(removableDriveBench);
+  const [remError, setRemError] = useState<string | null>(null);
+
   // Manual stereo fallback
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioTimerRef = useRef<number | null>(null);
@@ -114,10 +127,15 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
   const loadPortDiagnostics = async () => {
     setPortLoading(true);
     try {
-      const [pd, hc] = await Promise.all([
+      const [pd, hc, remList] = await Promise.all([
         invoke<PortDiagnosticsReport>("scan_port_diagnostics").catch(() => null),
         invoke<HardwareControlsReport>("get_hardware_controls_status").catch(() => null),
+        invoke<RemovableDriveInfo[]>("list_removable_drives").catch(() => [] as RemovableDriveInfo[]),
       ]);
+      setRemovableDrives(Array.isArray(remList) ? remList : []);
+      if (Array.isArray(remList) && remList.length > 0 && !selectedRemovable) {
+        setSelectedRemovable(remList[0].mountPath);
+      }
       if (pd) {
         setPortDiag(pd);
         if (pd.externalDisplayCount > 0) {
@@ -332,6 +350,28 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
     }
   };
 
+  const runRemovableSpeedTest = async () => {
+    const target = selectedRemovable || removableDrives[0]?.mountPath;
+    if (!target) return;
+    setRemError(null);
+    setRemTesting(true);
+    try {
+      const res = await invoke<RemovableDriveBenchResult>("run_removable_drive_speed_test", {
+        targetMount: target,
+      });
+      setRemResult(res);
+      onRemovableBenchComplete?.(res);
+      setCheckedPorts((prev) => new Set(prev).add("USB-A Ports (Data & Power)"));
+      if (res.mediaKind.toLowerCase().includes("sd")) {
+        setCheckedPorts((prev) => new Set(prev).add("SD Card Reader / Ethernet LAN (if equipped)"));
+      }
+    } catch (e) {
+      setRemError(String(e));
+    } finally {
+      setRemTesting(false);
+    }
+  };
+
   const togglePort = (label: string) => {
     setCheckedPorts((prev) => {
       const next = new Set(prev);
@@ -505,6 +545,70 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
                 : "Click Auto speaker test"}
             </div>
           </div>
+        </div>
+
+        {/* Optional USB / SD-Card 64 MB Real Speed Test (v3.0.0) */}
+        <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-4 space-y-2.5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2 text-xs">
+              <Usb className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="font-bold text-black">USB / SD-Card Real Speed Test (64 MB)</span>
+              <span className="text-zinc-500">
+                {removableDrives.length > 0
+                  ? `${removableDrives.length} removable drive(s) ready`
+                  : "Optional — plug a USB flash drive or SD card to verify USB 3.x / SD throughput"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {removableDrives.length > 0 && (
+                <>
+                  <select
+                    value={selectedRemovable}
+                    disabled={remTesting}
+                    onChange={(e) => setSelectedRemovable(e.target.value)}
+                    className="bg-white border border-zinc-200 rounded-lg px-2.5 py-1 font-mono text-xs text-black"
+                  >
+                    {removableDrives.map((d) => (
+                      <option key={d.mountPath} value={d.mountPath}>
+                        {d.mountPath} {d.label} ({d.mediaKind})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={runRemovableSpeedTest}
+                    disabled={remTesting}
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+                  >
+                    {remTesting ? "Testing 64 MB..." : "Test Speed (64 MB)"}
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={loadPortDiagnostics}
+                disabled={portLoading || remTesting}
+                className="px-2.5 py-1 rounded-lg border border-zinc-200 bg-white hover:border-black text-xs font-semibold text-black cursor-pointer"
+              >
+                Scan Drives
+              </button>
+            </div>
+          </div>
+          {remError && (
+            <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">{remError}</div>
+          )}
+          {remResult && (
+            <div
+              className={`rounded-lg border px-3 py-2 text-xs flex items-center justify-between gap-2 flex-wrap ${
+                remResult.status === "pass"
+                  ? "border-blue-600 bg-white text-black"
+                  : "border-black bg-black text-white"
+              }`}
+            >
+              <span>{remResult.plainSummary}</span>
+              <StatusBadge status={remResult.status} darkSurface={remResult.status !== "pass"} compact />
+            </div>
+          )}
         </div>
 
         {/* Acoustic Result or Manual Stereo Controls */}

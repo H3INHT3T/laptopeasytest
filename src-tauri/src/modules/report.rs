@@ -354,6 +354,34 @@ pub(crate) fn build_long_term_meaning(payload: &ExportReportPayload) -> (String,
         }
     }
 
+    if let Some(slp) = &payload.sleep_audit {
+        let line = format!(
+            "Sleep & Modern Standby Audit ({}): {} [Mode: {}, Wake-Armed: {}, Crashes: {}]",
+            slp.verdict,
+            slp.plain_summary,
+            slp.sleep_mode,
+            slp.wake_armed_devices.len(),
+            slp.sleep_crash_count
+        );
+        if slp.verdict != "HEALTHY" {
+            critical_bullets.push(line);
+        } else {
+            standard_bullets.push(line);
+        }
+    }
+
+    if let Some(rem) = &payload.removable_drive_bench {
+        let line = format!(
+            "USB / SD-Card Real Speed Test ({}): {} [Read {:.1} MB/s / Write {:.1} MB/s]",
+            rem.verdict, rem.plain_summary, rem.seq_read_mb_s, rem.seq_write_mb_s
+        );
+        if rem.status != TestStatus::Pass {
+            critical_bullets.push(line);
+        } else {
+            standard_bullets.push(line);
+        }
+    }
+
     if let Some(net) = &payload.network_report {
         let line = format!(
             "Network & Wi-Fi Link ({}): {} [Interface: {}, DNS: {}, Loss: {:.0}%]",
@@ -856,6 +884,66 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
                 html_escape(&ts.plain_summary)
             ));
         }
+        if let Some(slp) = &payload.sleep_audit {
+            let cls = match slp.verdict.as_str() {
+                "HEALTHY" => "st-pass",
+                "SLEEP_FAULT" => "st-fail",
+                _ => "st-warn",
+            };
+            let drain_txt = slp
+                .max_drain_pct_per_hr
+                .or(slp.avg_drain_pct_per_hr)
+                .map(|d| format!("{:.1}%/hr", d))
+                .unwrap_or_else(|| "N/A".into());
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">SLEEP &amp; MODERN STANDBY AUDIT</strong>
+                    <span class="badge {cls}">{verdict}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    <span>Mode: <strong>{mode}</strong></span>
+                    <span>Max Drain: <strong>{drain}</strong></span>
+                    <span>Wake-Armed: <strong>{wakes}</strong></span>
+                    <span>Sleep Crashes: <strong>{crashes}</strong></span>
+                  </div>
+                  <p class="rel-summary">{summary}</p>
+                </div>"#,
+                cls = cls,
+                verdict = html_escape(&slp.verdict),
+                mode = html_escape(&slp.sleep_mode),
+                drain = drain_txt,
+                wakes = slp.wake_armed_devices.len(),
+                crashes = slp.sleep_crash_count,
+                summary = html_escape(&slp.plain_summary),
+            ));
+        }
+
+        if let Some(rem) = &payload.removable_drive_bench {
+            let cls = if rem.status == TestStatus::Pass { "st-pass" } else { "st-warn" };
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">USB / SD-CARD REAL SPEED TEST</strong>
+                    <span class="badge {cls}">{verdict}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    <span>Drive: <strong>{lbl} ({mnt})</strong></span>
+                    <span>Seq Read: <strong>{rd:.1} MB/s</strong></span>
+                    <span>Seq Write: <strong>{wr:.1} MB/s</strong></span>
+                  </div>
+                  <p class="rel-summary">{summary}</p>
+                </div>"#,
+                cls = cls,
+                verdict = html_escape(&rem.verdict),
+                lbl = html_escape(&rem.label),
+                mnt = html_escape(&rem.mount_path),
+                rd = rem.seq_read_mb_s,
+                wr = rem.seq_write_mb_s,
+                summary = html_escape(&rem.plain_summary),
+            ));
+        }
+
         if let Some(net) = &payload.network_report {
             let cls = match net.verdict.as_str() {
                 "HEALTHY" => "st-pass",
@@ -1102,7 +1190,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </section>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v2.11.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.0.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Tamper-Check ID: {cert_id}</span>
   </footer>
 </div>
@@ -1116,7 +1204,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </table>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v2.11.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.0.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Cert ID: {cert_id}</span>
   </footer>
 </div>
@@ -1204,7 +1292,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         spk_ok = if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         spk_notes = html_escape(&payload.signoff.speakers_notes),
         notes_esc = if payload.technician_notes.trim().is_empty() {
-            format!("Unit inspected per {}-stage LaptopBench QC v2.11.0 protocol.", stage_count)
+            format!("Unit inspected per {}-stage LaptopBench QC v3.0.0 protocol.", stage_count)
         } else {
             html_escape(payload.technician_notes.trim())
         },
@@ -1265,7 +1353,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
     let json_val = serde_json::json!({
         "certificateId": cert_id,
         "generatedAt": generated_at,
-        "version": "2.11.0",
+        "version": "3.0.0",
         "report": payload
     });
     let json_str = serde_json::to_string_pretty(&json_val).map_err(|e| e.to_string())?;
@@ -1442,12 +1530,15 @@ mod tests {
                 packet_loss_pct: 0.0,
                 verdict: "HEALTHY".into(),
                 plain_summary: "Low-latency Wi-Fi 6E link with zero packet loss.".into(),
+                ..Default::default()
             }),
             cpu_stress: None,
             battery_charge: None,
             cosmetic: None,
             hardware_faults: None,
             display_pro: None,
+            sleep_audit: None,
+            removable_drive_bench: None,
             tests: (1..=14)
                 .map(|i| ReportTestEntry {
                     id: format!("stage_{}", i),
@@ -1474,7 +1565,7 @@ mod tests {
         let payload = sample_v230_payload(None, "ABNORMAL");
         let html = render_qc_html(&payload, "2026-11-26 10:00:00");
 
-        assert!(html.contains("LaptopBench QC v2.11.0"));
+        assert!(html.contains("LaptopBench QC v3.0.0"));
         assert!(html.contains("Created by Hein Htet Zaw"));
         assert!(html.contains("@ich8g92"));
         assert!(html.contains("14-STAGE TECHNICAL DIAGNOSTIC AUDIT LEDGER"));
@@ -1514,9 +1605,9 @@ mod tests {
 
         assert!(pdf_bytes.starts_with(b"%PDF-1.4"));
         assert!(pdf_bytes.ends_with(b"%%EOF\n"));
-        assert!(html_text.contains("LaptopBench QC v2.11.0"));
+        assert!(html_text.contains("LaptopBench QC v3.0.0"));
         let parsed: serde_json::Value = serde_json::from_str(&json_text).expect("valid JSON");
-        assert_eq!(parsed["version"], "2.11.0");
+        assert_eq!(parsed["version"], "3.0.0");
         assert_eq!(parsed["report"]["userBenchmark"]["overallVehicleTier"], "Aircraft Carrier");
         assert_eq!(parsed["report"]["batteryDischarge"]["verdict"], "NORMAL");
         assert_eq!(parsed["report"]["touchscreen"]["coveredCells"], 160);

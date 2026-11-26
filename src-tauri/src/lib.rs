@@ -5,7 +5,7 @@ mod types;
 use modules::{
     baselines, battery, biometrics, cpu_stress, display_pro, error_logs, gpu_stress, hardware_controls,
     hardware_faults, keyboard_hook, network, perf_bench, port_diagnostics, power_torture, qc_archive, ram_test,
-    raytracer, report, security_audit, session, shop_history, simd_kernels, specs, storage,
+    raytracer, report, security_audit, session, shop_history, simd_kernels, sleep_audit, specs, storage,
     telemetry, usb_ports, userbenchmark, vram_test,
 };
 use std::sync::{
@@ -20,8 +20,9 @@ use types::{
     DisplayCapabilitiesReport, EdpHingeFlexResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
     HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
-    PortDiagnosticsReport, PowerTortureResult, QcArchiveRecord, RamTestResult, SavedSessionPayload, SecurityAuditReport,
-    ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, StorageBenchResult,
+    PortDiagnosticsReport, PowerTortureResult, QcArchiveRecord, RamTestResult,
+    RemovableDriveBenchResult, RemovableDriveInfo, SavedSessionPayload, SecurityAuditReport,
+    ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, SleepStandbyReport, StorageBenchResult,
     StorageSmartReport, SystemSpecs, TestStatus, TouchscreenTestResult, UsbDeviceInfo,
     UserBenchmarkComparison, UserBenchmarkInput, VramTestResult, WarrantyReturnDiff,
     BATTERY_DISCHARGE_MAX_SECS,
@@ -617,6 +618,29 @@ fn cancel_edp_hinge_flex_test(state: State<'_, CancelRegistry>) {
 }
 
 #[tauri::command]
+async fn run_sleep_standby_audit() -> Result<SleepStandbyReport, String> {
+    tauri::async_runtime::spawn_blocking(sleep_audit::run_sleep_standby_audit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn list_removable_drives() -> Result<Vec<RemovableDriveInfo>, String> {
+    tauri::async_runtime::spawn_blocking(port_diagnostics::list_removable_drives)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn run_removable_drive_speed_test(target_mount: String) -> Result<RemovableDriveBenchResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        port_diagnostics::run_removable_drive_speed_test(target_mount)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn check_warranty_return_diff(
     app: AppHandle,
     serial: String,
@@ -660,7 +684,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.11.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v3.0.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -971,6 +995,8 @@ pub fn run_self_test() -> Result<(), String> {
         cosmetic: None,
         hardware_faults: None,
         display_pro: None,
+        sleep_audit: None,
+        removable_drive_bench: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -979,8 +1005,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.11.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.11.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v3.0.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v3.0.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -1040,7 +1066,7 @@ pub fn run_self_test() -> Result<(), String> {
         bat.ac_plugged
     );
 
-    // 11b. v2.11.0 Smart-Bench Charging IC + Conservation Mode + Smart Cool-Down Verification
+    // 11b. v3.0.0 Smart-Bench Charging IC + Conservation Mode + Smart Cool-Down Verification
     let chg_ok = battery::classify_battery_charge_test(
         &[
             BatteryLiveSample { timestamp_ms: 0, charge_percent: 55.0, ac_plugged: true, is_charging: true, voltage_mv: Some(12_300), rate_mw: Some(32_000), watts: Some(32.0) },
@@ -1073,10 +1099,10 @@ pub fn run_self_test() -> Result<(), String> {
         || cd_cool != "COOL_LOAD"
         || cd_poor != "POOR_COOLING"
     {
-        return Err("v2.11.0 Charging IC or Smart Cool-Down classifier check failed".into());
+        return Err("v3.0.0 Charging IC or Smart Cool-Down classifier check failed".into());
     }
     println!(
-        "[PASS] v2.11.0 Charging IC & Smart Cool-Down (ok={}, cons={}, dead={}, cool={}, poor={})",
+        "[PASS] v3.0.0 Charging IC & Smart Cool-Down (ok={}, cons={}, dead={}, cool={}, poor={})",
         chg_ok.verdict, chg_cons.verdict, chg_dead.verdict, cd_cool, cd_poor
     );
 
@@ -1124,11 +1150,24 @@ pub fn run_self_test() -> Result<(), String> {
         || smart_warn != TestStatus::Warn
         || smart_fail != TestStatus::Fail
     {
-        return Err("v2.11.0 Display Pro capability/hinge/verdict check failed".into());
+        return Err("v3.0.0 Display Pro capability/hinge/verdict check failed".into());
     }
     println!(
-        "[PASS] v2.11.0 Display Pro ({}x{} @ {}Hz / max {}Hz | mismatch_guard=ok | hinge=STABLE/DROP)",
+        "[PASS] v3.0.0 Display Pro ({}x{} @ {}Hz / max {}Hz | mismatch_guard=ok | hinge=STABLE/DROP)",
         disp_caps.active_width, disp_caps.active_height, disp_caps.active_hz, disp_caps.native_max_hz
+    );
+
+    let sleep_rep = sleep_audit::run_sleep_standby_audit();
+    let (bd_stuck, _) = cpu_stress::evaluate_bd_prochot(399, 5.0);
+    let (_, _, _, _, ssd_throt) = storage::classify_ssd_write_collapse(&[2400.0, 2200.0, 450.0, 380.0, 360.0, 350.0], Some(42), Some(73));
+    let rem_slow = port_diagnostics::classify_removable_drive_speed("E:\\".into(), "USB3".into(), "USB Flash Drive".into(), 64, 20.0, 32.0, 4.0);
+    let rem_list = port_diagnostics::list_removable_drives();
+    if !bd_stuck || ssd_throt != "SSD_THERMAL_THROTTLE" || rem_slow.verdict != "USB2_FALLBACK_WARN" {
+        return Err("v3.0.0 BD PROCHOT / SSD Thermal Collapse / USB Speed classifier check failed".into());
+    }
+    println!(
+        "[PASS] v3.0.0 Multi-Upgrade Engine (Sleep={} [{}] | BD_PROCHOT=ok | SSD_Collapse={} | RemovableDrives={})",
+        sleep_rep.verdict, sleep_rep.sleep_mode, ssd_throt, rem_list.len()
     );
 
     let mut cpu_buf = vec![0u64; 1024];
@@ -1146,7 +1185,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.11.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v3.0.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -1219,6 +1258,9 @@ pub fn run() {
             probe_display_capabilities,
             run_edp_hinge_flex_test,
             cancel_edp_hinge_flex_test,
+            run_sleep_standby_audit,
+            list_removable_drives,
+            run_removable_drive_speed_test,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

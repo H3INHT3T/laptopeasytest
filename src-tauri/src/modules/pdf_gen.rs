@@ -284,7 +284,7 @@ impl PageBuilder {
             // Hairline footer rule
             self.line(MARGIN, 34.0, MARGIN + content_w, 34.0, 0.6, COL_RULE);
             let footer = format!(
-                "LaptopBench QC v2.11.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
+                "LaptopBench QC v3.0.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
                 self.cert_id, page_num
             );
             let _ = writeln!(
@@ -1122,7 +1122,7 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     ));
-    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v2.11.0 protocol.", stage_count);
+    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.0.0 protocol.", stage_count);
     let notes_s = format!(
         "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
@@ -1343,7 +1343,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("LaptopBench QC v2.11.0"));
+        assert!(text.contains("LaptopBench QC v3.0.0"));
         assert!(text.contains("Created by Hein Htet Zaw"));
         assert!(text.contains("@ich8g92"));
         assert!(!text.contains("v2.1."));
@@ -1485,12 +1485,15 @@ mod tests {
                 packet_loss_pct: 0.0,
                 verdict: "HEALTHY".into(),
                 plain_summary: "Healthy wireless link.".into(),
+                ..Default::default()
             }),
             cpu_stress: None,
             battery_charge: None,
             cosmetic: None,
             hardware_faults: None,
             display_pro: None,
+            sleep_audit: None,
+            removable_drive_bench: None,
             output_dir: None,
         };
 
@@ -1608,6 +1611,7 @@ mod tests {
                     packet_loss_pct: 0.0,
                     verdict: "DEGRADED".into(),
                     plain_summary: "Moderate RSSI.".into(),
+                    ..Default::default()
                 }),
                 ..Default::default()
             };

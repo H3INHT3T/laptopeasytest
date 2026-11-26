@@ -94,6 +94,23 @@ pub fn classify_cooldown_recovery(
 /// - `EXCELLENT`: Dropped >= 14°C or recovered to <= 62°C
 /// - `NORMAL`: Dropped >= 8°C and recovered to <= 78°C
 /// - `UNAVAILABLE`: Sensor did not report temperature
+/// Smart-Bench BD PROCHOT / Stuck-Clock Detector (v3.0.0) shared by Stage 12 & OCCT CPU Stress.
+/// Catches Dell/ThinkPad/HP hardware faults where the CPU gets locked at 0.39 GHz / 0.79 GHz (< 900 MHz)
+/// under full multi-core load due to a bad charger ID pin, VR sensor, or stuck BD PROCHOT signal.
+pub fn evaluate_bd_prochot(min_load_clock_mhz: u64, stuck_clock_secs: f64) -> (bool, String) {
+    if min_load_clock_mhz > 0 && min_load_clock_mhz < 900 && stuck_clock_secs >= 4.0 {
+        (
+            true,
+            format!(
+                "FAIL: BD PROCHOT / Stuck-Clock fault detected — CPU locked at {} MHz (< 900 MHz) for {:.1}s under load! Inspect AC charger ID pin, DC-IN jack, or motherboard VR sensor.",
+                min_load_clock_mhz, stuck_clock_secs
+            ),
+        )
+    } else {
+        (false, String::new())
+    }
+}
+
 pub fn classify_smart_cooldown(
     start_temp_c: Option<f32>,
     end_temp_c: Option<f32>,
@@ -249,6 +266,8 @@ pub fn run_cpu_stress_test(
     let mut max_clock_mhz: u64 = 0;
     let mut sum_clock_mhz: u64 = 0;
     let mut clock_samples: u64 = 0;
+    let mut stuck_clock_secs: f64 = 0.0;
+    let mut last_clock_poll = Instant::now();
     let mut thermal_cutoff_triggered = false;
     let mut stopped_on_error = false;
     let mut whea_errors: u64 = 0;
@@ -267,6 +286,8 @@ pub fn run_cpu_stress_test(
         }
 
         let snap = tel.sample(true);
+        let dt_clock = last_clock_poll.elapsed().as_secs_f64();
+        last_clock_poll = Instant::now();
         if snap.cpu_clock_mhz > 0 {
             if initial_clock_mhz.is_none() && elapsed >= 2.0 {
                 initial_clock_mhz = Some(snap.cpu_clock_mhz);
@@ -275,6 +296,9 @@ pub fn run_cpu_stress_test(
             max_clock_mhz = max_clock_mhz.max(snap.cpu_clock_mhz);
             sum_clock_mhz += snap.cpu_clock_mhz;
             clock_samples += 1;
+            if snap.cpu_usage_pct >= 75.0 && snap.cpu_clock_mhz < 900 && !(is_variable && pause_workers.load(Ordering::Relaxed)) {
+                stuck_clock_secs += dt_clock;
+            }
         }
         if let Some(t) = snap.cpu_temp_c {
             peak_temp_c = Some(peak_temp_c.map_or(t, |p| p.max(t)));
@@ -391,7 +415,10 @@ pub fn run_cpu_stress_test(
         _ => 0.0,
     };
 
-    let status = if total_errors > 0 || thermal_cutoff_triggered {
+    let (bd_prochot_suspected, stuck_clock_note) =
+        evaluate_bd_prochot(min_clock, (stuck_clock_secs * 10.0).round() / 10.0);
+
+    let status = if total_errors > 0 || thermal_cutoff_triggered || bd_prochot_suspected {
         TestStatus::Fail
     } else if cancelled || throttle_drop_pct >= 20.0 || cooldown_verdict == "SLOW_COOLING" {
         TestStatus::Warn
@@ -399,7 +426,9 @@ pub fn run_cpu_stress_test(
         TestStatus::Pass
     };
 
-    let summary = if total_errors > 0 {
+    let summary = if bd_prochot_suspected {
+        stuck_clock_note.clone()
+    } else if total_errors > 0 {
         format!(
             "FAIL: {} CPU stability error(s) detected ({} calc, {} WHEA) across {} threads.",
             total_errors, c_errs, whea_errors, thread_count
@@ -469,7 +498,14 @@ pub fn run_cpu_stress_test(
         stopped_on_error,
         cancelled,
         summary,
-        plain_summary,
+        plain_summary: if bd_prochot_suspected {
+            stuck_clock_note.clone()
+        } else {
+            plain_summary
+        },
+        bd_prochot_suspected,
+        stuck_clock_secs: (stuck_clock_secs * 10.0).round() / 10.0,
+        stuck_clock_note,
     })
 }
 
@@ -534,5 +570,18 @@ mod tests {
         let (d_unavail, _, v_unavail, _) = classify_smart_cooldown(None, None, 12.0);
         assert!(d_unavail.is_none());
         assert_eq!(v_unavail, "UNAVAILABLE");
+    }
+
+    #[test]
+    fn test_bd_prochot_stuck_clock_detector_v300() {
+        let (stuck, note) = evaluate_bd_prochot(399, 6.5);
+        assert!(stuck);
+        assert!(note.contains("BD PROCHOT"));
+
+        let (brief, _) = evaluate_bd_prochot(400, 1.5);
+        assert!(!brief);
+
+        let (normal, _) = evaluate_bd_prochot(2400, 12.0);
+        assert!(!normal);
     }
 }

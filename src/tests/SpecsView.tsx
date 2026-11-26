@@ -485,23 +485,33 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                     <div className="font-bold text-black truncate">{effectiveNetReport.interfaceName}</div>
                   </div>
                   <div className="rounded-lg bg-[#F8FAFC] border border-zinc-200 p-2.5">
-                    <div className="text-[10px] text-zinc-500 font-sans">Link speed</div>
+                    <div className="text-[10px] text-zinc-500 font-sans">Link / Wi-Fi Band</div>
                     <div className="font-bold text-blue-700">
                       {effectiveNetReport.linkSpeedMbps != null ? `${effectiveNetReport.linkSpeedMbps} Mbps` : "—"}
+                      {effectiveNetReport.wifiBand ? ` • ${effectiveNetReport.wifiBand}` : ""}
                     </div>
                   </div>
                   <div className="rounded-lg bg-[#F8FAFC] border border-zinc-200 p-2.5">
-                    <div className="text-[10px] text-zinc-500 font-sans">Gateway ping</div>
+                    <div className="text-[10px] text-zinc-500 font-sans">
+                      Ping / Jitter ({effectiveNetReport.pingSamplesCount || 4}p)
+                    </div>
                     <div className="font-bold text-black">
                       {effectiveNetReport.gatewayPingMs != null ? `${effectiveNetReport.gatewayPingMs.toFixed(1)} ms` : "—"}
+                      {effectiveNetReport.pingJitterMs != null ? ` (±${effectiveNetReport.pingJitterMs.toFixed(1)})` : ""}
                     </div>
                   </div>
                   <div className="rounded-lg bg-[#F8FAFC] border border-zinc-200 p-2.5">
-                    <div className="text-[10px] text-zinc-500 font-sans">DNS / Loss</div>
+                    <div className="text-[10px] text-zinc-500 font-sans">DNS / Loss / Spike</div>
                     <div className="font-bold text-black">
                       {effectiveNetReport.dnsResolveOk ? "OK" : "Fail"} • {effectiveNetReport.packetLossPct.toFixed(0)}%
+                      {effectiveNetReport.pingMaxSpikeMs != null ? ` • ${effectiveNetReport.pingMaxSpikeMs.toFixed(0)}ms` : ""}
                     </div>
                   </div>
+                </div>
+              )}
+              {effectiveNetReport?.bandWarning && (
+                <div className="rounded-lg border border-black bg-[#F8FAFC] px-3 py-2 text-xs text-black">
+                  <strong>2.4 GHz Antenna Advisory:</strong> {effectiveNetReport.bandWarning}
                 </div>
               )}
               {specs.wifiSsid && (

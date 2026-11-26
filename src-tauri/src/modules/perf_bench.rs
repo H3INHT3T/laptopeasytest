@@ -410,9 +410,20 @@ pub fn run_performance_benchmark(
     };
 
     let mut last_temp: Option<f32> = peak_temp;
+    let mut min_load_clock_mhz: u64 = u64::MAX;
+    let mut stuck_clock_secs: f64 = 0.0;
+    let mut last_clock_check = Instant::now();
 
     let mut emit_and_check = |phase: &str, pct: f64, preview: Option<String>, tel: &mut TelemetryReader| -> Option<f32> {
         let snap = tel.sample_throttled(false, Duration::from_millis(850));
+        let dt_clk = last_clock_check.elapsed().as_secs_f64();
+        last_clock_check = Instant::now();
+        if snap.cpu_usage_pct >= 75.0 && snap.cpu_clock_mhz > 0 {
+            min_load_clock_mhz = min_load_clock_mhz.min(snap.cpu_clock_mhz);
+            if snap.cpu_clock_mhz < 900 {
+                stuck_clock_secs += dt_clk.min(2.5);
+            }
+        }
         if let Some(t) = snap.cpu_temp_c {
             last_temp = Some(t);
             peak_temp = Some(peak_temp.map_or(t, |p| p.max(t)));
@@ -1139,7 +1150,14 @@ pub fn run_performance_benchmark(
     }
     .to_string();
 
-    let status = if peak_temp.map(|t| t >= CPU_THERMAL_CUTOFF_DEFAULT_C - 2.0).unwrap_or(false)
+    let min_load_clk = if min_load_clock_mhz == u64::MAX { 0 } else { min_load_clock_mhz };
+    let stuck_secs_r = (stuck_clock_secs * 10.0).round() / 10.0;
+    let (bd_prochot_suspected, stuck_clock_note) =
+        cpu_stress::evaluate_bd_prochot(min_load_clk, stuck_secs_r);
+
+    let status = if bd_prochot_suspected {
+        TestStatus::Fail
+    } else if peak_temp.map(|t| t >= CPU_THERMAL_CUTOFF_DEFAULT_C - 2.0).unwrap_or(false)
         || throttle_drop_pct >= 25.0
         || baseline.percent_of_normal < 60.0
         || cooldown_verdict == "POOR_COOLING"
@@ -1248,6 +1266,10 @@ pub fn run_performance_benchmark(
         cooldown_rate_c_per_sec,
         cooldown_verdict,
         cooldown_note,
+        bd_prochot_suspected,
+        min_load_clock_mhz: min_load_clk,
+        stuck_clock_secs: stuck_secs_r,
+        stuck_clock_note: stuck_clock_note.clone(),
     })
 }
 

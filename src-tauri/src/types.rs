@@ -552,6 +552,18 @@ pub struct StorageBenchResult {
     pub userbenchmark_rating: Option<UserBenchmarkComponentRating>,
     #[serde(default)]
     pub plain_summary: String,
+    #[serde(default)]
+    pub temp_start_c: Option<i32>,
+    #[serde(default)]
+    pub temp_rise_c: Option<i32>,
+    #[serde(default)]
+    pub seq_write_early_mb_s: f64,
+    #[serde(default)]
+    pub seq_write_late_mb_s: f64,
+    #[serde(default)]
+    pub write_collapse_pct: f64,
+    #[serde(default)]
+    pub thermal_throttle_verdict: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -809,6 +821,14 @@ pub struct PerfBenchResult {
     pub cooldown_verdict: String,
     #[serde(default)]
     pub cooldown_note: String,
+    #[serde(default)]
+    pub bd_prochot_suspected: bool,
+    #[serde(default)]
+    pub min_load_clock_mhz: u64,
+    #[serde(default)]
+    pub stuck_clock_secs: f64,
+    #[serde(default)]
+    pub stuck_clock_note: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1243,6 +1263,10 @@ pub struct ExportReportPayload {
     pub hardware_faults: Option<HardwareFaultsReport>,
     #[serde(default, alias = "displayProResult")]
     pub display_pro: Option<DisplayProResult>,
+    #[serde(default, alias = "sleepAuditReport")]
+    pub sleep_audit: Option<SleepStandbyReport>,
+    #[serde(default, alias = "removableDriveBench")]
+    pub removable_drive_bench: Option<RemovableDriveBenchResult>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1352,6 +1376,12 @@ pub struct CpuStressResult {
     pub cancelled: bool,
     pub summary: String,
     pub plain_summary: String,
+    #[serde(default)]
+    pub bd_prochot_suspected: bool,
+    #[serde(default)]
+    pub stuck_clock_secs: f64,
+    #[serde(default)]
+    pub stuck_clock_note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1566,6 +1596,63 @@ pub struct NetworkDiagnosticsReport {
     pub packet_loss_pct: f64,
     pub verdict: String,
     pub plain_summary: String,
+    #[serde(default)]
+    pub wifi_band: Option<String>,
+    #[serde(default)]
+    pub wifi_channel: Option<u32>,
+    #[serde(default)]
+    pub ping_jitter_ms: Option<f64>,
+    #[serde(default)]
+    pub ping_max_spike_ms: Option<f64>,
+    #[serde(default)]
+    pub ping_samples_count: u32,
+    #[serde(default)]
+    pub band_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct SleepStandbyReport {
+    pub status: TestStatus,
+    pub verdict: String, // "HEALTHY" | "HIGH_STANDBY_DRAIN" | "SLEEP_FAULT"
+    pub platform: String,
+    pub sleep_mode: String,
+    pub wake_armed_devices: Vec<String>,
+    pub sessions_analyzed: u32,
+    pub avg_drain_pct_per_hr: Option<f64>,
+    pub max_drain_pct_per_hr: Option<f64>,
+    pub sleep_crash_count: u32,
+    pub dark_wake_count: u32,
+    pub plain_summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct RemovableDriveInfo {
+    pub mount_path: String,
+    pub label: String,
+    pub media_kind: String, // "USB Flash Drive" | "SD / MicroSD Card"
+    pub total_gb: f64,
+    pub free_gb: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct RemovableDriveBenchResult {
+    pub status: TestStatus,
+    pub verdict: String, // "USB3_VERIFIED" | "USB3_ENTRY_OR_SD" | "USB2_FALLBACK_WARN"
+    pub mount_path: String,
+    pub label: String,
+    pub media_kind: String,
+    pub test_size_mb: u64,
+    pub seq_write_mb_s: f64,
+    pub seq_read_mb_s: f64,
+    pub elapsed_secs: f64,
+    pub plain_summary: String,
+    pub summary: String,
 }
 
 // ============================================================================
@@ -1894,6 +1981,7 @@ mod tests {
                 packet_loss_pct: 0.0,
                 verdict: "HEALTHY".into(),
                 plain_summary: "Fast Wi-Fi link with zero packet loss.".into(),
+                ..Default::default()
             }),
             ..Default::default()
         };

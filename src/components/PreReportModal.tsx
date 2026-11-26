@@ -33,8 +33,10 @@ import type {
   PortsSpeakerSignoff,
   PowerTortureResult,
   RamTestResult,
+  RemovableDriveBenchResult,
   SecurityAuditReport,
   ShopProfile,
+  SleepStandbyReport,
   StepModuleId,
   StorageBenchResult,
   StorageSmartReport,
@@ -72,6 +74,8 @@ interface PreReportModalProps {
   tortureResult?: PowerTortureResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
   hardwareFaults?: HardwareFaultsReport | null;
+  sleepAuditReport?: SleepStandbyReport | null;
+  removableDriveBench?: RemovableDriveBenchResult | null;
   userbenchmarkComparison?: UserBenchmarkComparison | null;
 }
 
@@ -102,6 +106,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   tortureResult,
   networkReport,
   hardwareFaults,
+  sleepAuditReport,
+  removableDriveBench,
   userbenchmarkComparison,
 }) => {
   const [profile, setProfile] = useState<ShopProfile>(shopProfile);
@@ -611,8 +617,14 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
       }
       if (networkReport) {
         out.push(["Net Verdict", networkReport.verdict]);
+        if (networkReport.wifiBand) {
+          out.push(["Wi-Fi Band", `${networkReport.wifiBand}${networkReport.wifiChannel ? ` (Ch ${networkReport.wifiChannel})` : ""}`]);
+        }
         if (networkReport.linkSpeedMbps != null) out.push(["Link Speed", `${networkReport.linkSpeedMbps} Mbps`]);
-        if (networkReport.gatewayPingMs != null) out.push(["Ping", `${networkReport.gatewayPingMs.toFixed(1)} ms (${networkReport.packetLossPct.toFixed(0)}% loss)`]);
+        if (networkReport.gatewayPingMs != null) {
+          const jit = networkReport.pingJitterMs != null ? `, ±${networkReport.pingJitterMs.toFixed(1)}ms` : "";
+          out.push(["Ping", `${networkReport.gatewayPingMs.toFixed(1)} ms${jit} (${networkReport.packetLossPct.toFixed(0)}% loss)`]);
+        }
         out.push(["DNS", networkReport.dnsResolveOk ? "OK" : "FAIL"]);
       }
       if (hardwareFaults) {
@@ -669,6 +681,9 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
       out.push(["WHEA HW", `${errorLogsReport.wheaOrHwCount}`]);
       out.push(["Disk Err", `${errorLogsReport.diskErrorCount}`]);
       out.push(["GPU TDR", `${errorLogsReport.gpuResetCount}`]);
+      if (sleepAuditReport) {
+        out.push(["Sleep/Standby", `${sleepAuditReport.verdict} (${sleepAuditReport.sleepMode})`]);
+      }
     } else if (id === "storage") {
       const d = smartReport?.drives[0];
       const wearVal = d?.percentageUsedRaw ?? d?.wearPercent;
@@ -689,6 +704,9 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         }
         if (storageBench.slcSustainedMbS != null) {
           out.push(["SLC Sust", `${storageBench.slcSustainedMbS.toFixed(0)} MB/s`]);
+        }
+        if (storageBench.thermalThrottleVerdict && storageBench.thermalThrottleVerdict !== "STEADY") {
+          out.push(["Write Collapse", `${storageBench.thermalThrottleVerdict} (-${(storageBench.writeCollapsePct ?? 0).toFixed(0)}%)`]);
         }
         if (storageBench.totalWrittenMb != null) {
           out.push(["Budget", `${storageBench.totalWrittenMb.toFixed(0)} MB`]);
@@ -723,6 +741,9 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         out.push(["Uncached/Thread", `${perfResult.memoryUncachedReadGbS.toFixed(1)} / ${(perfResult.memoryThreadedGbS ?? perfResult.memoryBandwidthGbS).toFixed(1)} GB/s`]);
       }
       out.push(["Throttle", `-${perfResult.throttleDropPct.toFixed(1)}%`]);
+      if (perfResult.bdProchotSuspected) {
+        out.push(["BD PROCHOT", `STUCK @ ${perfResult.minLoadClockMhz ?? 0} MHz`]);
+      }
       if (perfResult.cooldownDropC != null && perfResult.cooldownVerdict) {
         out.push(["12s Cool-Down", `-${perfResult.cooldownDropC.toFixed(1)}°C (${perfResult.cooldownVerdict})`]);
       }
@@ -751,6 +772,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         out.push(["AC Drain", tortureResult.batteryDrainWhilePlugged ? "ALERT" : "Stable"]);
         if (tortureResult.artifactErrors != null) out.push(["Torture Art", `${tortureResult.artifactErrors}`]);
       }
+    } else if (id === "ports_speakers" && removableDriveBench) {
+      out.push(["USB/SD Speed", `${removableDriveBench.seqReadMbS.toFixed(0)}R / ${removableDriveBench.seqWriteMbS.toFixed(0)}W MB/s (${removableDriveBench.verdict})`]);
     }
     return out;
   };
@@ -799,6 +822,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         cosmetic,
         hardwareFaults: hardwareFaults ?? null,
         displayPro: displayProResult ?? null,
+        sleepAudit: sleepAuditReport ?? null,
+        removableDriveBench: removableDriveBench ?? null,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);

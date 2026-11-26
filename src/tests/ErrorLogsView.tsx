@@ -1,17 +1,20 @@
-import React, { useMemo, useState } from "react";
-import { RefreshCw, Search } from "lucide-react";
-import type { ErrorLogEntry, ErrorLogsReport, TestStatus } from "../types";
+import React, { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { Moon, RefreshCw, Search } from "lucide-react";
+import type { ErrorLogEntry, ErrorLogsReport, SleepStandbyReport, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface ErrorLogsViewProps {
   report: ErrorLogsReport | null;
+  sleepReport?: SleepStandbyReport | null;
   loading: boolean;
   status: TestStatus;
   stepNumber: number;
   totalSteps: number;
   onScan: (days: number) => void;
+  onSleepAuditLoaded?: (rep: SleepStandbyReport) => void;
   onNext: () => void;
   onSkip: () => void;
 }
@@ -37,15 +40,34 @@ function matchesCategoryPill(ev: ErrorLogEntry, cat: CategoryFilter): boolean {
 
 export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({
   report,
+  sleepReport = null,
   loading,
   status,
   stepNumber,
   totalSteps,
   onScan,
+  onSleepAuditLoaded,
   onNext,
   onSkip,
 }) => {
   const [days, setDays] = useState(30);
+  const [localSleep, setLocalSleep] = useState<SleepStandbyReport | null>(sleepReport);
+  const [sleepLoading, setSleepLoading] = useState(false);
+
+  const effectiveSleep = sleepReport ?? localSleep;
+
+  useEffect(() => {
+    if (!effectiveSleep) {
+      setSleepLoading(true);
+      invoke<SleepStandbyReport>("run_sleep_standby_audit")
+        .then((res) => {
+          setLocalSleep(res);
+          onSleepAuditLoaded?.(res);
+        })
+        .catch(() => {})
+        .finally(() => setSleepLoading(false));
+    }
+  }, []);
   const [filter, setFilter] = useState("");
   const [onlyHardware, setOnlyHardware] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("All");
@@ -166,6 +188,34 @@ export const ErrorLogsView: React.FC<ErrorLogsViewProps> = ({
                 className={`h-full rounded-full transition-all ${report.status === "fail" ? "bg-black" : "bg-blue-600"}`}
                 style={{ width: `${stabilityPct}%` }}
               />
+            </div>
+
+            {/* Passive Sleep & Modern Standby (S0ix / S3) Drain & Wake Audit (v3.0.0) */}
+            <div className="pt-3 border-t border-zinc-100">
+              <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <Moon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="font-semibold text-black">Sleep &amp; Modern Standby (S0ix / S3)</span>
+                  {effectiveSleep ? (
+                    <span className="text-zinc-500 font-mono text-[11px]">
+                      {effectiveSleep.sleepMode}
+                      {effectiveSleep.maxDrainPctPerHr != null
+                        ? ` • Peak ${effectiveSleep.maxDrainPctPerHr.toFixed(1)}%/hr drain`
+                        : ""}
+                      {` • ${effectiveSleep.wakeArmedDevices.length} wake-armed`}
+                      {effectiveSleep.sleepCrashCount > 0 ? ` • ${effectiveSleep.sleepCrashCount} sleep crash(es)` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-400">{sleepLoading ? "Auditing sleep study..." : "Ready"}</span>
+                  )}
+                </div>
+                {effectiveSleep && <StatusBadge status={effectiveSleep.status} compact />}
+              </div>
+              {effectiveSleep && effectiveSleep.status !== "pass" && (
+                <div className="mt-2 rounded-lg border border-black bg-[#F8FAFC] px-3 py-2 text-xs text-black">
+                  {effectiveSleep.plainSummary}
+                </div>
+              )}
             </div>
           </div>
         </div>

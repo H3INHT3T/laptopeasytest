@@ -310,6 +310,35 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         cancelledFlags.display_hinge = true;
         return null;
       },
+      run_sleep_standby_audit: async () =>
+        fixture.sleepAudit || {
+          status: "pass",
+          verdict: "HEALTHY",
+          platform: "Windows",
+          sleepMode: "Modern Standby (S0ix)",
+          wakeArmedDevices: ["HID Keyboard Device"],
+          sessionsAnalyzed: 3,
+          avgDrainPctPerHr: 0.9,
+          maxDrainPctPerHr: 1.2,
+          sleepCrashCount: 0,
+          darkWakeCount: 0,
+          plainSummary: "PASS: Modern Standby (S0ix) healthy (0.9%/hr avg drain, 0 sleep crashes).",
+        },
+      list_removable_drives: async () => fixture.removableDrives || [],
+      run_removable_drive_speed_test: async () =>
+        fixture.removableDriveBench || {
+          status: "pass",
+          verdict: "USB3_VERIFIED",
+          mountPath: "E:/",
+          label: "TestUSB",
+          mediaKind: "USB Flash Drive",
+          testSizeMb: 64,
+          seqWriteMbS: 92.4,
+          seqReadMbS: 148.6,
+          elapsedSecs: 1.1,
+          plainSummary: "PASS: TestUSB (E:/) verified at 148.6 MB/s Read / 92.4 MB/s Write.",
+          summary: "USB3_VERIFIED: Read 148.6 / Write 92.4 MB/s",
+        },
       list_usb_devices: async () => fixture.usbDevices || [],
       start_usb_monitor: async () => {
         if (usbMonitorTimer) clearTimeout(usbMonitorTimer);

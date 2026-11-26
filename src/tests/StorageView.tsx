@@ -587,6 +587,37 @@ export const StorageView: React.FC<StorageViewProps> = ({
               </div>
             )}
 
+            {benchResult.thermalThrottleVerdict && (
+              <div
+                className={`rounded-xl border px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap text-xs ${
+                  benchResult.thermalThrottleVerdict === "SSD_THERMAL_THROTTLE"
+                    ? "border-black bg-black text-white"
+                    : "border-zinc-200 bg-[#F8FAFC] text-black"
+                }`}
+              >
+                <div className="font-mono">
+                  <strong>Write Stability:</strong>{" "}
+                  {(benchResult.seqWriteEarlyMbS ?? benchResult.seqWriteMbS).toFixed(0)} -&gt;{" "}
+                  {(benchResult.seqWriteLateMbS ?? benchResult.seqWriteMbS).toFixed(0)} MB/s
+                  {benchResult.writeCollapsePct != null && benchResult.writeCollapsePct > 0
+                    ? ` (-${benchResult.writeCollapsePct.toFixed(0)}%)`
+                    : " (Steady)"}
+                  {benchResult.tempStartC != null && benchResult.peakDriveTempC != null
+                    ? ` • Temp ${benchResult.tempStartC}°C -> ${benchResult.peakDriveTempC}°C (+${benchResult.tempRiseC ?? 0}°C)`
+                    : ""}
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-bold ${
+                    benchResult.thermalThrottleVerdict === "SSD_THERMAL_THROTTLE"
+                      ? "bg-white text-black"
+                      : "bg-blue-600 text-white"
+                  }`}
+                >
+                  {benchResult.thermalThrottleVerdict.replace(/_/g, " ")}
+                </span>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-6 divide-x divide-y md:divide-y-0 divide-zinc-200 border border-zinc-300 rounded-[2px] font-mono tabular-nums">
               <div className="p-3 bg-white">
                 <div className="text-[9.5px] uppercase text-zinc-500">Seq Read</div>

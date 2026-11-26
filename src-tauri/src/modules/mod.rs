@@ -22,6 +22,7 @@ pub mod sensor_bridge;
 pub mod session;
 pub mod shop_history;
 pub mod simd_kernels;
+pub mod sleep_audit;
 pub mod specs;
 pub mod storage;
 pub mod telemetry;
