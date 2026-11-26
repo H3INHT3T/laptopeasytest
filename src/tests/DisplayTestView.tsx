@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CheckCircle2, Maximize2, Monitor, RefreshCw, Sparkles, Sun, XCircle } from "lucide-react";
-import type { HardwareControlsReport, TestStatus } from "../types";
+import type { HardwareControlsReport, HardwareFaultsReport, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 
@@ -12,6 +12,7 @@ interface DisplayTestViewProps {
   notes: string;
   stepNumber: number;
   totalSteps: number;
+  hardwareFaults?: HardwareFaultsReport | null;
   onVerdict: (status: TestStatus, summary: string, notes: string) => void;
   onNext: () => void;
   onSkip: () => void;
@@ -99,6 +100,7 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   notes: initialNotes,
   stepNumber,
   totalSteps,
+  hardwareFaults = null,
   onVerdict,
   onNext,
   onSkip,
@@ -730,9 +732,42 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
       )
     : null;
 
+  const primaryPanel = hardwareFaults?.panels?.[0] ?? null;
+
   return (
     <div className="space-y-5">
       {fullscreenOverlay}
+
+      {primaryPanel && (
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Monitor className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="font-bold text-black">
+              Panel EDID: {primaryPanel.manufacturerName}
+            </span>
+            <span className="font-mono text-zinc-600">{primaryPanel.panelModel}</span>
+            {primaryPanel.diagonalInches && (
+              <span className="px-1.5 py-0.5 rounded bg-[#F8FAFC] border border-zinc-200 font-mono text-[10.5px] text-black">
+                {primaryPanel.diagonalInches.toFixed(1)}&quot;
+              </span>
+            )}
+            {primaryPanel.mfgYear && (
+              <span className="px-1.5 py-0.5 rounded bg-[#F8FAFC] border border-zinc-200 font-mono text-[10.5px] text-black">
+                Mfg {primaryPanel.mfgYear}{primaryPanel.mfgWeek ? ` Wk ${primaryPanel.mfgWeek}` : ""}
+              </span>
+            )}
+          </div>
+          {primaryPanel.replacementSuspected ? (
+            <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono text-[10px] font-bold">
+              INFO: LIKELY REPLACEMENT SCREEN ({primaryPanel.mfgYear} vs {primaryPanel.biosYear} BIOS)
+            </span>
+          ) : (
+            <span className="font-mono text-[10.5px] text-blue-700 font-semibold">
+              Original-Era Panel Verified
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
         <div>

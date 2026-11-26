@@ -84,6 +84,13 @@ pub fn build_archive_record(
             })
         });
 
+    let panel_edid_id = payload
+        .hardware_faults
+        .as_ref()
+        .and_then(|hf| hf.panels.first())
+        .map(|p| p.edid_fingerprint.trim().to_string())
+        .filter(|s| !s.is_empty());
+
     QcArchiveRecord {
         id: format!("{}_{}", cert_id, paths.generated_at.replace([' ', ':'], "_")),
         cert_id: cert_id.to_string(),
@@ -99,6 +106,7 @@ pub fn build_archive_record(
         ssd_serial,
         ssd_wear_pct,
         ram_gb,
+        panel_edid_id,
         pdf_path: paths.pdf_path.clone(),
         html_path: paths.html_path.clone(),
         json_path: paths.json_path.clone(),
@@ -167,6 +175,7 @@ pub fn compute_warranty_return_diff(
     current_ssd_serial: Option<&str>,
     current_ssd_wear: Option<u32>,
     current_ram_gb: Option<f64>,
+    current_panel_edid_id: Option<&str>,
 ) -> Option<WarrantyReturnDiff> {
     let sn = serial.trim();
     if sn.is_empty() || sn.eq_ignore_ascii_case("UNKNOWN") || sn.eq_ignore_ascii_case("To Be Filled By O.E.M.") {
@@ -226,6 +235,18 @@ pub fn compute_warranty_return_diff(
         }
     }
 
+    if let (Some(prev_panel), Some(curr_panel)) = (prev.panel_edid_id.as_deref(), current_panel_edid_id) {
+        let p = prev_panel.trim();
+        let c = curr_panel.trim();
+        if !p.is_empty() && !c.is_empty() && !p.eq_ignore_ascii_case(c) {
+            part_swap_suspected = true;
+            alerts.push(format!(
+                "DISPLAY PANEL EDID MISMATCH (Screen Swapped!): Sold with {} → Returned with {}",
+                p, c
+            ));
+        }
+    }
+
     let summary = if part_swap_suspected {
         format!(
             "WARRANTY ALERT: Previously tested on {} ({}) — suspected hardware swap detected!",
@@ -261,6 +282,7 @@ pub fn check_warranty_return_diff(
     current_ssd_serial: Option<&str>,
     current_ssd_wear: Option<u32>,
     current_ram_gb: Option<f64>,
+    current_panel_edid_id: Option<&str>,
 ) -> Option<WarrantyReturnDiff> {
     let records = list_archive(app);
     compute_warranty_return_diff(
@@ -270,6 +292,7 @@ pub fn check_warranty_return_diff(
         current_ssd_serial,
         current_ssd_wear,
         current_ram_gb,
+        current_panel_edid_id,
     )
 }
 
@@ -294,6 +317,7 @@ mod tests {
             ssd_serial: Some("S5GXNX0R123456".into()),
             ssd_wear_pct: Some(4),
             ram_gb: Some(16.0),
+            panel_edid_id: Some("AUO:B140HAN04.0:2021W14".into()),
             pdf_path: "a.pdf".into(),
             html_path: "a.html".into(),
             json_path: "a.json".into(),
@@ -307,6 +331,7 @@ mod tests {
             Some("S5GXNX0R123456"),
             Some(5),
             Some(16.0),
+            Some("AUO:B140HAN04.0:2021W14"),
         )
         .unwrap();
         assert!(!clean.part_swap_suspected);
@@ -319,11 +344,13 @@ mod tests {
             Some("CHEAP_OEM_SSD_001"),
             Some(18),
             Some(8.0),
+            Some("BOE:NV140FHM:2025W08"),
         )
         .unwrap();
         assert!(swapped.part_swap_suspected);
         assert!(swapped.alerts.iter().any(|a| a.contains("SSD SERIAL MISMATCH")));
         assert!(swapped.alerts.iter().any(|a| a.contains("RAM CAPACITY CHANGED")));
+        assert!(swapped.alerts.iter().any(|a| a.contains("DISPLAY PANEL EDID MISMATCH")));
         assert!(swapped.alerts.iter().any(|a| a.contains("Battery health dropped")));
     }
 }

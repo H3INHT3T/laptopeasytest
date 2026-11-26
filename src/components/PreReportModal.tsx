@@ -24,6 +24,7 @@ import type {
   ExportReportPayload,
   ExportedReportPaths,
   GpuStressResult,
+  HardwareFaultsReport,
   ModuleRecord,
   NetworkDiagnosticsReport,
   PerfBenchResult,
@@ -66,6 +67,7 @@ interface PreReportModalProps {
   vramResult?: VramTestResult | null;
   tortureResult?: PowerTortureResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
+  hardwareFaults?: HardwareFaultsReport | null;
   userbenchmarkComparison?: UserBenchmarkComparison | null;
 }
 
@@ -93,6 +95,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   vramResult,
   tortureResult,
   networkReport,
+  hardwareFaults,
   userbenchmarkComparison,
 }) => {
   const [profile, setProfile] = useState<ShopProfile>(shopProfile);
@@ -516,6 +519,20 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         : "VERIFIED",
     });
   }
+  if (hardwareFaults) {
+    const hfFail = hardwareFaults.criticalFaultCount > 0 || hardwareFaults.status === "fail";
+    const hfWarn = !hfFail && (hardwareFaults.warningFaultCount > 0 || hardwareFaults.pcieDowngradeCount > 0 || hardwareFaults.status === "warn");
+    const panel = hardwareFaults.panels[0];
+    const panelTag = panel
+      ? `${panel.manufacturerCode} ${panel.panelModel}${panel.mfgYear ? ` (${panel.mfgYear})` : ""}${panel.replacementSuspected ? " • INFO: Replaced" : ""}`
+      : "Panel N/A";
+    subsystemScores.push({
+      label: "Hardware Faults & Panel EDID",
+      scorePct: hfFail ? 15 : hfWarn ? 65 : 100,
+      metricText: `${hardwareFaults.deviceFaults.length} PnP err • ${hardwareFaults.pcieDowngradeCount} PCIe down • ${panelTag}`,
+      statusLabel: hfFail ? "FAIL" : hfWarn ? "WARN" : "PASS",
+    });
+  }
   if (networkReport) {
     const netPct =
       networkReport.verdict === "HEALTHY"
@@ -592,6 +609,14 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         if (networkReport.gatewayPingMs != null) out.push(["Ping", `${networkReport.gatewayPingMs.toFixed(1)} ms (${networkReport.packetLossPct.toFixed(0)}% loss)`]);
         out.push(["DNS", networkReport.dnsResolveOk ? "OK" : "FAIL"]);
       }
+      if (hardwareFaults) {
+        out.push(["PnP Faults", `${hardwareFaults.criticalFaultCount} critical / ${hardwareFaults.warningFaultCount} warn`]);
+        out.push(["PCIe Lanes", hardwareFaults.pcieDowngradeCount > 0 ? `${hardwareFaults.pcieDowngradeCount} downgrade(s)` : `Full width (${hardwareFaults.pcieLinks.length} links)`]);
+      }
+    } else if (id === "display" && hardwareFaults?.panels?.[0]) {
+      const p = hardwareFaults.panels[0];
+      out.push(["Panel EDID", `${p.manufacturerName} (${p.panelModel})`]);
+      if (p.mfgYear) out.push(["Panel Mfg", `${p.mfgYear}${p.mfgWeek ? ` Wk ${p.mfgWeek}` : ""}${p.replacementSuspected ? " (INFO: Replacement)" : ""}`]);
     } else if (id === "security" && securityReport) {
       out.push(["MDM", securityReport.mdmEnrolled === true ? "ENROLLED" : "Clean"]);
       if (securityReport.activationLocked != null) {
@@ -737,6 +762,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         networkReport: networkReport ?? null,
         cpuStress: cpuStressResult ?? null,
         cosmetic,
+        hardwareFaults: hardwareFaults ?? null,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);

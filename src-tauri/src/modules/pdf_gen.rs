@@ -284,7 +284,7 @@ impl PageBuilder {
             // Hairline footer rule
             self.line(MARGIN, 34.0, MARGIN + content_w, 34.0, 0.6, COL_RULE);
             let footer = format!(
-                "LaptopBench QC v2.7.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
+                "LaptopBench QC v2.8.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
                 self.cert_id, page_num
             );
             let _ = writeln!(
@@ -741,6 +741,21 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if !specs.reliability_notes.is_empty() {
             rows.push(("RELIABILITY NOTES", specs.reliability_notes.join(" | ")));
         }
+        if let Some(hf) = &payload.hardware_faults {
+            if let Some(pan) = hf.panels.first() {
+                let mut pstr = format!("{} ({})", pan.manufacturer_name, pan.panel_model);
+                if let Some(yr) = pan.mfg_year {
+                    pstr.push_str(&format!(" | Mfg {}", yr));
+                }
+                if pan.replacement_suspected {
+                    pstr.push_str(" | INFO: Likely replacement panel");
+                }
+                rows.push(("PANEL EDID", pstr));
+            }
+            if hf.critical_fault_count > 0 || hf.pcie_downgrade_count > 0 || hf.warning_fault_count > 0 {
+                rows.push(("HARDWARE FAULTS", hf.summary.clone()));
+            }
+        }
 
         for (idx, (k, v)) in rows.iter().enumerate() {
             let wrapped = wrap_text(v, 70);
@@ -1107,7 +1122,7 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     ));
-    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v2.7.0 protocol.", stage_count);
+    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v2.8.0 protocol.", stage_count);
     let notes_s = format!(
         "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
@@ -1328,7 +1343,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("LaptopBench QC v2.7.0"));
+        assert!(text.contains("LaptopBench QC v2.8.0"));
         assert!(text.contains("Created by Hein Htet Zaw"));
         assert!(text.contains("@ich8g92"));
         assert!(!text.contains("v2.1"));
@@ -1473,6 +1488,7 @@ mod tests {
             }),
             cpu_stress: None,
             cosmetic: None,
+            hardware_faults: None,
             output_dir: None,
         };
 

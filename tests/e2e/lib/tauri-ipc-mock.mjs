@@ -492,6 +492,46 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
       delete_qc_archive_entry: async () => 1,
       export_qc_archive: async () => (fixture.qcArchive || []).length,
       import_qc_archive: async () => 0,
+      scan_hardware_faults: async () =>
+        fixture.hardwareFaults || {
+          status: "pass",
+          platform: "Windows",
+          deviceFaults: [],
+          criticalFaultCount: 0,
+          warningFaultCount: 0,
+          pcieLinks: [
+            {
+              name: "Samsung PM9A1 NVMe SSD",
+              category: "NVMe",
+              currentWidth: 4,
+              maxWidth: 4,
+              currentGen: 4,
+              maxGen: 4,
+              status: "pass",
+              verdict: "FULL_WIDTH",
+              detail: "Full PCIe x4 lane width (Gen4 / Max Gen4) verified.",
+            },
+          ],
+          pcieDowngradeCount: 0,
+          panels: [
+            {
+              manufacturerCode: "AUO",
+              manufacturerName: "AU Optronics (AUO)",
+              panelModel: "B140HAN04.0",
+              serialNumber: "EDID-001",
+              mfgWeek: 18,
+              mfgYear: 2022,
+              biosYear: 2022,
+              diagonalInches: 14.0,
+              replacementSuspected: false,
+              disclosureNote: "Original-era panel date verified (2022 Mfg Wk 18).",
+              edidFingerprint: "AUO:B140HAN04.0:2022W18",
+            },
+          ],
+          replacementPanelNoted: false,
+          summary: "0 Device Manager faults • PCIe full width verified • Panel AUO (2022)",
+          plainSummary: "Zero hidden Device Manager faults (no Code 43/10), full PCIe lane widths verified, and display panel EDID matches chassis era.",
+        },
     };
 
     async function invoke(cmd, args = {}, _options = {}) {

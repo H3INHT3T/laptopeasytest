@@ -1090,6 +1090,8 @@ pub struct ExportReportPayload {
     pub cpu_stress: Option<CpuStressResult>,
     #[serde(default)]
     pub cosmetic: Option<CosmeticInspection>,
+    #[serde(default)]
+    pub hardware_faults: Option<HardwareFaultsReport>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1133,6 +1135,7 @@ pub struct QcArchiveRecord {
     pub ssd_serial: Option<String>,
     pub ssd_wear_pct: Option<u32>,
     pub ram_gb: Option<f64>,
+    pub panel_edid_id: Option<String>,
     pub pdf_path: String,
     pub html_path: String,
     pub json_path: String,
@@ -1411,6 +1414,71 @@ pub struct NetworkDiagnosticsReport {
     pub dns_resolve_ok: bool,
     pub packet_loss_pct: f64,
     pub verdict: String,
+    pub plain_summary: String,
+}
+
+// ============================================================================
+// Hidden Hardware Faults & Panel EDID Authenticity Contracts (v2.8.0)
+// ============================================================================
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct DeviceManagerFault {
+    pub name: String,
+    pub pnp_class: String,
+    pub device_id: String,
+    pub error_code: u32,
+    pub error_label: String,
+    pub severity: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct PcieLinkInfo {
+    pub name: String,
+    pub category: String,
+    pub current_width: Option<u32>,
+    pub max_width: Option<u32>,
+    pub current_gen: Option<u32>,
+    pub max_gen: Option<u32>,
+    pub status: TestStatus,
+    pub verdict: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct DisplayEdidInfo {
+    pub manufacturer_code: String,
+    pub manufacturer_name: String,
+    pub panel_model: String,
+    pub serial_number: String,
+    pub mfg_week: Option<u32>,
+    pub mfg_year: Option<u32>,
+    pub bios_year: Option<u32>,
+    pub diagonal_inches: Option<f32>,
+    pub replacement_suspected: bool,
+    pub disclosure_note: String,
+    pub edid_fingerprint: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct HardwareFaultsReport {
+    pub status: TestStatus,
+    pub platform: String,
+    pub device_faults: Vec<DeviceManagerFault>,
+    pub critical_fault_count: usize,
+    pub warning_fault_count: usize,
+    pub pcie_links: Vec<PcieLinkInfo>,
+    pub pcie_downgrade_count: usize,
+    pub panels: Vec<DisplayEdidInfo>,
+    pub replacement_panel_noted: bool,
+    pub summary: String,
     pub plain_summary: String,
 }
 

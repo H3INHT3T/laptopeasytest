@@ -9,6 +9,7 @@ import type {
   CpuStressResult,
   ErrorLogsReport,
   GpuStressResult,
+  HardwareFaultsReport,
   LiveTelemetrySnapshot,
   ModuleRecord,
   NetworkDiagnosticsReport,
@@ -166,6 +167,8 @@ export const App: React.FC = () => {
   const [tortureResult, setTortureResult] = useState<PowerTortureResult | null>(null);
   const [networkReport, setNetworkReport] = useState<NetworkDiagnosticsReport | null>(null);
   const [loadingNetwork, setLoadingNetwork] = useState(false);
+  const [hardwareFaults, setHardwareFaults] = useState<HardwareFaultsReport | null>(null);
+  const [loadingFaults, setLoadingFaults] = useState(false);
   const [userbenchmarkComparison, setUserbenchmarkComparison] = useState<UserBenchmarkComparison | null>(null);
   const [warrantyDiff, setWarrantyDiff] = useState<WarrantyReturnDiff | null>(null);
   const [expressQueue, setExpressQueue] = useState<{
@@ -637,10 +640,42 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  const fetchHardwareFaults = useCallback(async () => {
+    setLoadingFaults(true);
+    try {
+      const rep = await invoke<HardwareFaultsReport>("scan_hardware_faults");
+      setHardwareFaults(rep);
+      if (rep.status === "fail" || rep.status === "warn") {
+        setModules((prev) => {
+          const cur = prev.specs;
+          const nextStatus: TestStatus =
+            rep.status === "fail" || cur.status === "fail"
+              ? "fail"
+              : "warn";
+          const nextSummary = cur.summary
+            ? `${cur.summary} | ${rep.summary}`
+            : rep.summary;
+          const next = {
+            ...prev,
+            specs: { ...cur, status: nextStatus, summary: nextSummary },
+          };
+          modulesRef.current = next;
+          return next;
+        });
+      }
+      return rep;
+    } catch {
+      return null;
+    } finally {
+      setLoadingFaults(false);
+    }
+  }, []);
+
   const runAllAutoChecks = useCallback(async () => {
     setAutoRunning(true);
     await Promise.all([
       fetchSpecs(),
+      fetchHardwareFaults(),
       fetchSecurity(),
       fetchBattery(),
       fetchErrorLogs(30),
@@ -650,7 +685,7 @@ export const App: React.FC = () => {
       invoke("get_hardware_controls_status").catch(() => null),
     ]);
     setAutoRunning(false);
-  }, [fetchSpecs, fetchSecurity, fetchBattery, fetchErrorLogs, fetchSmart, fetchBiometricsHw, runNetworkDiagnostics]);
+  }, [fetchSpecs, fetchHardwareFaults, fetchSecurity, fetchBattery, fetchErrorLogs, fetchSmart, fetchBiometricsHw, runNetworkDiagnostics]);
 
   useEffect(() => {
     invoke<ShopProfile>("load_shop_profile").then(setShopProfile).catch(() => {});
@@ -666,10 +701,11 @@ export const App: React.FC = () => {
       currentSsdSerial: specs.disks[0]?.serialNumber ?? null,
       currentSsdWear: smartReport?.drives[0]?.wearPercent ?? null,
       currentRamGb: specs.totalRamGb,
+      currentPanelEdidId: hardwareFaults?.panels?.[0]?.edidFingerprint ?? null,
     })
       .then((diff) => setWarrantyDiff(diff ?? null))
       .catch(() => {});
-  }, [specs, batteryReport, smartReport]);
+  }, [specs, batteryReport, smartReport, hardwareFaults]);
 
   const cancelExpressAutoQc = useCallback(() => {
     expressCancelRef.current = true;
@@ -827,6 +863,9 @@ export const App: React.FC = () => {
     totalSteps,
     networkReport,
     loadingNetwork,
+    hardwareFaults,
+    loadingFaults,
+    onRefreshFaults: fetchHardwareFaults,
     onRunNetworkDiagnostics: runNetworkDiagnostics,
     onNetworkComplete: (rep) => {
       setNetworkReport(rep);
@@ -835,7 +874,10 @@ export const App: React.FC = () => {
         networkReport: rep,
       });
     },
-    onRefresh: fetchSpecs,
+    onRefresh: () => {
+      fetchSpecs();
+      fetchHardwareFaults();
+    },
     onNext: () => advanceFrom("specs"),
     onSkip: () => skipStep("specs"),
   };
@@ -1077,6 +1119,7 @@ export const App: React.FC = () => {
     vramResult,
     tortureResult,
     networkReport,
+    hardwareFaults,
     userbenchmarkComparison,
   };
 
@@ -1196,6 +1239,7 @@ export const App: React.FC = () => {
                 notes={modules.display.notes}
                 stepNumber={stepNumberOf("display")}
                 totalSteps={totalSteps}
+                hardwareFaults={hardwareFaults}
                 onVerdict={(st, sum, notes) => updateModule("display", st, sum, notes)}
                 onNext={() => advanceFrom("display")}
                 onSkip={() => skipStep("display")}

@@ -1,10 +1,16 @@
-# LaptopBench QC v2.7.0
+# LaptopBench QC v2.8.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.7.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a clean Novabench/OCCT-inspired **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) sequential step-by-step interface.
+**LaptopBench QC v2.8.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a clean Novabench/OCCT-inspired **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) sequential step-by-step interface.
 
-## What's New in v2.7.0 — Native HWiNFO64/LHM/PawnIO Sensor Bridge, Per-Core °C Strips, Complete Novabench UI Unification & Portable USB Build
+## What's New in v2.8.0 — Hidden Hardware Faults, PCIe Lane Audit & Display Panel EDID Authenticity
+
+- **Device Manager / PnP Fault Scanner (`hardware_faults.rs`):** Detects Windows Device Manager error codes (`Code 43` dead discrete GPU, `Code 10` failed Wi-Fi/audio start, `Code 12/31`, `Code 28` missing drivers) using Smart Shop Standard rules (critical hardware faults auto-FAIL Stage 01; missing drivers WARN).
+- **ASPM-Aware PCIe Lane Width & Speed Audit:** Inspects GPU & NVMe PCIe `CurrentLinkWidth` vs `MaxLinkWidth` (and `CurrentLinkSpeed` vs `MaxLinkSpeed`). Allows healthy idle Gen downclocking (ASPM) without false alarms, while catching physical lane downgrades (`x1`/`x2` instead of `x4`/`x8`/`x16`).
+- **Display Panel EDID Authenticity & Anti-Swap Fingerprint:** Reads native panel EDID (`AUO`, `BOE`, `LG Display`, `Samsung`, `Innolux`, `Sharp`, `Apple`), model code, diagonal size, and manufacture week/year directly inside Stage 01, Stage 06 (`DisplayTestView`), and Certificates — flagging likely replacement screens as a clean `INFO` buyer disclosure AND archiving the EDID fingerprint into `qc_archive.json` to catch swapped screens on warranty returns!
+
+## Highlights from v2.7.0 — Native HWiNFO64/LHM/PawnIO Sensor Bridge, Per-Core °C Strips, Complete Novabench UI Unification & Portable USB Build
 
 - **Pure Rust Multi-Bridge Windows Sensor Engine (`sensor_bridge.rs`):** Zero bundled WinRing0 (zero Windows Defender false positives). Auto-reads native **HWiNFO64 Shared Memory** (`Global\HWiNFO_SENS_SM2`, <0.5ms), **LibreHardwareMonitor local HTTP JSON** (`127.0.0.1:8085/data.json`) + WMI, and detects WHQL-signed **PawnIO** drivers alongside Dell/HP/Lenovo/ACPI OEM fallbacks.
 - **Per-Core °C Pill Strips & `Enable Sensors` Helper:** Live `C0`–`C31` core temperatures in both the expandable bottom `Sensors` dock and `Stress Lab`, plus a 1-click guided `Enable Sensors` dialog when a laptop's BIOS restricts standard reads.
@@ -98,6 +104,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.7.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v2.8.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

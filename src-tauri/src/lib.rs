@@ -4,9 +4,9 @@ mod types;
 
 use modules::{
     baselines, battery, biometrics, cpu_stress, error_logs, gpu_stress, hardware_controls,
-    keyboard_hook, network, perf_bench, power_torture, qc_archive, ram_test, raytracer, report,
-    security_audit, session, shop_history, simd_kernels, specs, storage, telemetry, usb_ports,
-    userbenchmark, vram_test,
+    hardware_faults, keyboard_hook, network, perf_bench, power_torture, qc_archive, ram_test,
+    raytracer, report, security_audit, session, shop_history, simd_kernels, specs, storage,
+    telemetry, usb_ports, userbenchmark, vram_test,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -17,7 +17,7 @@ use types::{
     BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample, BatterySagResult,
     BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
-    HardwareControlsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
+    HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
     PowerTortureResult, QcArchiveRecord, RamTestResult, SavedSessionPayload, SecurityAuditReport,
     ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, StorageBenchResult,
     StorageSmartReport, SystemSpecs, TestStatus, TouchscreenTestResult, UsbDeviceInfo,
@@ -552,6 +552,13 @@ fn list_qc_archive(app: AppHandle) -> Vec<QcArchiveRecord> {
 }
 
 #[tauri::command]
+async fn scan_hardware_faults() -> Result<HardwareFaultsReport, String> {
+    tauri::async_runtime::spawn_blocking(hardware_faults::scan_hardware_faults)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn check_warranty_return_diff(
     app: AppHandle,
     serial: String,
@@ -559,6 +566,7 @@ fn check_warranty_return_diff(
     current_ssd_serial: Option<String>,
     current_ssd_wear: Option<u32>,
     current_ram_gb: Option<f64>,
+    current_panel_edid_id: Option<String>,
 ) -> Option<WarrantyReturnDiff> {
     qc_archive::check_warranty_return_diff(
         &app,
@@ -567,6 +575,7 @@ fn check_warranty_return_diff(
         current_ssd_serial.as_deref(),
         current_ssd_wear,
         current_ram_gb,
+        current_panel_edid_id.as_deref(),
     )
 }
 
@@ -593,7 +602,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.7.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.8.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -899,6 +908,7 @@ pub fn run_self_test() -> Result<(), String> {
         )),
         cpu_stress: None,
         cosmetic: None,
+        hardware_faults: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -907,8 +917,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.7.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.7.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.8.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.8.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -975,6 +985,12 @@ pub fn run_self_test() -> Result<(), String> {
     let hw_ctrl = hardware_controls::get_hardware_controls_status();
     println!("[PASS] Hardware Controls ({}): {}", hw_ctrl.platform, hw_ctrl.summary);
 
+    let hw_faults = hardware_faults::scan_hardware_faults();
+    println!(
+        "[PASS] Hidden Hardware Faults & Panel EDID ({:?}): {}",
+        hw_faults.status, hw_faults.summary
+    );
+
     let mut cpu_buf = vec![0u64; 1024];
     let cd1 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
     let cd2 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
@@ -990,7 +1006,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.7.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.8.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -1056,6 +1072,7 @@ pub fn run() {
             delete_qc_archive_entry,
             export_qc_archive,
             import_qc_archive,
+            scan_hardware_faults,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

@@ -13,10 +13,11 @@ import {
   Usb,
   Wifi,
 } from "lucide-react";
-import type { NetworkDiagnosticsReport, SystemSpecs, TestStatus } from "../types";
+import type { HardwareFaultsReport, NetworkDiagnosticsReport, SystemSpecs, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
+import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
 
 interface SpecsViewProps {
   specs: SystemSpecs | null;
@@ -26,6 +27,9 @@ interface SpecsViewProps {
   totalSteps: number;
   networkReport?: NetworkDiagnosticsReport | null;
   loadingNetwork?: boolean;
+  hardwareFaults?: HardwareFaultsReport | null;
+  loadingFaults?: boolean;
+  onRefreshFaults?: () => Promise<HardwareFaultsReport | null>;
   onRunNetworkDiagnostics?: () => Promise<NetworkDiagnosticsReport | null>;
   onNetworkComplete?: (rep: NetworkDiagnosticsReport) => void;
   onRefresh: () => void;
@@ -53,6 +57,9 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
   totalSteps,
   networkReport = null,
   loadingNetwork = false,
+  hardwareFaults = null,
+  loadingFaults = false,
+  onRefreshFaults,
   onRunNetworkDiagnostics,
   onNetworkComplete,
   onRefresh,
@@ -176,6 +183,175 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Hidden Hardware Faults & Panel EDID Authenticity Audit (v2.8.0) */}
+          {hardwareFaults ? (
+            <div className="space-y-2.5">
+              <NovabenchScoreBar
+                scoreLabel="FAULTS"
+                scoreValue={
+                  hardwareFaults.criticalFaultCount > 0
+                    ? `${hardwareFaults.criticalFaultCount} FAIL`
+                    : hardwareFaults.warningFaultCount > 0 || hardwareFaults.pcieDowngradeCount > 0
+                    ? "WARN"
+                    : "0 ERR"
+                }
+                title="Hidden Hardware Faults, PCIe Lanes & Panel EDID"
+                takeaway={hardwareFaults.plainSummary}
+                percent={
+                  hardwareFaults.criticalFaultCount > 0
+                    ? 15
+                    : hardwareFaults.warningFaultCount > 0 || hardwareFaults.pcieDowngradeCount > 0
+                    ? 65
+                    : 100
+                }
+                medianLabel="Shop Hardware Integrity Target"
+                medianPercent={95}
+                badge={
+                  hardwareFaults.panels[0]
+                    ? `${hardwareFaults.panels[0].manufacturerCode}${
+                        hardwareFaults.panels[0].mfgYear ? ` ${hardwareFaults.panels[0].mfgYear}` : ""
+                      }${hardwareFaults.replacementPanelNoted ? " • INFO: Replaced" : ""}`
+                    : `${hardwareFaults.pcieLinks.length} PCIe Links`
+                }
+                monochrome={hardwareFaults.status !== "pass"}
+              />
+
+              <TechnicalDetailsDrawer
+                title="Device Manager Faults, PCIe Link Width & Display Panel EDID"
+                subtitle={`${hardwareFaults.deviceFaults.length} PnP error(s) • ${hardwareFaults.pcieLinks.length} PCIe link(s) • ${hardwareFaults.panels.length} panel EDID`}
+                defaultOpen={hardwareFaults.status !== "pass"}
+              >
+                <div className="space-y-3">
+                  {/* Device Manager PnP Faults */}
+                  <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[10.5px] font-bold uppercase text-black">
+                        Device Manager / PnP Health ({hardwareFaults.deviceFaults.length} error{hardwareFaults.deviceFaults.length === 1 ? "" : "s"})
+                      </span>
+                      {onRefreshFaults && (
+                        <button
+                          type="button"
+                          disabled={loadingFaults}
+                          onClick={() => onRefreshFaults()}
+                          className="text-[10.5px] font-mono font-bold text-blue-700 hover:underline cursor-pointer"
+                        >
+                          {loadingFaults ? "Scanning..." : "Re-scan"}
+                        </button>
+                      )}
+                    </div>
+                    {hardwareFaults.deviceFaults.length === 0 ? (
+                      <div className="text-xs text-zinc-600">
+                        Zero Device Manager error codes (no Code 43 dead GPU, Code 10 init failures, or Code 28 missing drivers).
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-zinc-100 text-xs">
+                        {hardwareFaults.deviceFaults.map((f, idx) => (
+                          <div key={idx} className="py-2 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-bold text-black">
+                                {f.name}{" "}
+                                <span className="font-mono text-[10px] text-zinc-500">[{f.pnpClass}]</span>
+                              </div>
+                              <div className="text-[11px] text-zinc-600">{f.errorLabel}</div>
+                            </div>
+                            <span
+                              className={`shrink-0 px-2 py-0.5 rounded font-mono text-[10px] font-bold uppercase ${
+                                f.severity === "critical"
+                                  ? "bg-black text-white"
+                                  : "border border-zinc-300 bg-[#F8FAFC] text-black"
+                              }`}
+                            >
+                              Code {f.errorCode} • {f.severity === "critical" ? "FAIL" : "WARN"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* PCIe Link Width & Gen Audit */}
+                  {hardwareFaults.pcieLinks.length > 0 && (
+                    <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2">
+                      <div className="font-mono text-[10.5px] font-bold uppercase text-black">
+                        PCIe Link Width &amp; Speed Audit (ASPM-Aware)
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {hardwareFaults.pcieLinks.map((p, idx) => (
+                          <div
+                            key={idx}
+                            className={`rounded-lg border p-2.5 text-xs ${
+                              p.verdict === "LANE_DOWNGRADE"
+                                ? "border-black bg-zinc-50"
+                                : "border-zinc-200 bg-[#F8FAFC]"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <strong className="text-black truncate">{p.name}</strong>
+                              <span
+                                className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  p.verdict === "LANE_DOWNGRADE"
+                                    ? "bg-black text-white"
+                                    : "bg-blue-50 text-blue-700"
+                                }`}
+                              >
+                                {p.currentWidth != null && p.maxWidth != null
+                                  ? `x${p.currentWidth} / x${p.maxWidth}`
+                                  : p.verdict}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-zinc-600 mt-1">{p.detail}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Display Panel EDID Authenticity */}
+                  {hardwareFaults.panels.length > 0 && (
+                    <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2">
+                      <div className="font-mono text-[10.5px] font-bold uppercase text-black">
+                        Display Panel EDID Hardware Identity
+                      </div>
+                      <div className="space-y-2">
+                        {hardwareFaults.panels.map((pan, idx) => (
+                          <div key={idx} className="rounded-lg border border-zinc-200 bg-[#F8FAFC] p-2.5 text-xs space-y-1">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className="font-bold text-black">
+                                {pan.manufacturerName} — <span className="font-mono">{pan.panelModel}</span>
+                              </span>
+                              <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                                {pan.diagonalInches && (
+                                  <span className="px-1.5 py-0.5 rounded bg-white border border-zinc-200 text-black">
+                                    {pan.diagonalInches.toFixed(1)}&quot;
+                                  </span>
+                                )}
+                                {pan.mfgYear && (
+                                  <span className="px-1.5 py-0.5 rounded bg-white border border-zinc-200 text-black">
+                                    Mfg {pan.mfgYear}{pan.mfgWeek ? ` Wk ${pan.mfgWeek}` : ""}
+                                  </span>
+                                )}
+                                {pan.replacementSuspected && (
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-bold">
+                                    INFO: REPLACEMENT PANEL
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-[11px] text-zinc-600">{pan.disclosureNote}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </TechnicalDetailsDrawer>
+            </div>
+          ) : loadingFaults ? (
+            <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-mono text-zinc-500">
+              Scanning Device Manager error codes, PCIe lane widths &amp; display panel EDID...
+            </div>
+          ) : null}
 
           {/* System, Motherboard, BIOS & CPU */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

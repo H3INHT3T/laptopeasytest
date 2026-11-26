@@ -1050,6 +1050,56 @@ export interface ExportReportPayload {
   networkReport?: NetworkDiagnosticsReport | null;
   cpuStress?: CpuStressResult | null;
   cosmetic?: CosmeticInspection | null;
+  hardwareFaults?: HardwareFaultsReport | null;
+}
+
+export interface DeviceManagerFault {
+  name: string;
+  pnpClass: string;
+  deviceId: string;
+  errorCode: number;
+  errorLabel: string;
+  severity: "critical" | "warn" | string;
+}
+
+export interface PcieLinkInfo {
+  name: string;
+  category: string;
+  currentWidth: number | null;
+  maxWidth: number | null;
+  currentGen: number | null;
+  maxGen: number | null;
+  status: TestStatus;
+  verdict: "FULL_WIDTH" | "IDLE_ASPM" | "LANE_DOWNGRADE" | "UNAVAILABLE" | string;
+  detail: string;
+}
+
+export interface DisplayEdidInfo {
+  manufacturerCode: string;
+  manufacturerName: string;
+  panelModel: string;
+  serialNumber: string;
+  mfgWeek: number | null;
+  mfgYear: number | null;
+  biosYear: number | null;
+  diagonalInches: number | null;
+  replacementSuspected: boolean;
+  disclosureNote: string;
+  edidFingerprint: string;
+}
+
+export interface HardwareFaultsReport {
+  status: TestStatus;
+  platform: string;
+  deviceFaults: DeviceManagerFault[];
+  criticalFaultCount: number;
+  warningFaultCount: number;
+  pcieLinks: PcieLinkInfo[];
+  pcieDowngradeCount: number;
+  panels: DisplayEdidInfo[];
+  replacementPanelNoted: boolean;
+  summary: string;
+  plainSummary: string;
 }
 
 export interface CosmeticPhoto {
@@ -1084,6 +1134,7 @@ export interface QcArchiveRecord {
   ssdSerial: string | null;
   ssdWearPct: number | null;
   ramGb: number | null;
+  panelEdidId?: string | null;
   pdfPath: string;
   htmlPath: string;
   jsonPath: string;

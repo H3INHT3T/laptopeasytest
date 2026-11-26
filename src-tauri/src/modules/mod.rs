@@ -5,6 +5,7 @@ pub mod cpu_stress;
 pub mod error_logs;
 pub mod gpu_stress;
 pub mod hardware_controls;
+pub mod hardware_faults;
 pub mod keyboard_hook;
 pub mod network;
 pub mod pdf_gen;
