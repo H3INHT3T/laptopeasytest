@@ -100,6 +100,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
     setProfile(shopProfile);
   }, [shopProfile, isOpen]);
 
+  const [leftTab, setLeftTab] = useState<"shop" | "cosmetic">("shop");
   const [customerOrSku, setCustomerOrSku] = useState("");
   const [technicianNotes, setTechnicianNotes] = useState("");
   const [cosmetic, setCosmetic] = useState<CosmeticInspection>({
@@ -748,7 +749,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-white border border-black rounded-[2px] w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-white border border-zinc-200 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Top Modal Header */}
         <div className="px-5 py-3.5 bg-black text-white flex items-center justify-between border-b border-zinc-800">
           <div>
@@ -769,12 +770,33 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
 
         {/* 2-Column Split: Form Controls (Left) + Live Certificate Preview (Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 overflow-y-auto divide-y lg:divide-y-0 lg:divide-x divide-zinc-300">
-          {/* Left Form */}
-          <div className="lg:col-span-5 p-5 space-y-3.5 bg-[#FAFAFA]">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              Certificate Metadata &amp; Shop Identity
+          {/* Left Form (Clean 2-Tab Split: Shop & Notes | Cosmetic & Photos) */}
+          <div className="lg:col-span-5 p-5 space-y-3.5 bg-[#FAFAFA] overflow-y-auto">
+            <div className="grid grid-cols-2 rounded-xl border border-zinc-200 bg-white p-1 gap-1">
+              <button
+                type="button"
+                onClick={() => setLeftTab("shop")}
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  leftTab === "shop" ? "bg-blue-600 text-white" : "text-zinc-600 hover:text-black"
+                }`}
+              >
+                01. Shop &amp; Notes
+              </button>
+              <button
+                type="button"
+                onClick={() => setLeftTab("cosmetic")}
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  leftTab === "cosmetic" ? "bg-blue-600 text-white" : "text-zinc-600 hover:text-black"
+                }`}
+              >
+                <span>02. Cosmetic &amp; Photos</span>
+                <span className={`font-mono text-[10px] px-1.5 rounded ${leftTab === "cosmetic" ? "bg-white/20 text-white" : "bg-zinc-100 text-black"}`}>
+                  {cosmetic.grade.split(" ")[0]} • {cosmetic.photos.length}/4
+                </span>
+              </button>
             </div>
 
+            {leftTab === "shop" ? (
             <div className="space-y-3">
               <div>
                 <label className="block font-mono text-[10px] font-bold uppercase text-black mb-1">
@@ -785,7 +807,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   value={profile.shopName}
                   onChange={(e) => setProfile((p) => ({ ...p, shopName: e.target.value }))}
                   placeholder="e.g. ProTech Laptop Store"
-                  className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-1.5 text-xs text-black"
+                  className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-1.5 text-xs text-black"
                 />
               </div>
               <div>
@@ -797,7 +819,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   value={profile.technicianName}
                   onChange={(e) => setProfile((p) => ({ ...p, technicianName: e.target.value }))}
                   placeholder="e.g. Hein Htet Zaw"
-                  className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-1.5 text-xs text-black"
+                  className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-1.5 text-xs text-black"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2.5">
@@ -810,14 +832,14 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                     value={customerOrSku}
                     onChange={(e) => setCustomerOrSku(e.target.value)}
                     placeholder="SKU-2026-041"
-                    className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+                    className="w-full bg-white border border-zinc-200 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                   />
                 </div>
                 <div>
                   <label className="block font-mono text-[10px] font-bold uppercase text-black mb-1">
                     Shop Logo
                   </label>
-                  <label className="cursor-pointer flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-[2px] bg-white border border-zinc-300 hover:border-blue-600 font-mono text-[11px] font-bold text-black">
+                  <label className="cursor-pointer flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-zinc-200 hover:border-blue-600 font-mono text-[11px] font-bold text-black">
                     <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
                     {profile.logoDataUrl ? "Change" : "Upload"}
                     <input type="file" accept="image/png,image/jpeg" onChange={handleLogoUpload} className="hidden" />
@@ -830,16 +852,34 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   Technician Remarks
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={technicianNotes}
                   onChange={(e) => setTechnicianNotes(e.target.value)}
                   placeholder="e.g. Clean Grade A unit, thermal paste verified, original adapter tested."
-                  className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-1.5 text-xs text-black"
+                  className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-1.5 text-xs text-black"
                 />
               </div>
 
+              <div className="flex items-center justify-between gap-2 bg-white border border-zinc-200 rounded-xl px-3 py-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-[9.5px] uppercase text-zinc-500">Export Directory</div>
+                  <div className="text-[11px] text-black truncate font-mono">
+                    {profile.defaultOutputDir || "Documents/LaptopBenchQC/Reports"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleChooseFolder}
+                  className="shrink-0 px-2.5 py-1 rounded-lg border border-black bg-white hover:bg-zinc-100 font-mono text-[10px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
+                >
+                  <FolderOpen className="w-3 h-3" /> Browse
+                </button>
+              </div>
+            </div>
+            ) : (
+            <div className="space-y-3">
               {/* Physical & Cosmetic Condition + Photo Evidence */}
-              <div className="rounded-lg border border-zinc-200 bg-white p-3 space-y-2.5">
+              <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-[10px] font-bold uppercase text-black">
                     Physical &amp; Cosmetic Grade
@@ -850,7 +890,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                         key={g}
                         type="button"
                         onClick={() => setCosmetic((c) => ({ ...c, grade: g }))}
-                        className={`px-1.5 py-0.5 rounded font-mono text-[9.5px] font-bold border cursor-pointer ${
+                        className={`px-2 py-0.5 rounded-md font-mono text-[10px] font-bold border cursor-pointer ${
                           cosmetic.grade === g
                             ? "bg-blue-600 border-blue-600 text-white"
                             : "bg-white border-zinc-200 text-zinc-700 hover:border-black"
@@ -862,7 +902,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+                <div className="grid grid-cols-2 gap-1.5 text-[11px]">
                   {(
                     [
                       ["chassisOk", "Chassis / Lid OK"],
@@ -875,25 +915,38 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   ).map(([key, label]) => (
                     <label
                       key={key}
-                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-zinc-200 bg-[#F8FAFC] cursor-pointer"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-[#F8FAFC] cursor-pointer"
                     >
                       <input
                         type="checkbox"
                         checked={cosmetic[key]}
                         onChange={(e) => setCosmetic((c) => ({ ...c, [key]: e.target.checked }))}
-                        className="w-3 h-3 accent-blue-600"
+                        className="w-3.5 h-3.5 accent-blue-600"
                       />
                       <span className="truncate text-black font-medium">{label}</span>
                     </label>
                   ))}
                 </div>
 
+                <div>
+                  <label className="block font-mono text-[10px] font-bold uppercase text-zinc-500 mb-1">
+                    Cosmetic Notes
+                  </label>
+                  <input
+                    type="text"
+                    value={cosmetic.notes}
+                    onChange={(e) => setCosmetic((c) => ({ ...c, notes: e.target.value }))}
+                    placeholder="e.g. Micro-scuff on bottom cover, screen spotless"
+                    className="w-full bg-[#F8FAFC] border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-black"
+                  />
+                </div>
+
                 <div className="flex items-center justify-between gap-2 pt-1">
-                  <span className="font-mono text-[9.5px] text-zinc-500">
+                  <span className="font-mono text-[10px] text-zinc-500">
                     Condition Photos ({cosmetic.photos.length}/4)
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <label className="cursor-pointer px-2 py-1 rounded border border-zinc-300 bg-white hover:border-blue-600 font-mono text-[10px] font-bold text-black inline-flex items-center gap-1">
+                    <label className="cursor-pointer px-2.5 py-1 rounded-lg border border-zinc-200 bg-white hover:border-blue-600 font-mono text-[10px] font-bold text-black inline-flex items-center gap-1">
                       <ImageIcon className="w-3 h-3 text-blue-600" />
                       Add Photo
                       <input
@@ -906,7 +959,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                     <button
                       type="button"
                       onClick={handleWebcamSnap}
-                      className="px-2 py-1 rounded border border-zinc-300 bg-white hover:border-blue-600 font-mono text-[10px] font-bold text-black inline-flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg border border-zinc-200 bg-white hover:border-blue-600 font-mono text-[10px] font-bold text-black inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Camera className="w-3 h-3 text-blue-600" />
                       Snap
@@ -917,8 +970,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                 {cosmetic.photos.length > 0 && (
                   <div className="grid grid-cols-4 gap-1.5">
                     {cosmetic.photos.map((ph, idx) => (
-                      <div key={idx} className="relative group border border-zinc-200 rounded overflow-hidden">
-                        <img src={ph.dataUrl} alt={ph.label} className="w-full h-12 object-cover" />
+                      <div key={idx} className="relative group border border-zinc-200 rounded-lg overflow-hidden">
+                        <img src={ph.dataUrl} alt={ph.label} className="w-full h-14 object-cover" />
                         <button
                           type="button"
                           onClick={() =>
@@ -937,23 +990,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   </div>
                 )}
               </div>
-
-              <div className="flex items-center justify-between gap-2 bg-white border border-zinc-300 rounded-[2px] px-3 py-2">
-                <div className="min-w-0">
-                  <div className="font-mono text-[9.5px] uppercase text-zinc-500">Export Directory</div>
-                  <div className="text-[11px] text-black truncate font-mono">
-                    {profile.defaultOutputDir || "Documents/LaptopBenchQC/Reports"}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleChooseFolder}
-                  className="shrink-0 px-2.5 py-1 rounded-[2px] border border-black bg-white hover:bg-zinc-100 font-mono text-[10px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
-                >
-                  <FolderOpen className="w-3 h-3" /> Browse
-                </button>
-              </div>
             </div>
+            )}
 
             {error && (
               <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>

@@ -15,6 +15,7 @@ pub mod ram_test;
 pub mod raytracer;
 pub mod report;
 pub mod security_audit;
+pub mod sensor_bridge;
 pub mod session;
 pub mod shop_history;
 pub mod simd_kernels;

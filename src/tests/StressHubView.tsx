@@ -639,6 +639,27 @@ export const StressHubView: React.FC<StressHubViewProps> = ({
           </div>
         </div>
 
+        {/* Per-Core Live Temperature Pill Strip */}
+        {(telemetry?.perCoreTempsC?.length ?? 0) > 0 && (
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] px-3.5 py-2 flex items-center gap-1.5 flex-wrap font-mono text-[11px] tabular-nums">
+            <span className="text-[10px] font-bold uppercase text-zinc-500 mr-1">Per-Core °C:</span>
+            {telemetry!.perCoreTempsC!.map((t, i) => (
+              <span
+                key={i}
+                className={`px-2 py-0.5 rounded-md border ${
+                  t >= thermalCutoff
+                    ? "bg-black border-black text-white font-bold"
+                    : t >= 82
+                    ? "bg-blue-50 border-blue-600 text-blue-700 font-bold"
+                    : "bg-white border-zinc-200 text-black"
+                }`}
+              >
+                C{i}: {t.toFixed(0)}°
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Dual Live Oscilloscope Graphs (Performance + Thermal) */}
         {(perfPoints.length > 1 || tempPoints.length > 1) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pt-1">

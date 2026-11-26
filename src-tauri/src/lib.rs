@@ -593,7 +593,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.6.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.7.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -804,12 +804,19 @@ pub fn run_self_test() -> Result<(), String> {
         gpu_temp_available: true,
         power_watts_available: false,
         temp_source: "SelfTest".into(),
+        per_core_temps_c: vec![94.0, 96.0],
+        pawnio_installed: false,
     };
     match telemetry::TelemetryReader::is_thermal_safe(&hot_snap, 95.0, 92.0) {
         telemetry::ThermalSafetyCheck::CutoffTriggered { .. } => {}
         other => return Err(format!("Expected CutoffTriggered thermal check, got {:?}", other)),
     }
     println!("[PASS] Thermal Cutoff Bounds (GPU 75-92C / CPU 80-95C, TelemetryReader::is_thermal_safe verified)");
+    let pawnio_state = modules::sensor_bridge::is_pawnio_driver_installed();
+    println!(
+        "[PASS] Sensor Bridge (HWiNFO64 SharedMem + LHM HTTP :8085 + PawnIO WHQL installed={})",
+        pawnio_state
+    );
 
     // 8. Cinebench-style 3D Path-Tracer smoke render
     let cancel_false = Arc::new(AtomicBool::new(false));
@@ -900,8 +907,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.6.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.6.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.7.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.7.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -983,7 +990,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.6.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.7.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 

@@ -36,6 +36,8 @@ import { LiveChart } from "../components/LiveChart";
 import { BaselineCard } from "../components/BaselineCard";
 import { EnvironmentGuard } from "../components/EnvironmentGuard";
 import { EngineeringConsole, ThresholdAuditTable, type ThresholdAuditRow } from "../components/EngineeringConsole";
+import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface GpuStressViewProps {
   telemetry: LiveTelemetrySnapshot | null;
@@ -455,7 +457,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
       <EnvironmentGuard telemetry={telemetry} requireAc={true} />
 
       {/* 3-Tab Architectural Mode Switcher */}
-      <div className="grid grid-cols-1 md:grid-cols-3 border border-zinc-300 divide-y md:divide-y-0 md:divide-x divide-zinc-300 rounded-[2px] overflow-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-3 border border-zinc-200 divide-y md:divide-y-0 md:divide-x divide-zinc-200 rounded-xl overflow-hidden bg-white">
         <button
           disabled={running}
           onClick={() => setTab("furmark")}
@@ -1124,11 +1126,78 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
         </div>
       )}
 
-      <ThresholdAuditTable
-        rows={activeAuditRows}
-        plainSummary="Verifies GPU thermal cutoffs, shader/VRAM bit accuracy, throttling behavior, and AC adapter power delivery."
-      />
-      <EngineeringConsole lines={consoleLog} />
+      {!running && ((tab === "furmark" && result) || (tab === "vram" && vramResult) || (tab === "torture" && tortureResult)) && (
+        <NovabenchScoreBar
+          scoreLabel={tab === "furmark" ? "3D FPS" : tab === "vram" ? "VRAM" : "POWER"}
+          scoreValue={
+            tab === "furmark" && result
+              ? `${result.avgFps.toFixed(0)} FPS`
+              : tab === "vram" && vramResult
+              ? vramResult.errorsFound === 0
+                ? "0 ERR"
+                : `${vramResult.errorsFound} ERR`
+              : tortureResult?.durabilityGrade ?? "OK"
+          }
+          title={
+            tab === "furmark" && result
+              ? `3D Burn-In — ${result.adapterName}`
+              : tab === "vram" && vramResult
+              ? `VRAM Integrity — ${vramResult.totalGbVerified.toFixed(1)} GB Verified`
+              : `Combined Power Torture — Grade ${tortureResult?.durabilityGrade ?? "—"}`
+          }
+          takeaway={
+            tab === "furmark" && result
+              ? result.plainSummary || result.summary
+              : tab === "vram" && vramResult
+              ? vramResult.plainSummary || vramResult.summary
+              : tortureResult?.plainSummary || tortureResult?.summary || ""
+          }
+          percent={
+            tab === "furmark" && result
+              ? result.baseline.percentOfNormal
+              : tab === "vram" && vramResult
+              ? vramResult.errorsFound > 0
+                ? 15
+                : vramResult.baseline.percentOfNormal
+              : tortureResult?.thermalCutoffTriggered || tortureResult?.batteryDrainWhilePlugged
+              ? 35
+              : tortureResult?.baseline.percentOfNormal ?? 90
+          }
+          medianLabel="Expected Hardware Baseline"
+          medianPercent={85}
+          badge={
+            tab === "furmark" && result
+              ? `${result.artifactErrors ?? 0} Artifacts`
+              : tab === "vram" && vramResult
+              ? `${vramResult.avgBandwidthGbS.toFixed(1)} GB/s`
+              : tortureResult?.batteryDrainWhilePlugged
+              ? "AC Drain Alert"
+              : "AC Stable"
+          }
+          monochrome={
+            (tab === "furmark" && Boolean(result?.thermalCutoffTriggered || (result?.artifactErrors ?? 0) > 0)) ||
+            (tab === "vram" && Boolean(vramResult?.thermalCutoffTriggered || (vramResult?.errorsFound ?? 0) > 0)) ||
+            (tab === "torture" && Boolean(tortureResult?.thermalCutoffTriggered || tortureResult?.batteryDrainWhilePlugged))
+          }
+        />
+      )}
+
+      {(activeAuditRows.length > 0 || consoleLog.length > 0) && (
+        <TechnicalDetailsDrawer
+          title="Technical Threshold Audit & Console Log"
+          summary={`${activeAuditRows.length} checks • ${consoleLog.length} log entries`}
+        >
+          <div className="space-y-3">
+            {activeAuditRows.length > 0 && (
+              <ThresholdAuditTable
+                rows={activeAuditRows}
+                plainSummary="Verifies GPU thermal cutoffs, shader/VRAM bit accuracy, throttling behavior, and AC adapter power delivery."
+              />
+            )}
+            {consoleLog.length > 0 && <EngineeringConsole lines={consoleLog} />}
+          </div>
+        </TechnicalDetailsDrawer>
+      )}
 
       <StepActionBar
         stepNumber={stepNumber}

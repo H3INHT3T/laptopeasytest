@@ -3,6 +3,7 @@ import { AlertTriangle, Camera, CheckCircle2, Mic, Play, RotateCcw, Square, Volu
 import type { TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface MediaTestViewProps {
   status: TestStatus;
@@ -450,7 +451,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Webcam Card */}
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm font-bold text-black">
               <Camera className="w-4 h-4 text-blue-600" /> Webcam Preview &amp; Stability
@@ -540,7 +541,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
         </div>
 
         {/* Microphone Card */}
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3 flex flex-col justify-between">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-3 flex flex-col justify-between">
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-bold text-black">
@@ -656,12 +657,12 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
       </div>
 
       {/* Plain-Language Buyer Summary */}
-      <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
-          What This Means for Long-Term Use
-        </div>
+      <TechnicalDetailsDrawer
+        title="Optics & Acoustic Buyer Summary"
+        summary={snrDb != null ? `Focus: ${focusRating} • Mic SNR: ${snrDb} dB` : `Focus: ${focusRating} • ${snrLabel}`}
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-[11px]">
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
+          <div className="rounded-lg border border-zinc-200 bg-[#F8FAFC] p-2.5">
             <div className="font-mono text-[10px] font-bold uppercase text-black">Webcam Stream &amp; Optics</div>
             <div className="text-zinc-600 mt-0.5">
               {camActive
@@ -671,7 +672,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
                 : "Start the camera preview to verify smooth video frames, autofocus sharpness, and open privacy shutter."}
             </div>
           </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
+          <div className="rounded-lg border border-zinc-200 bg-[#F8FAFC] p-2.5">
             <div className="font-mono text-[10px] font-bold uppercase text-black">Microphone Clarity &amp; SNR</div>
             <div className="text-zinc-600 mt-0.5">
               {snrDb != null
@@ -680,9 +681,9 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             </div>
           </div>
         </div>
-      </div>
+      </TechnicalDetailsDrawer>
 
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-3">
         <input
           type="text"
           value={notes}

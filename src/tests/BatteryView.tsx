@@ -28,6 +28,7 @@ import {
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 import { LiveChart } from "../components/LiveChart";
+import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
 
 interface BatteryViewProps {
   report: BatteryHealthReport | null;
@@ -283,7 +284,31 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 border border-zinc-300 divide-x divide-y md:divide-y-0 divide-zinc-200 bg-white font-mono tabular-nums">
+          <NovabenchScoreBar
+            scoreLabel="HEALTH"
+            scoreValue={report.healthPercent != null ? `${report.healthPercent.toFixed(0)}%` : "OK"}
+            title={`Battery Health — ${report.manufacturer} (${report.chemistry})`}
+            takeaway={
+              report.healthPercent != null
+                ? report.healthPercent >= 80
+                  ? `Healthy battery holding ${report.healthPercent.toFixed(1)}% of original factory capacity (${report.cycleCount ?? "—"} cycles).`
+                  : `Noticeable battery wear (${report.healthPercent.toFixed(1)}% remaining). Plan for replacement if long unplugged runtime is required.`
+                : "Battery detected and reporting live charge telemetry."
+            }
+            percent={report.healthPercent ?? 85}
+            medianLabel="Healthy Resale Threshold"
+            medianPercent={80}
+            badge={
+              dischargeResult
+                ? `Discharge: ${dischargeResult.verdict}`
+                : report.cycleCount != null
+                ? `${report.cycleCount} Cycles`
+                : undefined
+            }
+            monochrome={(report.healthPercent ?? 100) < 75 || dischargeResult?.verdict === "ABNORMAL"}
+          />
+
+          <div className="grid grid-cols-2 md:grid-cols-4 rounded-xl border border-zinc-200 overflow-hidden divide-x divide-y md:divide-y-0 divide-zinc-200 bg-white font-mono tabular-nums">
             <div className="p-3.5">
               <div className="text-[9.5px] uppercase text-zinc-500 font-bold">Battery Health</div>
               <div className="text-2xl font-black mt-0.5 text-blue-700">
@@ -324,7 +349,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
           </div>
 
           {/* Two-Phase Battery Discharge Normality Test (R3) */}
-          <div className="rounded-[2px] border border-black bg-white p-4 space-y-3">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="text-xs font-black uppercase tracking-wider text-black flex items-center gap-1.5">

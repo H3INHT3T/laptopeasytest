@@ -1,10 +1,17 @@
-# LaptopBench QC v2.6.0
+# LaptopBench QC v2.7.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.6.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a clean Novabench/OCCT-inspired **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) sequential step-by-step interface.
+**LaptopBench QC v2.7.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a clean Novabench/OCCT-inspired **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) sequential step-by-step interface.
 
-## What's New in v2.6.0 — Express Auto-QC, Cosmetic Grading & Photos, Warranty Return-Unit Archive & OEM Thermal Sensors
+## What's New in v2.7.0 — Native HWiNFO64/LHM/PawnIO Sensor Bridge, Per-Core °C Strips, Complete Novabench UI Unification & Portable USB Build
+
+- **Pure Rust Multi-Bridge Windows Sensor Engine (`sensor_bridge.rs`):** Zero bundled WinRing0 (zero Windows Defender false positives). Auto-reads native **HWiNFO64 Shared Memory** (`Global\HWiNFO_SENS_SM2`, <0.5ms), **LibreHardwareMonitor local HTTP JSON** (`127.0.0.1:8085/data.json`) + WMI, and detects WHQL-signed **PawnIO** drivers alongside Dell/HP/Lenovo/ACPI OEM fallbacks.
+- **Per-Core °C Pill Strips & `Enable Sensors` Helper:** Live `C0`–`C31` core temperatures in both the expandable bottom `Sensors` dock and `Stress Lab`, plus a 1-click guided `Enable Sensors` dialog when a laptop's BIOS restricts standard reads.
+- **Complete Novabench Visual Unification:** Every heavy inner view (`Battery`, `RAM`, `GPU`, `Camera/Mic`, and the 2-tab `PreReportModal`) now matches the clean, low-text Novabench/OCCT aesthetic with top `NovabenchScoreBar` banners and collapsible `TechnicalDetailsDrawer` consoles.
+- **Zero-Confusion `v2.7.0` Delivery:** Version `v2.7.0` displayed directly in the app window title bar, plus a zero-install **Portable USB `.exe`** published alongside the Windows Setup `.exe`, `.msi`, and macOS Universal `.dmg`.
+
+## Highlights from v2.6.0 — Express Auto-QC, Cosmetic Grading & Photos, Warranty Return-Unit Archive & OEM Thermal Sensors
 
 - **1-Click Express Auto-QC Queue (`Fast Intake 2m` vs `Deep Resale QC 8m`)** — Runs Specs, Network, BIOS/Security, Battery, Crash Logs, SSD SMART + Direct-IO, RAM/CPU/GPU stress, and Hardware Controls automatically in one queue, then jumps directly to human-interactive stages.
 - **Physical & Cosmetic Grading + Up to 4 Condition Photos** — Grade units (`A+ Mint` / `A Clean` / `B Minor Wear` / `C Heavy Wear`), toggle 6 physical checks (`Chassis`, `Screen Coating`, `Hinges`, `Palmrest`, `Screws/Seals`, `OEM Charger`), and attach photos via File Upload or Webcam Snapshot straight into exported HTML/PDF Certificates.
@@ -91,6 +98,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.6.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v2.7.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

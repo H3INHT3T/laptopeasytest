@@ -628,6 +628,9 @@ pub struct LiveTelemetrySnapshot {
     pub gpu_temp_available: bool,
     pub power_watts_available: bool,
     pub temp_source: String,
+    // v2.7.0 Per-Core Thermal Array & PawnIO WHQL Sensor Bridge Status
+    pub per_core_temps_c: Vec<f32>,
+    pub pawnio_installed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

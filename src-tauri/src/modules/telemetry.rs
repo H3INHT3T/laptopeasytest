@@ -342,6 +342,7 @@ impl TelemetryReader {
         let mut cpu_clock_mhz = self.sys.cpus().first().map(|c| c.frequency()).unwrap_or(0);
 
         let mut cpu_temp_c: Option<f32> = None;
+        let mut per_core_temps_c: Vec<f32> = Vec::new();
         let mut gpu_temp_c: Option<f32> = None;
         #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
         let mut gpu_load_pct: Option<f32> = None;
@@ -361,6 +362,12 @@ impl TelemetryReader {
                 match classify_sysinfo_component_temp(comp.label(), t) {
                     ClassifiedComponentTemp::Cpu(ct) => {
                         cpu_temp_c = Some(cpu_temp_c.map_or(ct, |p| p.max(ct)));
+                        let lbl = comp.label().to_lowercase();
+                        if (lbl.contains("core") || lbl.contains("pacc") || lbl.contains("eacc") || lbl.contains("tdie"))
+                            && per_core_temps_c.len() < 32
+                        {
+                            per_core_temps_c.push((ct * 10.0).round() / 10.0);
+                        }
                     }
                     ClassifiedComponentTemp::Gpu(gt) => {
                         gpu_temp_c = Some(gpu_temp_c.map_or(gt, |p| p.max(gt)));
@@ -424,26 +431,61 @@ impl TelemetryReader {
                 }
             }
 
-            // Tier C1: Throttled LibreHardwareMonitor / OpenHardwareMonitor WMI bridge
-            if let Some((ct, cp, fr, gt)) =
-                windows_native::read_lhm_wmi_sensors_throttled(&mut self.lhm_available)
-            {
-                sensor_source = "Native + LHM/OHM Bridge".to_string();
-                if let Some(c) = ct {
+            // Tier B2: Pure Rust Fast Sensor Bridges (HWiNFO64 SharedMem <0.5ms -> LHM HTTP :8085)
+            if let Some(bridge) = crate::modules::sensor_bridge::probe_fast_sensor_bridges() {
+                sensor_source = bridge.source_label.clone();
+                if let Some(c) = bridge.cpu_temp_c {
                     cpu_temp_c = Some(c);
-                    raw_temp_source = "LHM/OHM WMI".to_string();
+                    raw_temp_source = bridge.source_label.clone();
                 }
-                if cp.is_some() {
-                    cpu_power_w = cp;
+                if !bridge.per_core_temps_c.is_empty() {
+                    per_core_temps_c = bridge.per_core_temps_c;
                 }
-                if fr.is_some() {
-                    fan_rpm = fr;
+                if bridge.cpu_power_w.is_some() {
+                    cpu_power_w = bridge.cpu_power_w;
+                }
+                if bridge.fan_rpm.is_some() {
+                    fan_rpm = bridge.fan_rpm;
                 }
                 if gpu_temp_c.is_none() {
-                    if let Some(g) = gt {
+                    if let Some(g) = bridge.gpu_temp_c {
                         gpu_temp_c = Some(g);
                         if raw_temp_source.is_empty() {
+                            raw_temp_source = bridge.source_label.clone();
+                        }
+                    }
+                }
+                if gpu_power_w.is_none() && bridge.gpu_power_w.is_some() {
+                    gpu_power_w = bridge.gpu_power_w;
+                }
+            }
+
+            // Tier C1: Throttled LibreHardwareMonitor / OpenHardwareMonitor WMI bridge (only if still missing core sensors)
+            if cpu_temp_c.is_none() || fan_rpm.is_none() {
+                if let Some((ct, cp, fr, gt)) =
+                    windows_native::read_lhm_wmi_sensors_throttled(&mut self.lhm_available)
+                {
+                    if sensor_source == "OS Native" || sensor_source.starts_with("Windows PDH") {
+                        sensor_source = "Native + LHM/OHM Bridge".to_string();
+                    }
+                    if cpu_temp_c.is_none() {
+                        if let Some(c) = ct {
+                            cpu_temp_c = Some(c);
                             raw_temp_source = "LHM/OHM WMI".to_string();
+                        }
+                    }
+                    if cpu_power_w.is_none() && cp.is_some() {
+                        cpu_power_w = cp;
+                    }
+                    if fan_rpm.is_none() && fr.is_some() {
+                        fan_rpm = fr;
+                    }
+                    if gpu_temp_c.is_none() {
+                        if let Some(g) = gt {
+                            gpu_temp_c = Some(g);
+                            if raw_temp_source.is_empty() {
+                                raw_temp_source = "LHM/OHM WMI".to_string();
+                            }
                         }
                     }
                 }
@@ -482,6 +524,8 @@ impl TelemetryReader {
                 &raw_temp_source,
             );
 
+        let pawnio_installed = crate::modules::sensor_bridge::is_pawnio_driver_installed();
+
         let snap = LiveTelemetrySnapshot {
             cpu_usage_pct,
             cpu_clock_mhz,
@@ -499,6 +543,8 @@ impl TelemetryReader {
             gpu_temp_available,
             power_watts_available,
             temp_source,
+            per_core_temps_c,
+            pawnio_installed,
         };
         self.last_snapshot = Some((Instant::now(), include_battery, snap.clone()));
         snap

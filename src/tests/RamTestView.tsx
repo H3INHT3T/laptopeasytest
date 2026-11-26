@@ -19,6 +19,8 @@ import { LiveChart } from "../components/LiveChart";
 import { BaselineCard } from "../components/BaselineCard";
 import { EnvironmentGuard } from "../components/EnvironmentGuard";
 import { EngineeringConsole, ThresholdAuditTable, type ThresholdAuditRow } from "../components/EngineeringConsole";
+import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface RamTestViewProps {
   telemetry: LiveTelemetrySnapshot | null;
@@ -287,7 +289,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
         )
       )}
 
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-4">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div>
             <label className="block font-mono text-[10px] font-bold uppercase text-zinc-600 mb-1">
@@ -449,6 +451,23 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
             </div>
           )}
 
+          <NovabenchScoreBar
+            scoreLabel="RAM"
+            scoreValue={result.errorsFound === 0 ? "0 ERR" : `${result.errorsFound} ERR`}
+            title={`Memory Stability — ${result.peakBandwidthGbS.toFixed(1)} GB/s Peak (${result.totalGbVerified.toFixed(1)} GB Verified)`}
+            takeaway={
+              result.plainSummary ||
+              (result.errorsFound === 0
+                ? "Zero memory bit flips across all TestMem5 verification kernels."
+                : `${result.errorsFound} memory error(s) detected — inspect or replace faulty DIMM.`)
+            }
+            percent={result.errorsFound > 0 ? 15 : result.baseline.percentOfNormal}
+            medianLabel={result.baseline.expectedNormal}
+            medianPercent={85}
+            badge={ramUbRating ? `UB: ${ramUbRating.vehicleTier}` : `${result.cyclesCompleted}x Cycles`}
+            monochrome={result.errorsFound > 0 || Boolean(result.thermalCutoffTriggered)}
+          />
+
           <BaselineCard baseline={result.baseline} />
 
           {ramUbRating && (
@@ -555,48 +574,62 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
             </div>
           </div>
 
-          <ThresholdAuditTable rows={auditRows} />
+          <TechnicalDetailsDrawer
+            title="Technical Threshold Audit & Long-Term Analysis"
+            summary={`${auditRows.length} checks • ${result.allocatedMb} MB window • ${result.osReserveMb ?? expectedReserveMb ?? "—"} MB OS reserve`}
+          >
+            <div className="space-y-3">
+              <ThresholdAuditTable rows={auditRows} />
 
-          <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
-              What This Means for Long-Term Use
+              <div className="rounded-xl border border-zinc-200 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
+                <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
+                  What This Means for Long-Term Use
+                </div>
+                {result.plainSummary && (
+                  <div className="text-xs text-black font-medium">{result.plainSummary}</div>
+                )}
+                {specs?.ramReliabilityNote && (
+                  <div className="text-xs text-zinc-700">{specs.ramReliabilityNote}</div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
+                  <div className="rounded-lg border border-zinc-200 bg-[#F8FAFC] p-2.5">
+                    <div className="font-mono text-[10px] font-bold uppercase text-black">Bit-Flip Stability</div>
+                    <div className="text-zinc-600 mt-0.5">
+                      {result.errorsFound === 0
+                        ? "0 memory bit flips across all MT0.dll stride, retention, and SIMD tests — prevents random BSODs and file corruption."
+                        : `${result.errorsFound} memory errors detected — defective DRAM cells or unstable timings will cause crashes and data corruption.`}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-[#F8FAFC] p-2.5">
+                    <div className="font-mono text-[10px] font-bold uppercase text-black">Channel &amp; Upgradeability</div>
+                    <div className="text-zinc-600 mt-0.5">
+                      {hasChannelBottleneck
+                        ? "Running in single-channel mode reduces bandwidth by ~30–45%. Upgrading with a second matched stick improves speed noticeably."
+                        : `Running in ${specs?.ramChannelMode ?? "matched"} configuration for full expected DRAM throughput.`}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-[#F8FAFC] p-2.5">
+                    <div className="font-mono text-[10px] font-bold uppercase text-black">Thermal &amp; OS Safety</div>
+                    <div className="text-zinc-600 mt-0.5">
+                      {result.osReserveMb ?? expectedReserveMb ?? "Protected"} MB remained reserved for the OS while CPU stayed{" "}
+                      {result.thermalCutoffTriggered ? "at thermal cutoff" : "within safe thermal bounds"}.
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            {result.plainSummary && (
-              <div className="text-xs text-black font-medium">{result.plainSummary}</div>
-            )}
-            {specs?.ramReliabilityNote && (
-              <div className="text-xs text-zinc-700">{specs.ramReliabilityNote}</div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
-              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-                <div className="font-mono text-[10px] font-bold uppercase text-black">Bit-Flip Stability</div>
-                <div className="text-zinc-600 mt-0.5">
-                  {result.errorsFound === 0
-                    ? "0 memory bit flips across all MT0.dll stride, retention, and SIMD tests — prevents random BSODs and file corruption."
-                    : `${result.errorsFound} memory errors detected — defective DRAM cells or unstable timings will cause crashes and data corruption.`}
-                </div>
-              </div>
-              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-                <div className="font-mono text-[10px] font-bold uppercase text-black">Channel &amp; Upgradeability</div>
-                <div className="text-zinc-600 mt-0.5">
-                  {hasChannelBottleneck
-                    ? "Running in single-channel mode reduces bandwidth by ~30–45%. Upgrading with a second matched stick improves speed noticeably."
-                    : `Running in ${specs?.ramChannelMode ?? "matched"} configuration for full expected DRAM throughput.`}
-                </div>
-              </div>
-              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-                <div className="font-mono text-[10px] font-bold uppercase text-black">Thermal &amp; OS Safety</div>
-                <div className="text-zinc-600 mt-0.5">
-                  {result.osReserveMb ?? expectedReserveMb ?? "Protected"} MB remained reserved for the OS while CPU stayed{" "}
-                  {result.thermalCutoffTriggered ? "at thermal cutoff" : "within safe thermal bounds"}.
-                </div>
-              </div>
-            </div>
-          </div>
+          </TechnicalDetailsDrawer>
         </div>
       )}
 
-      <EngineeringConsole lines={consoleLog} />
+      {consoleLog.length > 0 && (
+        <TechnicalDetailsDrawer
+          title="Engine Console Log"
+          summary={`${consoleLog.length} events`}
+        >
+          <EngineeringConsole lines={consoleLog} />
+        </TechnicalDetailsDrawer>
+      )}
 
       <StepActionBar
         stepNumber={stepNumber}

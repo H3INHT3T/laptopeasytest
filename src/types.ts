@@ -713,6 +713,8 @@ export interface LiveTelemetrySnapshot {
   gpuTempAvailable?: boolean;
   powerWattsAvailable?: boolean;
   tempSource?: string;
+  perCoreTempsC?: number[];
+  pawnioInstalled?: boolean;
 }
 
 export interface ShopModelBenchmarkAvg {
