@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CheckCircle2, Maximize2, Monitor, Sparkles, XCircle } from "lucide-react";
-import type { TestStatus } from "../types";
+import { CheckCircle2, Maximize2, Monitor, RefreshCw, Sparkles, Sun, XCircle } from "lucide-react";
+import type { HardwareControlsReport, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 
@@ -113,6 +114,63 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   const [persistenceSecs, setPersistenceSecs] = useState<number>(0);
   const [powerZoomPct, setPowerZoomPct] = useState<number>(50);
   const [notes, setNotes] = useState(initialNotes);
+  const [brightnessPct, setBrightnessPct] = useState<number | null>(null);
+  const [brightnessSupported, setBrightnessSupported] = useState<boolean>(false);
+  const [brightnessDetail, setBrightnessDetail] = useState<string>("Probing display backlight controller...");
+  const [brightnessBusy, setBrightnessBusy] = useState<boolean>(false);
+  const [brightnessVerified, setBrightnessVerified] = useState<boolean>(false);
+
+  const loadBrightness = async () => {
+    setBrightnessBusy(true);
+    try {
+      const rep = await invoke<HardwareControlsReport>("get_hardware_controls_status");
+      setBrightnessSupported(Boolean(rep?.displayBrightness?.supported));
+      setBrightnessPct(rep?.displayBrightness?.currentPct ?? null);
+      setBrightnessDetail(rep?.displayBrightness?.detail || "Display backlight status ready.");
+    } catch {
+      setBrightnessSupported(false);
+      setBrightnessDetail("Verify display brightness manually using the laptop's Fn brightness keys.");
+    } finally {
+      setBrightnessBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBrightness();
+  }, []);
+
+  const applyBrightness = async (pct: number) => {
+    setBrightnessBusy(true);
+    try {
+      const applied = await invoke<number>("set_display_brightness", { percent: pct });
+      setBrightnessPct(applied);
+      setBrightnessVerified(true);
+      setBrightnessDetail(`Backlight responded live — set to ${applied}%.`);
+    } catch (e) {
+      setBrightnessDetail(String(e));
+    } finally {
+      setBrightnessBusy(false);
+    }
+  };
+
+  const runBrightnessSweep = async () => {
+    if (brightnessBusy) return;
+    const orig = brightnessPct ?? 75;
+    setBrightnessBusy(true);
+    try {
+      for (const step of [20, 50, 85, 100, orig]) {
+        const applied = await invoke<number>("set_display_brightness", { percent: step });
+        setBrightnessPct(applied);
+        await new Promise((r) => setTimeout(r, 450));
+      }
+      setBrightnessVerified(true);
+      setBrightnessDetail(`Auto brightness sweep (20% → 100% → ${orig}%) completed smoothly.`);
+    } catch (e) {
+      setBrightnessDetail(String(e));
+    } finally {
+      setBrightnessBusy(false);
+    }
+  };
 
   const motionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const powerZoomBoxRef = useRef<HTMLDivElement | null>(null);
@@ -699,6 +757,74 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
           <Maximize2 className="w-4 h-4" />
           Launch True Fullscreen Test ({viewedSet.size}/{PATTERNS.length} Inspected)
         </button>
+      </div>
+
+      {/* Live Display Backlight Brightness Check */}
+      <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3.5 space-y-2.5">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Sun className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="font-mono text-xs font-black uppercase text-black">
+              Display Backlight Brightness Check
+            </span>
+            <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-white font-mono text-[10.5px] font-bold text-black tabular-nums">
+              {brightnessPct != null ? `${brightnessPct}%` : "Manual Fn"}
+            </span>
+            {brightnessVerified && (
+              <span className="px-2 py-0.5 rounded-[2px] bg-blue-600 text-white font-mono text-[10px] font-bold uppercase">
+                Verified Live
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[25, 50, 75, 100].map((lvl) => (
+              <button
+                key={lvl}
+                type="button"
+                disabled={brightnessBusy || !brightnessSupported}
+                onClick={() => applyBrightness(lvl)}
+                className={`px-2 py-1 rounded-[2px] border font-mono text-[10.5px] font-bold cursor-pointer disabled:opacity-40 ${
+                  brightnessPct === lvl
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "bg-white border-zinc-300 text-black hover:border-black"
+                }`}
+              >
+                {lvl}%
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={brightnessBusy || !brightnessSupported}
+              onClick={runBrightnessSweep}
+              className="px-2.5 py-1 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-[10.5px] font-bold uppercase cursor-pointer disabled:opacity-40"
+            >
+              Auto Sweep 20%→100%
+            </button>
+            <button
+              type="button"
+              disabled={brightnessBusy}
+              onClick={loadBrightness}
+              className="px-2 py-1 rounded-[2px] border border-zinc-300 bg-white hover:border-black text-black font-mono text-[10.5px] font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw className={`w-3 h-3 ${brightnessBusy ? "animate-spin text-blue-600" : ""}`} />
+            </button>
+          </div>
+        </div>
+        {brightnessSupported && (
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={5}
+              max={100}
+              step={5}
+              value={brightnessPct ?? 50}
+              disabled={brightnessBusy}
+              onChange={(e) => applyBrightness(Number(e.target.value))}
+              className="flex-1 accent-blue-600 cursor-pointer"
+            />
+          </div>
+        )}
+        <div className="text-[11px] text-zinc-600">{brightnessDetail}</div>
       </div>
 
       {/* Pattern Tiles */}

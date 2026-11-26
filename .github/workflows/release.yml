@@ -57,35 +57,63 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v__VERSION__
           releaseName: "LaptopBench QC v__VERSION__"
           releaseBody: |
             ## LaptopBench QC v__VERSION__
             100% offline cross-platform laptop hardware diagnostics & QC certification suite built with Rust + Tauri v2.
+            **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
             ### Downloads
-            - **Windows (x64):** `.exe` (NSIS Setup) or `.msi` installer (requests Administrator UAC for full NVMe/SATA SMART, BitLocker & Event Logs)
+            - **Windows (x64):** `.exe` (NSIS Setup) or `.msi` installer (requests Administrator UAC for full NVMe/SATA SMART, BitLocker, BIOS WMI & Event Logs)
             - **macOS (Universal — Apple Silicon & Intel):** `.dmg` disk image
+
+            ### macOS First-Launch Guide (macOS Sequoia / Tahoe Gatekeeper)
+            Because this open-source build is not notarized with a paid Apple Developer ID, macOS may show *"Apple could not verify LaptopBench QC is free of malware"* on first launch. To open it safely:
+            1. Drag **LaptopBench QC** into **Applications**.
+            2. **Option A (1-line Terminal — fastest):** Open Terminal and run:
+               ```bash
+               xattr -cr "/Applications/LaptopBench QC.app" && open "/Applications/LaptopBench QC.app"
+               ```
+            3. **Option B (No Terminal):** After clicking **Done** on the popup, open **System Settings → Privacy & Security**, scroll down to **Security**, and click **Open Anyway** next to *LaptopBench QC*.
 
             ### Included Diagnostics (14-Step Sequential Pipeline)
             1. All-Hardware Specifications, RAM Channel Mode & Network/Wi-Fi Diagnostics (Ping, Loss, DNS)
-            2. Lock, MDM / DEP, Activation Lock, OEM License, BitLocker/FileVault & TPM/Secure Boot Audit
+            2. BIOS/Firmware Lock Status (Locked vs Unlocked), MDM / DEP, Activation Lock, OEM License, BitLocker/FileVault & TPM/Secure Boot Audit
             3. Battery Health, Cycle Count, 15s Voltage Sag Pulse & Battery Discharge Normality Classifier
             4. System Error & Crash Logs (Windows Event Logs / Minidumps & macOS Kernel Panics)
             5. SSD DriveDx-Style NVMe SMART Health & Hardware-Safe Direct I/O Speed Benchmark (128/256/512 MB Budget)
-            6. Unobstructed Fullscreen Display Check (23 MonitorTest Patterns + Motion Hz)
+            6. Unobstructed Fullscreen Display Check (23 MonitorTest Patterns + Motion Hz + Live Display Brightness Control)
             7. Interactive Touchscreen & Multi-Touch Display Test (16x10 Grid Coverage, Linearity & Skip Step)
-            8. Offline Keyboard Test (Windows Compact, Full+Numpad, MacBook, NKRO & Chatter Detector)
+            8. Offline Keyboard, Keyboard Backlight & Touchpad Test (Windows Compact, Full+Numpad, MacBook, NKRO & Chatter Detector)
             9. Two-Stage Fingerprint & Face ID / Touch ID Verification
             10. Camera Preview & Microphone Waveform + SNR + Loopback Test
             11. Multi-Threaded RAM Pattern Stress Test (TestMem5 MT0.dll Kernels + OS Reserve Guard)
             12. 360° Performance & Creator Suite (PassMark Weighted Harmonic Mean + UserBenchmark Vehicle Tiers)
             13. Native `wgpu` FurMark-2 GPU Stress, Dedicated VRAM Integrity & Combined Power Torture (Thermal Cutoffs)
-            14. Pre-Report Ports & Speaker Sign-Off + Branded Swiss Lab PDF / HTML / JSON QC Certificate
+            14. Live USB4/3.x Speed Detector, Display/Keyboard Brightness, Wi-Fi, Bluetooth, Airplane Mode, 3.5mm Headphone Jack & Stereo Speakers + Branded Swiss Lab PDF / HTML / JSON QC Certificate
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Verify macOS ad-hoc code signature & attach First-Launch Helper
+        if: matrix.platform == 'macos-latest' && env.APPLE_SIGNING_IDENTITY == ''
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          APP_BUNDLE=$(find src-tauri/target -path "*/release/bundle/macos/*.app" -maxdepth 6 | head -n 1)
+          if [ -n "$APP_BUNDLE" ]; then
+            codesign --force --deep --sign - --entitlements src-tauri/entitlements.plist "$APP_BUNDLE"
+            codesign --verify --deep --strict "$APP_BUNDLE"
+          fi
+          chmod +x scripts/Open-LaptopBench-Mac.command
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4

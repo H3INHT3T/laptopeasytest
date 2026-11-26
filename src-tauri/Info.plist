@@ -8,5 +8,9 @@
   <string>LaptopBench QC accesses the microphone to measure audio input levels and perform a record/playback check during laptop diagnostics.</string>
   <key>NSInputMonitoringUsageDescription</key>
   <string>LaptopBench QC optionally monitors keyboard events so special keys can be verified during the interactive keyboard diagnostic.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>LaptopBench QC inspects Bluetooth radio status and paired devices during wireless hardware diagnostics.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>LaptopBench QC pings your local gateway to measure Wi-Fi/Ethernet link stability and packet loss.</string>
 </dict>
 </plist>

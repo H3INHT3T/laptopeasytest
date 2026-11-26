@@ -29,7 +29,8 @@ export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
     report &&
       ((report.ownershipRisks?.length ?? 0) > 0 ||
         report.mdmEnrolled === true ||
-        report.activationLocked === true)
+        report.activationLocked === true ||
+        report.biosLocked === true)
   );
   const passCount = report ? report.items.filter((i) => i.status === "pass").length : 0;
   const warnCount = report ? report.items.filter((i) => i.status === "warn").length : 0;
@@ -49,7 +50,7 @@ export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
             <StatusBadge status={status} />
           </div>
           <p className="text-xs text-zinc-600 mt-1">
-            Verifies zero MDM/DEP enrollment, Apple Activation Lock / Find My, OEM Windows License, BitLocker/FileVault, TPM 2.0 &amp; Secure Boot.
+            Verifies BIOS/Firmware Lock (Locked vs Unlocked), MDM/DEP enrollment, Apple Activation Lock / Find My, OEM Windows License, BitLocker/FileVault, TPM 2.0 &amp; Secure Boot.
           </p>
         </div>
         <button
@@ -119,6 +120,22 @@ export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
                   : report.activationLocked === false
                   ? "Clean"
                   : "N/A"}
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-[2px] border ${
+                  report.biosLocked === true
+                    ? "bg-white text-black border-white"
+                    : report.overallStatus === "fail"
+                    ? "bg-zinc-900 text-zinc-200 border-zinc-700"
+                    : "bg-white text-black border-zinc-300"
+                }`}
+              >
+                BIOS:{" "}
+                {report.biosLocked === true || report.biosLockStatus === "LOCKED"
+                  ? "LOCKED"
+                  : report.biosLocked === false || report.biosLockStatus === "UNLOCKED"
+                  ? "UNLOCKED"
+                  : "VERIFY"}
               </span>
               <span
                 className={`px-2 py-0.5 rounded-[2px] border ${

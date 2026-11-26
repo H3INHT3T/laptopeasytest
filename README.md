@@ -1,10 +1,25 @@
-# LaptopBench QC v2.3.0
+# LaptopBench QC v2.4.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.3.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict **Swiss Precision Light** (`#FFFFFF`, `#09090B`, `#2563EB` / `#1D4ED8`) sequential step-by-step interface.
+**LaptopBench QC v2.4.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict **Swiss Precision Light** (`#FFFFFF`, `#09090B`, `#2563EB` / `#1D4ED8`) sequential step-by-step interface.
 
-## What's New in v2.3.0 — Real-World Calibration, Safety Bounds & Long-Term Reliability
+## What's New in v2.4.0 — BIOS Lock Status, Live Brightness/Radios/Headphone Checks & macOS First-Launch Guide
+
+- **BIOS / Firmware Lock Status (`LOCKED` / `UNLOCKED` / `VERIFY`)** — Stage 02 now queries OEM BIOS Supervisor/Admin Password status (Dell `DCIM_BIOSPassword`, Lenovo `Lenovo_BiosPasswordSettings`, HP `HP_BIOSSetting`, macOS `firmwarepasswd` & Apple Silicon Recovery/Activation Lock) and surfaces a clear `BIOS: LOCKED / UNLOCKED / VERIFY` indicator.
+- **Live Display Brightness, Keyboard Backlight, Wi-Fi, Bluetooth, Airplane Mode & 3.5mm Headphone Jack Checks** — Native Rust probes (`hardware_controls.rs`) with live Display Brightness control & `20% → 100%` sweep in Stage 06, Keyboard Backlight verification in Stage 08, and full live hardware radio/headphone/brightness verification matrix in Stage 14.
+- **macOS Sequoia / Tahoe First-Launch Gatekeeper Fix** — Added `entitlements.plist`, expanded `Info.plist` Bluetooth/Local Network permissions, automatic Apple Developer ID signing/notarization hooks + strict ad-hoc signing in CI, and a 1-click [`scripts/Open-LaptopBench-Mac.command`](scripts/Open-LaptopBench-Mac.command) helper.
+
+### macOS First-Launch Instructions (Gatekeeper)
+If macOS shows *"Apple could not verify LaptopBench QC is free of malware"* on first launch (standard for open-source unsigned builds):
+1. Drag **LaptopBench QC** into **Applications**.
+2. Open **Terminal** and run:
+   ```bash
+   xattr -cr "/Applications/LaptopBench QC.app" && open "/Applications/LaptopBench QC.app"
+   ```
+   *(Or click **Done**, then open **System Settings → Privacy & Security → Security → Open Anyway**.)*
+
+## Highlights from v2.3.0 — Real-World Calibration, Safety Bounds & Long-Term Reliability
 
 - **UserBenchmark Offline-First Comparison & Vehicle Tiers** — Evaluates CPU, GPU, SSD, and RAM against mobile-aware UserBenchmark-calibrated hardware tiers (**UFO** down to **Raft**), **Gaming / Desktop / Workstation** scores, Same-Class Standing (`Above Expectations`, `As Expected`, `Below Expectations`, `Underperforming`), bottleneck detection, plain-language buyer takeaways, and optional non-blocking live lookup fallback.
 - **PassMark-11 Weighted Harmonic Mean Calibration** — Computes CPU Mark (9 subtests: Single-Core, Integer, Float, Prime, Vector AVX2/NEON, Encryption, Compression, Sorting, Physics) and Memory Mark (Database, Cached/Uncached Read, Write, Available RAM, Latency, Threaded) alongside Office, Creator AI GEMM, and 3D Path-Tracer scopes.
@@ -63,6 +78,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.3.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v2.4.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

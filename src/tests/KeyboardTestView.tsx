@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, CheckCircle2, Keyboard, MousePointer2, RotateCcw, Shield, ShieldCheck, XCircle } from "lucide-react";
-import type { RawKeyEvent, TestStatus } from "../types";
+import { AlertTriangle, CheckCircle2, Keyboard, MousePointer2, RotateCcw, Shield, ShieldCheck, Sun, XCircle } from "lucide-react";
+import type { HardwareControlsReport, RawKeyEvent, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 
@@ -118,6 +118,24 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
   const [chatterWarnings, setChatterWarnings] = useState<string[]>([]);
   const [osHookEnabled, setOsHookEnabled] = useState(false);
   const [notes, setNotes] = useState(initialNotes);
+  const [kbBacklightDetail, setKbBacklightDetail] = useState<string>("Checking keyboard backlight hardware...");
+  const [kbBacklightCheck, setKbBacklightCheck] = useState<"untested" | "pass" | "na" | "fail">("untested");
+
+  useEffect(() => {
+    invoke<HardwareControlsReport>("get_hardware_controls_status")
+      .then((rep) => {
+        if (rep?.keyboardBacklight?.detail) {
+          setKbBacklightDetail(
+            rep.keyboardBacklight.currentPct != null
+              ? `${rep.keyboardBacklight.detail} (Current: ${rep.keyboardBacklight.currentPct}%)`
+              : rep.keyboardBacklight.detail
+          );
+        }
+      })
+      .catch(() => {
+        setKbBacklightDetail("Test keyboard backlight brightness levels using the laptop's Fn backlight key (or mark N/A if non-backlit).");
+      });
+  }, []);
 
   // en.key-test.ru metrics: Pre-test stuck-key check, NKRO rollover, Mean key dwell latency
   const [stuckCheckStatus, setStuckCheckStatus] = useState<"checking" | "clean" | "stuck">("checking");
@@ -755,6 +773,54 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
               <span className="text-zinc-600 font-medium">
                 Informational only: OS-intercepted keys do not block passing this audit.
               </span>
+            </div>
+
+            {/* Keyboard Backlight Brightness Verification */}
+            <div className="pt-2.5 border-t border-zinc-200 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sun className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <div className="text-[11px] text-zinc-700">
+                  <strong className="font-mono uppercase text-[10.5px] text-black mr-1.5">
+                    Keyboard Backlight Brightness:
+                  </strong>
+                  {kbBacklightDetail}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono text-[10.5px] font-bold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setKbBacklightCheck("pass")}
+                  className={`px-2.5 py-1 rounded-[2px] border cursor-pointer ${
+                    kbBacklightCheck === "pass"
+                      ? "bg-blue-600 border-blue-600 text-white"
+                      : "bg-white border-zinc-300 text-black hover:border-black"
+                  }`}
+                >
+                  Backlight OK
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKbBacklightCheck("na")}
+                  className={`px-2.5 py-1 rounded-[2px] border cursor-pointer ${
+                    kbBacklightCheck === "na"
+                      ? "bg-black border-black text-white"
+                      : "bg-white border-zinc-300 text-zinc-700 hover:border-black"
+                  }`}
+                >
+                  No Backlight (N/A)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKbBacklightCheck("fail")}
+                  className={`px-2.5 py-1 rounded-[2px] border cursor-pointer ${
+                    kbBacklightCheck === "fail"
+                      ? "bg-black border-black text-white underline"
+                      : "bg-white border-zinc-300 text-black hover:border-black"
+                  }`}
+                >
+                  Backlight Fault
+                </button>
+              </div>
             </div>
           </div>
         </>

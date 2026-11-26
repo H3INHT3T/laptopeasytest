@@ -16,6 +16,8 @@ pub fn run_security_audit() -> SecurityAuditReport {
             platform: std::env::consts::OS.to_string(),
             mdm_enrolled: None,
             activation_locked: None,
+            bios_locked: None,
+            bios_lock_status: "UNVERIFIABLE".to_string(),
             items: Vec::new(),
             summary: "Security audit not implemented on this platform.".to_string(),
             plain_summary: "Ownership & firmware lock audit is supported on Windows and macOS only.".to_string(),
@@ -62,6 +64,8 @@ pub(crate) fn evaluate_windows_security_items(
     let mut items = Vec::new();
     let mut ownership_risks = Vec::new();
     let mdm_enrolled;
+    let mut bios_locked: Option<bool> = None;
+    let mut bios_lock_status = "UNVERIFIABLE".to_string();
 
     if let Some((azure_joined, domain_joined, workplace_joined, mdm_url)) = dsreg {
         let enrolled = azure_joined || domain_joined || !mdm_url.is_empty();
@@ -260,10 +264,76 @@ pub(crate) fn evaluate_windows_security_items(
                 detail: format!("UEFI Secure Boot reported: {}", sb),
                 buyer_note: sb_note,
             });
+
+            // BIOS / UEFI Admin Password Lock Status (Dell / Lenovo / HP WMI + Generic UEFI fallback)
+            if let Some(bl_obj) = v.get("biosLock") {
+                let state = bl_obj["state"].as_str().unwrap_or("unverifiable").to_lowercase();
+                let vendor = bl_obj["vendor"].as_str().unwrap_or("OEM BIOS");
+                let raw_detail = bl_obj["detail"].as_str().unwrap_or("").trim();
+                let (val, st, note) = match state.as_str() {
+                    "locked" => {
+                        bios_locked = Some(true);
+                        bios_lock_status = "LOCKED".to_string();
+                        let msg = "DO NOT BUY until the seller removes the BIOS Supervisor/Admin password — a locked BIOS blocks OS reinstall, boot order, and hardware servicing.";
+                        ownership_risks.push(format!("BIOS Password Lock: {}", msg));
+                        ("LOCKED (BIOS Password Set)".to_string(), TestStatus::Fail, msg.to_string())
+                    }
+                    "unlocked" => {
+                        bios_locked = Some(false);
+                        bios_lock_status = "UNLOCKED".to_string();
+                        (
+                            "UNLOCKED (No BIOS Password)".to_string(),
+                            TestStatus::Pass,
+                            "OEM BIOS WMI confirmed no Supervisor/Admin password is set.".to_string(),
+                        )
+                    }
+                    _ => {
+                        bios_locked = None;
+                        bios_lock_status = "UNVERIFIABLE".to_string();
+                        (
+                            "UNVERIFIABLE (Verify in BIOS Setup)".to_string(),
+                            TestStatus::Warn,
+                            "This laptop's OEM WMI does not expose BIOS password state to Windows — reboot and press F2 / F10 / Del to confirm BIOS Setup opens UNLOCKED.".to_string(),
+                        )
+                    }
+                };
+                items.push(SecurityCheckItem {
+                    id: "bios_lock".to_string(),
+                    label: "BIOS / Firmware Lock Status".to_string(),
+                    value: val,
+                    status: st,
+                    detail: if raw_detail.is_empty() {
+                        format!("{} firmware lock probe: {}", vendor, bios_lock_status)
+                    } else {
+                        raw_detail.to_string()
+                    },
+                    buyer_note: note,
+                });
+            }
         }
     }
 
-    finalize_security_report("Windows", mdm_enrolled, None, items, ownership_risks)
+    finalize_security_report(
+        "Windows",
+        mdm_enrolled,
+        None,
+        bios_locked,
+        bios_lock_status,
+        items,
+        ownership_risks,
+    )
+}
+
+#[allow(dead_code)]
+pub(crate) fn parse_macos_firmware_password(out: &str) -> (Option<bool>, String) {
+    let lower = out.to_lowercase();
+    if lower.contains("password enabled: yes") {
+        (Some(true), "LOCKED".to_string())
+    } else if lower.contains("password enabled: no") {
+        (Some(false), "UNLOCKED".to_string())
+    } else {
+        (None, "UNVERIFIABLE".to_string())
+    }
 }
 
 #[allow(dead_code)]
@@ -289,6 +359,8 @@ pub(crate) fn finalize_security_report(
     platform: &str,
     mdm_enrolled: Option<bool>,
     activation_locked: Option<bool>,
+    bios_locked: Option<bool>,
+    bios_lock_status: String,
     items: Vec<SecurityCheckItem>,
     ownership_risks: Vec<String>,
 ) -> SecurityAuditReport {
@@ -302,15 +374,15 @@ pub(crate) fn finalize_security_report(
         TestStatus::Pass
     };
 
-    let summary = if mdm_enrolled == Some(true) || activation_locked == Some(true) {
-        "ALERT: MDM or Apple Activation Lock is active! Verify ownership and clear before purchase.".to_string()
+    let summary = if mdm_enrolled == Some(true) || activation_locked == Some(true) || bios_locked == Some(true) {
+        "ALERT: MDM, BIOS/Firmware Password, or Apple Activation Lock is active! Verify ownership and clear before purchase.".to_string()
     } else if has_warn {
-        "Clean of corporate MDM/Activation locks; review encryption, license, or firmware warnings."
+        "Clean of corporate MDM/Activation locks; review BIOS lock, encryption, license, or firmware warnings."
             .to_string()
     } else if platform == "macOS" {
-        "Clean of MDM & Activation Lock, FileVault Off, SIP Enabled.".to_string()
+        "Clean of MDM, Firmware Lock & Activation Lock, FileVault Off, SIP Enabled.".to_string()
     } else {
-        "Clean of MDM/Domain locks, Windows licensed, TPM & Secure Boot ready.".to_string()
+        "Clean of MDM/Domain & BIOS locks, Windows licensed, TPM & Secure Boot ready.".to_string()
     };
 
     let plain_summary = if !ownership_risks.is_empty() {
@@ -326,6 +398,8 @@ pub(crate) fn finalize_security_report(
         platform: platform.to_string(),
         mdm_enrolled,
         activation_locked,
+        bios_locked,
+        bios_lock_status,
         items,
         summary,
         plain_summary,
@@ -368,6 +442,59 @@ $bl = try {
 } catch {
     @{ status = 'Unknown'; enc = 'Requires Admin'; pct = -1 }
 }
+
+$biosInfo = Get-CimInstance Win32_BIOS -ErrorAction SilentlyContinue | Select-Object -First 1
+$biosVendor = if ($biosInfo -and $biosInfo.Manufacturer) { [string]$biosInfo.Manufacturer } else { 'OEM BIOS' }
+$biosVer = if ($biosInfo -and $biosInfo.SMBIOSBIOSVersion) { [string]$biosInfo.SMBIOSBIOSVersion } else { '' }
+$biosLock = @{ state = 'unverifiable'; vendor = $biosVendor; detail = "BIOS: $biosVendor $biosVer — OEM WMI password interface not exposed; press F2/F10/Del at boot to verify." }
+
+try {
+    # 1. Dell Command | Monitor WMI (root\dcim\sysman)
+    $dellPw = @(Get-CimInstance -Namespace root\dcim\sysman -ClassName DCIM_BIOSPassword -ErrorAction Stop)
+    if ($dellPw.Count -gt 0) {
+        $adminPw = $dellPw | Where-Object { $_.AttributeName -match 'Admin|System' -and $_.IsSet -eq 1 }
+        if ($adminPw) {
+            $names = ($adminPw | ForEach-Object { $_.AttributeName }) -join ', '
+            $biosLock = @{ state = 'locked'; vendor = 'Dell'; detail = "Dell WMI (DCIM_BIOSPassword): Password IS SET ($names)." }
+        } else {
+            $biosLock = @{ state = 'unlocked'; vendor = 'Dell'; detail = "Dell WMI (DCIM_BIOSPassword): Admin & System passwords NOT set (Unlocked)." }
+        }
+    }
+} catch {}
+
+if ($biosLock.state -eq 'unverifiable') {
+    try {
+        # 2. Lenovo ThinkPad/IdeaPad WMI (root\wmi -> Lenovo_BiosPasswordSettings)
+        $lenPw = Get-CimInstance -Namespace root\wmi -ClassName Lenovo_BiosPasswordSettings -ErrorAction Stop | Select-Object -First 1
+        if ($lenPw) {
+            $psVal = [int]$lenPw.PasswordState
+            if ($psVal -gt 0) {
+                $biosLock = @{ state = 'locked'; vendor = 'Lenovo'; detail = "Lenovo WMI (Lenovo_BiosPasswordSettings): PasswordState=$psVal (BIOS Password LOCKED)." }
+            } else {
+                $biosLock = @{ state = 'unlocked'; vendor = 'Lenovo'; detail = "Lenovo WMI (Lenovo_BiosPasswordSettings): PasswordState=0 (BIOS UNLOCKED)." }
+            }
+        }
+    } catch {}
+}
+
+if ($biosLock.state -eq 'unverifiable') {
+    try {
+        # 3. HP Instrumented BIOS WMI (root\hp\instrumentedBIOS)
+        $hpSet = @(Get-CimInstance -Namespace root\hp\instrumentedBIOS -ClassName HP_BIOSSetting -ErrorAction Stop)
+        if ($hpSet.Count -gt 0) {
+            $pwItem = $hpSet | Where-Object { $_.Name -match 'Setup Password|BIOS Power-On|Administrator Password' } | Select-Object -First 1
+            if ($pwItem) {
+                $valStr = [string]$pwItem.Value
+                if ($valStr -match 'Set|Enable|Yes|1|True' -and $valStr -notmatch 'Not Set|Disable|No') {
+                    $biosLock = @{ state = 'locked'; vendor = 'HP'; detail = "HP WMI (HP_BIOSSetting): $($pwItem.Name) = $valStr (LOCKED)." }
+                } else {
+                    $biosLock = @{ state = 'unlocked'; vendor = 'HP'; detail = "HP WMI (HP_BIOSSetting): $($pwItem.Name) = $valStr (UNLOCKED)." }
+                }
+            }
+        }
+    } catch {}
+}
+
 @{
     licStatus = $licStatus
     licName = $licName
@@ -375,6 +502,7 @@ $bl = try {
     secureBoot = [string]$sb
     tpm = $tpm
     bitlocker = $bl
+    biosLock = $biosLock
 } | ConvertTo-Json -Depth 4 -Compress
 "#;
 
@@ -511,7 +639,86 @@ fn run_macos_security_audit() -> SecurityAuditReport {
         });
     }
 
-    finalize_security_report("macOS", mdm_enrolled, activation_locked, items, ownership_risks)
+    // 5. BIOS / Firmware Password & Apple Silicon Recovery Lock Status
+    let mut bios_locked: Option<bool> = None;
+    let mut bios_lock_status = "UNVERIFIABLE".to_string();
+    let is_apple_silicon = std::env::consts::ARCH == "aarch64";
+    if is_apple_silicon {
+        // Apple Silicon uses Recovery Lock (MDM) + Activation Lock instead of Intel EFI firmwarepasswd
+        if activation_locked == Some(true) || mdm_enrolled == Some(true) {
+            bios_locked = Some(true);
+            bios_lock_status = "LOCKED".to_string();
+            let msg = "Apple Silicon Mac has Activation Lock or MDM enrolled — Recovery / Firmware Lock may block erasing or booting macOS Recovery.";
+            ownership_risks.push(format!("Firmware / Recovery Lock Risk: {}", msg));
+            items.push(SecurityCheckItem {
+                id: "bios_lock".to_string(),
+                label: "BIOS / Firmware & Recovery Lock".to_string(),
+                value: "LOCKED (Activation/MDM Risk)".to_string(),
+                status: TestStatus::Fail,
+                detail: "Apple Silicon firmware security bound to Activation Lock or MDM.".to_string(),
+                buyer_note: msg.to_string(),
+            });
+        } else {
+            bios_locked = Some(false);
+            bios_lock_status = "UNLOCKED".to_string();
+            items.push(SecurityCheckItem {
+                id: "bios_lock".to_string(),
+                label: "BIOS / Firmware & Recovery Lock".to_string(),
+                value: "UNLOCKED (Clean)".to_string(),
+                status: TestStatus::Pass,
+                detail: "Apple Silicon Mac: No Activation Lock and no corporate MDM/Recovery Lock detected.".to_string(),
+                buyer_note: "Firmware & Recovery boot are unlocked — safe for clean macOS erase/reinstall.".to_string(),
+            });
+        }
+    } else if let Ok(out) = run_cmd_stdout("firmwarepasswd", &["-check"]) {
+        let (locked_opt, st_str) = parse_macos_firmware_password(&out);
+        bios_locked = locked_opt;
+        bios_lock_status = st_str;
+        let (val, st, note) = match locked_opt {
+            Some(true) => {
+                let msg = "Intel Mac EFI Firmware Password is ENABLED — DO NOT BUY until seller disables Firmware Password in macOS Recovery.";
+                ownership_risks.push(format!("EFI Firmware Password Lock: {}", msg));
+                ("LOCKED (EFI Firmware Password)".to_string(), TestStatus::Fail, msg.to_string())
+            }
+            Some(false) => (
+                "UNLOCKED (No Firmware Password)".to_string(),
+                TestStatus::Pass,
+                "Intel Mac EFI Firmware Password is disabled (Unlocked).".to_string(),
+            ),
+            None => (
+                "UNVERIFIABLE (Requires Sudo)".to_string(),
+                TestStatus::Warn,
+                "Could not read firmwarepasswd state — hold Option (⌥) at boot to confirm no padlock prompt appears.".to_string(),
+            ),
+        };
+        items.push(SecurityCheckItem {
+            id: "bios_lock".to_string(),
+            label: "BIOS / EFI Firmware Lock".to_string(),
+            value: val,
+            status: st,
+            detail: out.trim().to_string(),
+            buyer_note: note,
+        });
+    } else {
+        items.push(SecurityCheckItem {
+            id: "bios_lock".to_string(),
+            label: "BIOS / EFI Firmware Lock".to_string(),
+            value: "UNVERIFIABLE (Verify at Boot)".to_string(),
+            status: TestStatus::Warn,
+            detail: "firmwarepasswd -check requires administrator privileges on Intel Macs.".to_string(),
+            buyer_note: "Hold Option (⌥) during startup to confirm no EFI padlock password prompt appears.".to_string(),
+        });
+    }
+
+    finalize_security_report(
+        "macOS",
+        mdm_enrolled,
+        activation_locked,
+        bios_locked,
+        bios_lock_status,
+        items,
+        ownership_risks,
+    )
 }
 
 #[cfg(test)]
@@ -589,5 +796,52 @@ mod tests {
 
         let (clean, _) = parse_macos_activation_lock("      Activation Lock Status: Disabled\n");
         assert!(!clean);
+    }
+
+    #[test]
+    fn test_bios_lock_status_windows_and_macos() {
+        let unlocked_ps = r#"{
+            "licStatus": 1,
+            "licName": "Windows 11 Pro",
+            "licKey": "11111",
+            "secureBoot": "True",
+            "tpm": {"present": true, "ready": true, "enabled": true, "spec": "2.0"},
+            "bitlocker": {"status": "Off", "enc": "FullyDecrypted", "pct": 0},
+            "biosLock": {"state": "unlocked", "vendor": "Dell", "detail": "Dell WMI: Unlocked"}
+        }"#;
+        let rep_u = evaluate_windows_security_items(
+            Some((false, false, false, String::new())),
+            Some(unlocked_ps),
+        );
+        assert_eq!(rep_u.bios_locked, Some(false));
+        assert_eq!(rep_u.bios_lock_status, "UNLOCKED");
+        assert_eq!(rep_u.overall_status, TestStatus::Pass);
+
+        let locked_ps = r#"{
+            "licStatus": 1,
+            "licName": "Windows 11 Pro",
+            "licKey": "11111",
+            "secureBoot": "True",
+            "tpm": {"present": true, "ready": true, "enabled": true, "spec": "2.0"},
+            "bitlocker": {"status": "Off", "enc": "FullyDecrypted", "pct": 0},
+            "biosLock": {"state": "locked", "vendor": "Lenovo", "detail": "Lenovo PasswordState=1"}
+        }"#;
+        let rep_l = evaluate_windows_security_items(
+            Some((false, false, false, String::new())),
+            Some(locked_ps),
+        );
+        assert_eq!(rep_l.bios_locked, Some(true));
+        assert_eq!(rep_l.bios_lock_status, "LOCKED");
+        assert_eq!(rep_l.overall_status, TestStatus::Fail);
+        assert!(rep_l.ownership_risks.iter().any(|r| r.contains("BIOS Password Lock")));
+
+        assert_eq!(
+            parse_macos_firmware_password("Password Enabled: Yes\n"),
+            (Some(true), "LOCKED".to_string())
+        );
+        assert_eq!(
+            parse_macos_firmware_password("Password Enabled: No\n"),
+            (Some(false), "UNLOCKED".to_string())
+        );
     }
 }

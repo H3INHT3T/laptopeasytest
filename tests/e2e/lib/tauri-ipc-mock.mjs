@@ -395,6 +395,58 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         return null;
       },
       run_network_diagnostics: async () => fixture.networkDiagnostics,
+      get_hardware_controls_status: async () =>
+        fixture.hardwareControls || {
+          platform: "Windows",
+          displayBrightness: {
+            supported: true,
+            currentPct: 80,
+            levelsCount: 101,
+            canSet: true,
+            status: "pass",
+            detail: "Built-in backlight controller active (80% current, 101 steps).",
+          },
+          keyboardBacklight: {
+            supported: true,
+            currentPct: 50,
+            status: "pass",
+            detail: "Backlit keyboard detected (mock).",
+          },
+          wifi: {
+            present: true,
+            enabled: true,
+            adapterName: "Intel Wi-Fi 6E AX211",
+            connectionDetail: "Connected: LabBench (94%)",
+            status: "pass",
+            detail: "Wi-Fi radio active.",
+          },
+          bluetooth: {
+            present: true,
+            enabled: true,
+            adapterName: "Intel Wireless Bluetooth",
+            connectionDetail: "Radio ON (2 paired device(s))",
+            status: "pass",
+            detail: "Bluetooth radio operational.",
+          },
+          airplaneMode: {
+            supported: true,
+            active: false,
+            status: "pass",
+            detail: "Airplane Mode is OFF.",
+          },
+          headphoneJack: {
+            pluggedIn: false,
+            activeOutputName: "Speakers (Realtek Audio)",
+            detectedEndpoints: ["Speakers (Realtek Audio)"],
+            status: "pending",
+            detail: "No headphones currently plugged in.",
+          },
+          summary: "Display: 80% | Wi-Fi: ON | BT: ON | Airplane: OFF | Headphone: Not Plugged",
+        },
+      set_display_brightness: async (args) => {
+        const pct = Math.max(0, Math.min(100, Number(args?.percent ?? 75)));
+        return pct;
+      },
     };
 
     async function invoke(cmd, args = {}, _options = {}) {

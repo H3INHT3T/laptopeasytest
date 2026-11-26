@@ -3,6 +3,7 @@ pub mod battery;
 pub mod biometrics;
 pub mod error_logs;
 pub mod gpu_stress;
+pub mod hardware_controls;
 pub mod keyboard_hook;
 pub mod network;
 pub mod pdf_gen;

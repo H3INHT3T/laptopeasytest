@@ -31,7 +31,7 @@ export type StepModuleId =
   | "gpu"
   | "ports_speakers";
 
-export type TestModuleId = "dashboard" | StepModuleId;
+export type TestModuleId = "dashboard" | "stress_hub" | StepModuleId;
 
 export type StressPreset = "quick" | "standard" | "burnin";
 
@@ -296,10 +296,63 @@ export interface SecurityAuditReport {
   platform: string;
   mdmEnrolled: boolean | null;
   activationLocked: boolean | null;
+  biosLocked?: boolean | null;
+  biosLockStatus?: "LOCKED" | "UNLOCKED" | "UNVERIFIABLE" | string;
   items: SecurityCheckItem[];
   summary: string;
   plainSummary?: string;
   ownershipRisks?: string[];
+}
+
+export interface DisplayBrightnessInfo {
+  supported: boolean;
+  currentPct: number | null;
+  levelsCount: number | null;
+  canSet: boolean;
+  status: TestStatus;
+  detail: string;
+}
+
+export interface KeyboardBacklightInfo {
+  supported: boolean | null;
+  currentPct: number | null;
+  status: TestStatus;
+  detail: string;
+}
+
+export interface RadioControlInfo {
+  present: boolean;
+  enabled: boolean | null;
+  adapterName: string;
+  connectionDetail: string;
+  status: TestStatus;
+  detail: string;
+}
+
+export interface AirplaneModeInfo {
+  supported: boolean;
+  active: boolean | null;
+  status: TestStatus;
+  detail: string;
+}
+
+export interface HeadphoneJackInfo {
+  pluggedIn: boolean;
+  activeOutputName: string;
+  detectedEndpoints: string[];
+  status: TestStatus;
+  detail: string;
+}
+
+export interface HardwareControlsReport {
+  platform: string;
+  displayBrightness: DisplayBrightnessInfo;
+  keyboardBacklight: KeyboardBacklightInfo;
+  wifi: RadioControlInfo;
+  bluetooth: RadioControlInfo;
+  airplaneMode: AirplaneModeInfo;
+  headphoneJack: HeadphoneJackInfo;
+  summary: string;
 }
 
 export interface BatteryHealthReport {

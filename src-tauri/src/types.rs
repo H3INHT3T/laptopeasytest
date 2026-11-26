@@ -193,12 +193,85 @@ pub struct SecurityAuditReport {
     pub platform: String,
     pub mdm_enrolled: Option<bool>,
     pub activation_locked: Option<bool>,
+    #[serde(default)]
+    pub bios_locked: Option<bool>,
+    #[serde(default)]
+    pub bios_lock_status: String, // "LOCKED" | "UNLOCKED" | "UNVERIFIABLE"
     pub items: Vec<SecurityCheckItem>,
     pub summary: String,
     #[serde(default)]
     pub plain_summary: String,
     #[serde(default)]
     pub ownership_risks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct DisplayBrightnessInfo {
+    pub supported: bool,
+    pub current_pct: Option<u8>,
+    pub levels_count: Option<usize>,
+    pub can_set: bool,
+    pub status: TestStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct KeyboardBacklightInfo {
+    pub supported: Option<bool>, // Some(true) = detected, Some(false) = not equipped, None = manual Fn check
+    pub current_pct: Option<u8>,
+    pub status: TestStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct RadioControlInfo {
+    pub present: bool,
+    pub enabled: Option<bool>,
+    pub adapter_name: String,
+    pub connection_detail: String,
+    pub status: TestStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct AirplaneModeInfo {
+    pub supported: bool,
+    pub active: Option<bool>,
+    pub status: TestStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct HeadphoneJackInfo {
+    pub plugged_in: bool,
+    pub active_output_name: String,
+    pub detected_endpoints: Vec<String>,
+    pub status: TestStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct HardwareControlsReport {
+    pub platform: String,
+    pub display_brightness: DisplayBrightnessInfo,
+    pub keyboard_backlight: KeyboardBacklightInfo,
+    pub wifi: RadioControlInfo,
+    pub bluetooth: RadioControlInfo,
+    pub airplane_mode: AirplaneModeInfo,
+    pub headphone_jack: HeadphoneJackInfo,
+    pub summary: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

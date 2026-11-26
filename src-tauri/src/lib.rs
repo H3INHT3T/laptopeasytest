@@ -3,9 +3,9 @@ mod modules;
 mod types;
 
 use modules::{
-    baselines, battery, biometrics, error_logs, gpu_stress, keyboard_hook, network, perf_bench,
-    power_torture, ram_test, raytracer, report, security_audit, session, shop_history,
-    simd_kernels, specs, storage, telemetry, usb_ports, userbenchmark, vram_test,
+    baselines, battery, biometrics, error_logs, gpu_stress, hardware_controls, keyboard_hook,
+    network, perf_bench, power_torture, ram_test, raytracer, report, security_audit, session,
+    shop_history, simd_kernels, specs, storage, telemetry, usb_ports, userbenchmark, vram_test,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -16,13 +16,14 @@ use types::{
     BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample, BatterySagResult,
     BiometricAuthResult, BiometricsHardwareReport, BurnInResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
-    LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult, PowerTortureResult,
-    RamTestResult, SavedSessionPayload, SecurityAuditReport, ShopModelBenchmarkAvg,
-    ShopModelComparison, ShopProfile, StorageBenchResult, StorageSmartReport, SystemSpecs,
-    TestStatus, TouchscreenTestResult, UsbDeviceInfo, UserBenchmarkComparison,
-    UserBenchmarkInput, VramTestResult, BATTERY_DISCHARGE_MAX_SECS, BATTERY_LOW_SOC_ABORT_PCT,
-    CPU_THERMAL_CUTOFF_DEFAULT_C, CPU_THERMAL_CUTOFF_MAX_C, CPU_THERMAL_CUTOFF_MIN_C,
-    GPU_THERMAL_CUTOFF_DEFAULT_C, GPU_THERMAL_CUTOFF_MAX_C, GPU_THERMAL_CUTOFF_MIN_C,
+    HardwareControlsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
+    PowerTortureResult, RamTestResult, SavedSessionPayload, SecurityAuditReport,
+    ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, StorageBenchResult,
+    StorageSmartReport, SystemSpecs, TestStatus, TouchscreenTestResult, UsbDeviceInfo,
+    UserBenchmarkComparison, UserBenchmarkInput, VramTestResult, BATTERY_DISCHARGE_MAX_SECS,
+    BATTERY_LOW_SOC_ABORT_PCT, CPU_THERMAL_CUTOFF_DEFAULT_C, CPU_THERMAL_CUTOFF_MAX_C,
+    CPU_THERMAL_CUTOFF_MIN_C, GPU_THERMAL_CUTOFF_DEFAULT_C, GPU_THERMAL_CUTOFF_MAX_C,
+    GPU_THERMAL_CUTOFF_MIN_C,
 };
 
 pub struct CancelRegistry {
@@ -495,6 +496,20 @@ async fn compare_userbenchmark(
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn get_hardware_controls_status() -> Result<HardwareControlsReport, String> {
+    tauri::async_runtime::spawn_blocking(hardware_controls::get_hardware_controls_status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_display_brightness(percent: u8) -> Result<u8, String> {
+    tauri::async_runtime::spawn_blocking(move || hardware_controls::set_display_brightness(percent))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 struct SelfTestTempDirGuard(std::path::PathBuf);
 impl Drop for SelfTestTempDirGuard {
     fn drop(&mut self) {
@@ -503,7 +518,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.3.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.4.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -753,11 +768,11 @@ pub fn run_self_test() -> Result<(), String> {
             logo_data_url: None,
             default_output_dir: None,
         },
-        customer_or_sku: "SELFTEST-V230".into(),
-        technician_notes: "Automated v2.3.0 self-test".into(),
+        customer_or_sku: "SELFTEST-V240".into(),
+        technician_notes: "Automated v2.4.0 self-test".into(),
         overall_verdict: "PASSED".into(),
         durability_grade: Some("A+".into()),
-        plain_verdict_summary: Some("All 14 stages passed cleanly in v2.3.0 self-test.".into()),
+        plain_verdict_summary: Some("All 14 stages passed cleanly in v2.4.0 self-test.".into()),
         subsystem_scores: vec![types::SubsystemScoreBar {
             label: "RAM Stability".into(),
             score_pct: 100.0,
@@ -808,8 +823,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.3.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.3.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.4.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.4.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -873,13 +888,16 @@ pub fn run_self_test() -> Result<(), String> {
     let bio = biometrics::detect_biometrics_hardware();
     println!("[PASS] Biometrics ({:?}): {}", bio.suggested_status, bio.summary);
 
+    let hw_ctrl = hardware_controls::get_hardware_controls_status();
+    println!("[PASS] Hardware Controls ({}): {}", hw_ctrl.platform, hw_ctrl.summary);
+
     let gpus = gpu_stress::list_gpu_adapters();
     println!("[PASS] wgpu GPU Adapters detected: {}", gpus.len());
     for g in &gpus {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.3.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.4.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -936,6 +954,8 @@ pub fn run() {
             save_shop_profile,
             export_qc_report,
             compare_userbenchmark,
+            get_hardware_controls_status,
+            set_display_brightness,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

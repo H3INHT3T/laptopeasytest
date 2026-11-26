@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, CheckCircle2, PlugZap, RefreshCw, Square, Usb, Volume2, Waves, Wifi, XCircle } from "lucide-react";
-import type { NetworkDiagnosticsReport, PortsSpeakerSignoff, TestStatus, UsbDeviceInfo, UsbHotplugEvent } from "../types";
+import { AlertTriangle, Bluetooth, CheckCircle2, Headphones, Plane, PlugZap, RefreshCw, Square, Sun, Usb, Volume2, Waves, Wifi, XCircle } from "lucide-react";
+import type { HardwareControlsReport, NetworkDiagnosticsReport, PortsSpeakerSignoff, TestStatus, UsbDeviceInfo, UsbHotplugEvent } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 
@@ -77,6 +77,33 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
   const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([]);
   const [usbLog, setUsbLog] = useState<Array<{ ts: string; kind: string; name: string; speed: string; ss: boolean }>>([]);
   const [netRunning, setNetRunning] = useState(false);
+  const [hwControls, setHwControls] = useState<HardwareControlsReport | null>(null);
+  const [hwLoading, setHwLoading] = useState(false);
+
+  const loadHardwareControls = async () => {
+    setHwLoading(true);
+    try {
+      const rep = await invoke<HardwareControlsReport>("get_hardware_controls_status");
+      setHwControls(rep);
+    } catch {
+      // Ignore outside Tauri or transient failure
+    } finally {
+      setHwLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHardwareControls();
+  }, []);
+
+  const quickSetBrightness = async (pct: number) => {
+    try {
+      await invoke<number>("set_display_brightness", { percent: pct });
+      await loadHardwareControls();
+    } catch {
+      // Ignore if external monitor / unsupported
+    }
+  };
 
   // Ref-managed AudioContext speaker diagnostics
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -318,6 +345,186 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Live Radios, Brightness & Headphone Jack Hardware Matrix */}
+      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="font-mono text-xs font-black uppercase text-black flex items-center gap-1.5">
+              <Bluetooth className="w-4 h-4 text-blue-600" />
+              Live Brightness, Radios (Wi-Fi / Bluetooth / Airplane Mode) &amp; 3.5mm Headphone Jack
+            </div>
+            <div className="text-[11px] text-zinc-600">
+              Toggle brightness, Wi-Fi, Bluetooth, Airplane Mode hotkey, or plug in 3.5mm headphones, then click Refresh to verify live hardware response.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={loadHardwareControls}
+            disabled={hwLoading}
+            className="px-3 py-1.5 rounded-[2px] border border-black bg-white hover:bg-zinc-100 font-mono text-[11px] font-bold uppercase text-black flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${hwLoading ? "animate-spin text-blue-600" : ""}`} />
+            {hwLoading ? "Checking..." : "Refresh Hardware States"}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
+          {/* Display Brightness */}
+          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10.5px] font-bold uppercase text-black flex items-center gap-1.5">
+                <Sun className="w-3.5 h-3.5 text-blue-600" /> Display Brightness
+              </span>
+              <StatusBadge status={hwControls?.displayBrightness?.status ?? "pending"} compact />
+            </div>
+            <div className="font-mono text-sm font-black text-black tabular-nums">
+              {hwControls?.displayBrightness?.currentPct != null
+                ? `${hwControls.displayBrightness.currentPct}%`
+                : "Manual Fn"}
+            </div>
+            <div className="text-[10.5px] text-zinc-600">
+              {hwControls?.displayBrightness?.detail || "Probing screen backlight..."}
+            </div>
+            {hwControls?.displayBrightness?.canSet && (
+              <div className="flex gap-1.5 pt-1">
+                {[30, 70, 100].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => quickSetBrightness(p)}
+                    className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black font-mono text-[10px] font-bold text-black cursor-pointer"
+                  >
+                    Set {p}%
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Keyboard Backlight Brightness */}
+          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10.5px] font-bold uppercase text-black flex items-center gap-1.5">
+                <Sun className="w-3.5 h-3.5 text-blue-600" /> Keyboard Backlight
+              </span>
+              <StatusBadge status={hwControls?.keyboardBacklight?.status ?? "pending"} compact />
+            </div>
+            <div className="font-mono text-sm font-black text-black tabular-nums">
+              {hwControls?.keyboardBacklight?.supported === true
+                ? hwControls.keyboardBacklight.currentPct != null
+                  ? `Equipped (${hwControls.keyboardBacklight.currentPct}%)`
+                  : "Equipped (Fn Keys)"
+                : hwControls?.keyboardBacklight?.supported === false
+                ? "Not Equipped (N/A)"
+                : "Verify via Fn Key"}
+            </div>
+            <div className="text-[10.5px] text-zinc-600">
+              {hwControls?.keyboardBacklight?.detail || "Check keyboard illumination levels using Fn backlight hotkey."}
+            </div>
+          </div>
+
+          {/* Wi-Fi Radio */}
+          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10.5px] font-bold uppercase text-black flex items-center gap-1.5">
+                <Wifi className="w-3.5 h-3.5 text-blue-600" /> Wi-Fi Radio
+              </span>
+              <StatusBadge status={hwControls?.wifi?.status ?? "pending"} compact />
+            </div>
+            <div className="font-mono text-sm font-black text-black">
+              {hwControls?.wifi?.enabled === true
+                ? "RADIO ON"
+                : hwControls?.wifi?.present
+                ? "RADIO OFF"
+                : "NOT DETECTED"}
+            </div>
+            <div className="text-[10.5px] text-zinc-700 font-medium truncate">
+              {hwControls?.wifi?.adapterName || "—"} • {hwControls?.wifi?.connectionDetail || "—"}
+            </div>
+            <div className="text-[10.5px] text-zinc-600">
+              {hwControls?.wifi?.detail || "Probing wireless adapter..."}
+            </div>
+          </div>
+
+          {/* Bluetooth Radio */}
+          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10.5px] font-bold uppercase text-black flex items-center gap-1.5">
+                <Bluetooth className="w-3.5 h-3.5 text-blue-600" /> Bluetooth Radio
+              </span>
+              <StatusBadge status={hwControls?.bluetooth?.status ?? "pending"} compact />
+            </div>
+            <div className="font-mono text-sm font-black text-black">
+              {hwControls?.bluetooth?.enabled === true
+                ? "RADIO ON"
+                : hwControls?.bluetooth?.present
+                ? "RADIO OFF"
+                : "NOT DETECTED"}
+            </div>
+            <div className="text-[10.5px] text-zinc-700 font-medium truncate">
+              {hwControls?.bluetooth?.adapterName || "—"} • {hwControls?.bluetooth?.connectionDetail || "—"}
+            </div>
+            <div className="text-[10.5px] text-zinc-600">
+              {hwControls?.bluetooth?.detail || "Probing Bluetooth radio..."}
+            </div>
+          </div>
+
+          {/* Airplane Mode */}
+          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10.5px] font-bold uppercase text-black flex items-center gap-1.5">
+                <Plane className="w-3.5 h-3.5 text-blue-600" /> Airplane Mode
+              </span>
+              <StatusBadge status={hwControls?.airplaneMode?.status ?? "pending"} compact />
+            </div>
+            <div className="font-mono text-sm font-black text-black">
+              {hwControls?.airplaneMode?.active === true
+                ? "AIRPLANE MODE ON"
+                : hwControls?.airplaneMode?.active === false
+                ? "OFF (Radios Active)"
+                : "UNKNOWN"}
+            </div>
+            <div className="text-[10.5px] text-zinc-600">
+              {hwControls?.airplaneMode?.detail || "Probing system radio switch..."}
+            </div>
+          </div>
+
+          {/* Headphone / 3.5mm Audio Jack */}
+          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10.5px] font-bold uppercase text-black flex items-center gap-1.5">
+                <Headphones className="w-3.5 h-3.5 text-blue-600" /> 3.5mm Headphone Jack
+              </span>
+              <StatusBadge status={hwControls?.headphoneJack?.status ?? "pending"} compact />
+            </div>
+            <div className="font-mono text-sm font-black text-black">
+              {hwControls?.headphoneJack?.pluggedIn ? "HEADPHONES PLUGGED IN" : "NOT PLUGGED IN"}
+            </div>
+            <div className="text-[10.5px] text-zinc-700 font-medium truncate">
+              Output: {hwControls?.headphoneJack?.activeOutputName || "—"}
+            </div>
+            <div className="text-[10.5px] text-zinc-600">
+              {hwControls?.headphoneJack?.detail || "Plug 3.5mm headphones & click Refresh, then play L/R tone."}
+            </div>
+            <div className="flex gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  triggerSpeakerMode("hp_lr", "Headphone L ↔ R Check", {
+                    channel: "alternate",
+                    freqStart: 440,
+                    durationSec: 2.0,
+                  })
+                }
+                className="px-2 py-0.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-[10px] font-bold uppercase cursor-pointer"
+              >
+                Test Headphone L ↔ R
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Live USB Hot-Plug Speed Detector */}
       <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">

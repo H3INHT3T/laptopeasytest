@@ -3,10 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
+  Activity,
   ArrowRight,
+  ChevronRight,
   Database,
   Download,
   FileCheck2,
+  Flame,
   Lock,
   Play,
   RefreshCw,
@@ -219,198 +222,216 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* Swiss Architectural Header Bar */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white overflow-hidden">
-        <div className="px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-200">
-          <div className="space-y-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">
-              STAGE 00 // HARDWARE INSPECTION MANIFEST
-            </div>
-            <h1 className="text-xl font-black text-black tracking-tight">
-              {specs ? `${specs.manufacturer} ${specs.model}` : "Detecting Laptop Hardware..."}
-            </h1>
-            <div className="font-mono text-[11px] text-zinc-600 tabular-nums">
-              {specs
-                ? `${specs.cpuBrand}  •  ${specs.totalRamGb.toFixed(0)} GB RAM  •  S/N: ${specs.serialNumber}  •  ${specs.osName}`
-                : "Enumerating hardware subsystems, locks, battery, crash logs & SMART..."}
-            </div>
+      {/* Novabench-Style Clean Centered Launcher Card */}
+      <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-6 text-center space-y-4">
+        <div className="space-y-1">
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+            Stage 00 // Hardware Inspection Manifest
           </div>
-
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              onClick={onRunAutoChecks}
-              disabled={autoRunning}
-              className="px-3 py-2 rounded-[2px] border border-zinc-300 bg-white hover:border-black text-black font-mono text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${autoRunning ? "animate-spin text-blue-600" : ""}`} />
-              Re-Scan
-            </button>
-            <button
-              onClick={() => setBurnInOpen(true)}
-              className="px-3 py-2 rounded-[2px] border border-black bg-white hover:bg-zinc-100 text-black font-mono text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-            >
-              <Timer className="w-3.5 h-3.5 text-blue-600" />
-              Shelf Burn-In
-            </button>
-            <button
-              onClick={openHistoryModal}
-              className="px-3 py-2 rounded-[2px] border border-zinc-300 bg-white hover:border-black text-black font-mono text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-            >
-              <Database className="w-3.5 h-3.5 text-blue-600" />
-              Shop DB
-            </button>
-            <button
-              onClick={onStartOrResume}
-              className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-            >
-              {unlockedIndex === 0 ? "Begin Stage 01" : `Resume Stage ${nextStepNum}`}
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-            {allStepsDone && (
-              <button
-                onClick={onOpenReport}
-                className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileCheck2 className="w-3.5 h-3.5 text-blue-400" />
-                Certificate
-              </button>
-            )}
+          <div className="inline-flex items-center gap-2.5 justify-center">
+            <span className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+              <Activity className="w-5 h-5 stroke-[2.5]" />
+            </span>
+            <span className="text-2xl font-bold tracking-tight text-black">LaptopBench QC</span>
           </div>
+          <h1 className="text-base font-semibold text-zinc-800">
+            {specs ? `${specs.manufacturer} ${specs.model}` : "Detecting Laptop Hardware..."}
+          </h1>
+          <p className="text-xs text-zinc-500">
+            {specs
+              ? `${specs.cpuBrand} • ${Math.round(specs.totalRamGb)} GB RAM • ${specs.osName}`
+              : "Scanning hardware, BIOS lock, battery, crash logs & SSD SMART..."}
+          </p>
         </div>
 
-        {/* Dense Hairline Telemetry Counter Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums">
-          <div className="px-4 py-2.5 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Passed</span>
-            <span className="text-base font-black text-blue-600">{String(passed).padStart(2, "0")}</span>
-          </div>
-          <div className="px-4 py-2.5 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Warnings</span>
-            <span className="text-base font-black text-black">{String(warned).padStart(2, "0")}</span>
-          </div>
-          <div className="px-4 py-2.5 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Failures</span>
-            <span className={`text-base font-black ${failed > 0 ? "px-1.5 bg-black text-white" : "text-black"}`}>
-              {String(failed).padStart(2, "0")}
-            </span>
-          </div>
-          <div className="px-4 py-2.5 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Skipped</span>
-            <span className="text-base font-black text-zinc-600">{String(skipped).padStart(2, "0")}</span>
-          </div>
-          <div className="px-4 py-2.5 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Graphics Class</span>
-            <span className="text-[11px] font-bold text-blue-700 uppercase">
-              {specs?.isGamingCapable ? "Gaming dGPU" : "Office / iGPU"}
-            </span>
-          </div>
+        {/* Big Cobalt-Blue Primary CTA */}
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <button
+            type="button"
+            onClick={onStartOrResume}
+            className="min-w-[260px] px-7 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
+          >
+            <Play className="w-4 h-4 fill-white" />
+            {unlockedIndex === 0 ? "Begin Stage 01" : `Resume Stage ${nextStepNum}`}
+            <ArrowRight className="w-4 h-4" />
+          </button>
+
+          {allStepsDone && (
+            <button
+              type="button"
+              onClick={onOpenReport}
+              className="px-5 py-3 rounded-xl bg-black hover:bg-zinc-800 text-white font-semibold text-sm inline-flex items-center gap-2 transition cursor-pointer"
+            >
+              <FileCheck2 className="w-4 h-4 text-blue-400" />
+              Certificate
+            </button>
+          )}
         </div>
 
-        {/* v2.3.0 Advanced Reliability & UserBenchmark Summary Chips */}
-        {hasAdvancedChips && (
-          <div className="px-4 py-2.5 border-t border-zinc-200 bg-white grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
-            {userbenchmarkComparison && (
-              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
-                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
-                  <span>UserBenchmark Standing</span>
-                  <span className="px-1.5 py-0.5 rounded-[2px] bg-blue-600 text-white">
-                    {userbenchmarkComparison.overallVehicleTier}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
-                  Desk {userbenchmarkComparison.desktopPct.toFixed(0)}% • Game {userbenchmarkComparison.gamingPct.toFixed(0)}% • Work {userbenchmarkComparison.workstationPct.toFixed(0)}%
-                </div>
-                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={userbenchmarkComparison.headlineSummary}>
-                  {userbenchmarkComparison.headlineSummary}
-                </div>
-              </div>
-            )}
+        {/* Compact Option Pills (Novabench Style) */}
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => onSelectModule("stress_hub")}
+            className="px-3.5 py-2 rounded-lg border border-blue-200 bg-blue-50/60 hover:bg-blue-100/70 text-blue-800 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Flame className="w-3.5 h-3.5 text-blue-600" />
+            Stress Lab
+          </button>
+          <button
+            type="button"
+            onClick={onRunAutoChecks}
+            disabled={autoRunning}
+            className="px-3.5 py-2 rounded-lg border border-zinc-200 bg-[#F8FAFC] hover:border-zinc-400 text-zinc-800 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${autoRunning ? "animate-spin text-blue-600" : "text-zinc-500"}`} />
+            Re-Scan
+          </button>
+          <button
+            type="button"
+            onClick={() => setBurnInOpen(true)}
+            className="px-3.5 py-2 rounded-lg border border-zinc-200 bg-[#F8FAFC] hover:border-zinc-400 text-zinc-800 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Timer className="w-3.5 h-3.5 text-blue-600" />
+            Shelf Burn-In
+          </button>
+          <button
+            type="button"
+            onClick={openHistoryModal}
+            className="px-3.5 py-2 rounded-lg border border-zinc-200 bg-[#F8FAFC] hover:border-zinc-400 text-zinc-800 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Database className="w-3.5 h-3.5 text-blue-600" />
+            Shop DB
+          </button>
+        </div>
 
-            {batteryDischargeResult && (
-              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
-                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
-                  <span>Battery Discharge</span>
-                  <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white">
-                    {batteryDischargeResult.verdict}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
-                  Sag {batteryDischargeResult.voltageSagMv.toFixed(0)} mV • CV {batteryDischargeResult.powerCvPct.toFixed(1)}%
-                </div>
-                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={batteryDischargeResult.plainSummary}>
-                  {batteryDischargeResult.plainSummary}
-                </div>
-              </div>
-            )}
-
-            {touchscreenResult && (
-              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
-                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
-                  <span>Touchscreen Panel</span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded-[2px] text-white ${
-                      touchscreenResult.verdict === "PASS"
-                        ? "bg-blue-600"
-                        : touchscreenResult.verdict === "FAIL"
-                        ? "bg-black"
-                        : "bg-zinc-700"
-                    }`}
-                  >
-                    {touchscreenResult.verdict}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
-                  {touchscreenResult.touchCapable
-                    ? `${touchscreenResult.coveragePct.toFixed(0)}% Grid • ${touchscreenResult.maxSimultaneousTouches}-Pt • ${touchscreenResult.pollingHz} Hz`
-                    : "Non-Touch Laptop"}
-                </div>
-                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={touchscreenResult.plainSummary}>
-                  {touchscreenResult.plainSummary}
-                </div>
-              </div>
-            )}
-
-            {networkReport && (
-              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
-                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
-                  <span>Network Reliability</span>
-                  <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white">
-                    {networkReport.verdict}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
-                  {networkReport.linkSpeedMbps != null ? `${networkReport.linkSpeedMbps.toFixed(0)} Mbps` : "Link Check"}
-                  {networkReport.gatewayPingMs != null ? ` • ${networkReport.gatewayPingMs.toFixed(1)} ms` : ""}
-                </div>
-                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={networkReport.plainSummary}>
-                  {networkReport.plainSummary}
-                </div>
-              </div>
-            )}
+        {/* Clean Summary Counters */}
+        <div className="grid grid-cols-4 max-w-xl mx-auto pt-3 border-t border-zinc-100 text-center font-mono tabular-nums">
+          <div>
+            <div className="text-lg font-bold text-blue-600">{String(passed).padStart(2, "0")}</div>
+            <div className="text-[11px] font-sans text-zinc-500">Passed</div>
           </div>
-        )}
+          <div>
+            <div className="text-lg font-bold text-black">{String(warned).padStart(2, "0")}</div>
+            <div className="text-[11px] font-sans text-zinc-500">Warnings</div>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-black">{String(failed).padStart(2, "0")}</div>
+            <div className="text-[11px] font-sans text-zinc-500">Failures</div>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-zinc-500">{String(skipped).padStart(2, "0")}</div>
+            <div className="text-[11px] font-sans text-zinc-500">Skipped</div>
+          </div>
+        </div>
       </div>
 
-      {/* Dense Architectural Sequential Inspection Manifest Ledger */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white overflow-hidden">
-        <div className="px-4 py-2 border-b border-zinc-300 bg-[#F8FAFC] flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600">
-          <span>{stepOrder.length}-Stage Sequential Diagnostic Ledger</span>
-          <span>Strict Step-by-Step • Explicit Skip Allowed Per Stage</span>
+      {/* Novabench-Style Score & Key Health Summary Card */}
+      {hasAdvancedChips && (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4">
+          {userbenchmarkComparison && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <span className="px-3.5 py-1.5 rounded-full bg-blue-600 text-white font-bold text-sm">
+                    {userbenchmarkComparison.overallVehicleTier}
+                  </span>
+                  <div>
+                    <div className="text-sm font-bold text-black">Performance Rating</div>
+                    <div className="text-xs text-zinc-500">{userbenchmarkComparison.headlineSummary}</div>
+                  </div>
+                </div>
+                <span className="text-xs font-mono text-zinc-500">UserBenchmark Calibrated</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                {[
+                  { label: "Desktop", pct: userbenchmarkComparison.desktopPct },
+                  { label: "Gaming", pct: userbenchmarkComparison.gamingPct },
+                  { label: "Workstation", pct: userbenchmarkComparison.workstationPct },
+                ].map((bar) => (
+                  <div key={bar.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-zinc-600">{bar.label}</span>
+                      <span className="font-mono font-bold text-black">{bar.pct.toFixed(0)}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-zinc-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-blue-600"
+                        style={{ width: `${Math.min(100, Math.max(5, bar.pct))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(batteryDischargeResult || touchscreenResult || networkReport) && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-zinc-100 text-xs">
+              {batteryDischargeResult && (
+                <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] px-3.5 py-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-zinc-600">Battery Discharge</span>
+                    <span className="px-2 py-0.5 rounded-full bg-black text-white font-mono text-[10px] font-bold">
+                      {batteryDischargeResult.verdict}
+                    </span>
+                  </div>
+                  <div className="mt-1 font-mono text-xs font-bold text-black">
+                    Sag {batteryDischargeResult.voltageSagMv.toFixed(0)} mV • CV {batteryDischargeResult.powerCvPct.toFixed(1)}%
+                  </div>
+                </div>
+              )}
+
+              {touchscreenResult && (
+                <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] px-3.5 py-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-zinc-600">Touchscreen</span>
+                    <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white font-mono text-[10px] font-bold">
+                      {touchscreenResult.verdict}
+                    </span>
+                  </div>
+                  <div className="mt-1 font-mono text-xs font-bold text-black">
+                    {touchscreenResult.touchCapable
+                      ? `${touchscreenResult.coveragePct.toFixed(0)}% • ${touchscreenResult.maxSimultaneousTouches}-Pt`
+                      : "Non-Touch"}
+                  </div>
+                </div>
+              )}
+
+              {networkReport && (
+                <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] px-3.5 py-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-zinc-600">Network</span>
+                    <span className="px-2 py-0.5 rounded-full bg-black text-white font-mono text-[10px] font-bold">
+                      {networkReport.verdict}
+                    </span>
+                  </div>
+                  <div className="mt-1 font-mono text-xs font-bold text-black">
+                    {networkReport.linkSpeedMbps != null ? `${networkReport.linkSpeedMbps.toFixed(0)} Mbps` : "Link OK"}
+                    {networkReport.gatewayPingMs != null ? ` • ${networkReport.gatewayPingMs.toFixed(1)} ms` : ""}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Clean, Easy-to-Scan 14-Step QC Checklist */}
+      <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">
+        <div className="px-5 py-3 border-b border-zinc-200 flex items-center justify-between">
+          <span className="text-sm font-bold text-black">
+            {stepOrder.length}-Step QC Checklist
+          </span>
+          <span className="text-xs text-zinc-500">
+            Step-by-step • Skip allowed anytime
+          </span>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-white font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                <th className="py-2 px-4 w-14">Stage</th>
-                <th className="py-2 px-3 w-48">Diagnostic Module</th>
-                <th className="py-2 px-3 w-32">Scope</th>
-                <th className="py-2 px-3 w-24">Status</th>
-                <th className="py-2 px-3">Measured Summary &amp; Audit Proof</th>
-                <th className="py-2 px-4 w-28 text-right">Control</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200">
+          <table className="w-full text-left border-collapse">
+            <tbody className="divide-y divide-zinc-100">
               {list.map((mod, idx) => {
                 const isUnlocked = idx <= unlockedIndex;
                 const isCurrent = idx === unlockedIndex;
@@ -422,53 +443,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     onClick={() => isUnlocked && onSelectModule(mod.id)}
                     className={`transition ${
                       isCurrent
-                        ? "bg-blue-50/40 hover:bg-blue-50/70 cursor-pointer"
+                        ? "bg-blue-50/50 hover:bg-blue-50 cursor-pointer"
                         : isUnlocked
                         ? "bg-white hover:bg-zinc-50 cursor-pointer"
-                        : "bg-[#FAFAFA] text-zinc-400"
+                        : "bg-white text-zinc-400"
                     }`}
                   >
-                    <td className="py-2.5 px-4 font-mono tabular-nums font-bold">
+                    <td className="py-2.5 pl-5 pr-2 w-12">
                       <span
-                        className={`inline-block px-1.5 py-0.5 rounded-[2px] text-[10px] ${
+                        className={`w-7 h-7 rounded-full font-mono text-[11px] font-bold flex items-center justify-center ${
                           isCurrent
                             ? "bg-blue-600 text-white"
                             : isUnlocked
-                            ? "bg-black text-white"
-                            : "bg-zinc-200 text-zinc-500"
+                            ? "bg-zinc-100 text-black"
+                            : "bg-zinc-50 text-zinc-400"
                         }`}
                       >
                         {num}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-black">
-                      <span className={!isUnlocked ? "text-zinc-500 font-semibold" : ""}>{mod.name}</span>
+                    <td className="py-2.5 px-2 w-56">
+                      <div className={`text-sm font-semibold truncate ${isUnlocked ? "text-black" : "text-zinc-400"}`}>
+                        {mod.name}
+                      </div>
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                      {mod.category}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      {!isUnlocked ? (
-                        <span className="inline-flex items-center gap-1 font-mono text-[10px] text-zinc-500">
-                          <Lock className="w-3 h-3" /> LOCKED
-                        </span>
-                      ) : (
-                        <StatusBadge status={mod.status} compact />
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-[11px] text-zinc-700 max-w-md truncate">
+                    <td className="py-2.5 px-2 text-xs text-zinc-500 max-w-md truncate">
                       {!isUnlocked
-                        ? `Unlocks after Stage ${String(idx).padStart(2, "0")}`
-                        : mod.summary || "Ready for diagnostic execution."}
+                        ? `Unlocks after Step ${String(idx).padStart(2, "0")}`
+                        : mod.summary || "Ready to run"}
                     </td>
-                    <td className="py-2.5 px-4 text-right">
-                      {isUnlocked ? (
-                        <span className="inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase text-blue-700 hover:underline">
-                          {isCurrent ? "Inspect" : "Review"} <ArrowRight className="w-3 h-3" />
-                        </span>
-                      ) : (
-                        <span className="font-mono text-[10px] text-zinc-400">—</span>
-                      )}
+                    <td className="py-2.5 pl-2 pr-5 text-right w-28">
+                      <div className="inline-flex items-center justify-end gap-2">
+                        {!isUnlocked ? (
+                          <Lock className="w-3.5 h-3.5 text-zinc-300" />
+                        ) : (
+                          <>
+                            <StatusBadge status={mod.status} compact />
+                            <ChevronRight className="w-4 h-4 text-zinc-400" />
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -478,12 +492,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Footer Attribution Rule */}
-      <div className="px-4 py-2.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] flex flex-wrap items-center justify-between gap-2 text-[11px]">
-        <span className="font-mono text-zinc-600">
-          OFFLINE NATIVE RUST ENGINE • ZERO CLOUD TELEMETRY • TAMPER-EVIDENT SHA-256 CERTIFICATES
-        </span>
-        <span className="font-bold text-black inline-flex items-center gap-1.5">
+      {/* Quiet Attribution Footer */}
+      <div className="px-2 py-1 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+        <span>Offline Native Rust Diagnostics • SHA-256 Certificates</span>
+        <span className="font-semibold text-black inline-flex items-center gap-1.5">
           Created by Hein Htet Zaw
           <span className="text-blue-700 font-mono inline-flex items-center gap-1">
             • <Send className="w-3 h-3" /> @ich8g92

@@ -34,8 +34,11 @@ import type {
 } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { TopTelemetryStrip } from "./components/TopTelemetryStrip";
+import { SystemInfoRail } from "./components/SystemInfoRail";
+import { BottomSensorsDock } from "./components/BottomSensorsDock";
 import { PreReportModal } from "./components/PreReportModal";
 import { DashboardView } from "./tests/DashboardView";
+import { StressHubView } from "./tests/StressHubView";
 import { SpecsView } from "./tests/SpecsView";
 import { SecurityAuditView } from "./tests/SecurityAuditView";
 import { BatteryView } from "./tests/BatteryView";
@@ -976,30 +979,60 @@ export const App: React.FC = () => {
           totalSteps={totalSteps}
         />
 
-        <main className="flex-1 overflow-y-auto p-5 bg-[#FAFAFA]">
-          <div className="max-w-6xl mx-auto">
-            {activeTab === "dashboard" && (
-              <DashboardView
-                specs={specs}
-                stepOrder={STEP_ORDER}
-                unlockedIndex={unlockedIndex}
-                modules={modules}
-                autoRunning={autoRunning}
-                allStepsDone={allStepsDone}
-                savedSession={savedSession}
-                crashAlert={crashAlert}
-                userbenchmarkComparison={userbenchmarkComparison}
-                touchscreenResult={touchscreenResult}
-                batteryDischargeResult={batteryDischargeResult}
-                networkReport={networkReport}
-                onResumeSession={handleResumeSession}
-                onDiscardSession={handleDiscardSession}
-                onRunAutoChecks={runAllAutoChecks}
-                onStartOrResume={() => setActiveTab(STEP_ORDER[Math.min(unlockedIndex, STEP_ORDER.length - 1)])}
-                onSelectModule={setActiveTab}
-                onOpenReport={() => setReportModalOpen(true)}
-              />
-            )}
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+            <main className="flex-1 overflow-y-auto p-6 bg-[#F8FAFC]">
+              <div className="max-w-5xl mx-auto">
+                {activeTab === "dashboard" && (
+                  <DashboardView
+                    specs={specs}
+                    stepOrder={STEP_ORDER}
+                    unlockedIndex={unlockedIndex}
+                    modules={modules}
+                    autoRunning={autoRunning}
+                    allStepsDone={allStepsDone}
+                    savedSession={savedSession}
+                    crashAlert={crashAlert}
+                    userbenchmarkComparison={userbenchmarkComparison}
+                    touchscreenResult={touchscreenResult}
+                    batteryDischargeResult={batteryDischargeResult}
+                    networkReport={networkReport}
+                    onResumeSession={handleResumeSession}
+                    onDiscardSession={handleDiscardSession}
+                    onRunAutoChecks={runAllAutoChecks}
+                    onStartOrResume={() => setActiveTab(STEP_ORDER[Math.min(unlockedIndex, STEP_ORDER.length - 1)])}
+                    onSelectModule={setActiveTab}
+                    onOpenReport={() => setReportModalOpen(true)}
+                  />
+                )}
+
+                {activeTab === "stress_hub" && (
+                  <StressHubView
+                    specs={specs}
+                    telemetry={liveTelemetry}
+                    onRunningChange={(r, lbl) => updateStressActive(r ? lbl : null)}
+                    onCpuComplete={(res) => {
+                      setPerfResult(res);
+                      perfRef.current = res;
+                      updateModule("performance", res.status, res.summary);
+                      refreshUserbenchmarkComparison({ perf: res }).catch(() => {});
+                    }}
+                    onGpuComplete={(res) => {
+                      setGpuResult(res);
+                      gpuRef.current = res;
+                      updateModule("gpu", res.status, res.summary);
+                      refreshUserbenchmarkComparison({ gpu: res }).catch(() => {});
+                    }}
+                    onRamComplete={(res) => {
+                      setRamResult(res);
+                      ramRef.current = res;
+                      updateModule("ram", res.status, res.summary);
+                      refreshUserbenchmarkComparison({ ram: res }).catch(() => {});
+                    }}
+                    onVramComplete={(res) => setVramResult(res)}
+                    onPowerComplete={(res) => setTortureResult(res)}
+                  />
+                )}
 
             {activeTab === "specs" && <SpecsView {...specsViewProps} />}
 
@@ -1111,8 +1144,17 @@ export const App: React.FC = () => {
             {activeTab === "gpu" && <GpuStressView {...gpuViewProps} />}
 
             {activeTab === "ports_speakers" && <PortsSpeakersView {...portsSpeakersViewProps} />}
+              </div>
+            </main>
+            <BottomSensorsDock telemetry={liveTelemetry} />
           </div>
-        </main>
+
+          <SystemInfoRail
+            specs={specs}
+            battery={batteryReport}
+            security={securityReport}
+          />
+        </div>
       </div>
 
       <PreReportModal {...preReportModalProps} />

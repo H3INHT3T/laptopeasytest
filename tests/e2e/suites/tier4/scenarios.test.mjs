@@ -989,7 +989,7 @@ export const tests = [
       );
 
       // v2.3.0: All 8 manifests/UI/report sources aligned to 2.3.0
-      const align = ctx.cli.checkVersionAlignment("2.3.0");
+      const align = ctx.cli.checkVersionAlignment("2.4.0");
       ctx.assert.equal(
         align.ok,
         true,
