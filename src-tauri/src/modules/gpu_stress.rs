@@ -23,6 +23,15 @@ use wgpu::util::DeviceExt;
 const SHADER_WGSL: &str = include_str!("../shaders/fur_torus.wgsl");
 const ALU_VERIFY_WGSL: &str = include_str!("../shaders/vram_verify.wgsl");
 const GPU_COMPUTE_WGSL: &str = include_str!("../shaders/gpu_compute.wgsl");
+const GPU_RENDER_3D_WGSL: &str = include_str!("../shaders/gpu_render_3d.wgsl");
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct Render3dUniforms {
+    resolution: [f32; 2],
+    time: f32,
+    pad: f32,
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -1239,12 +1248,22 @@ pub fn run_gpu_compute_bench(adapter_index: Option<usize>) -> Result<GpuComputeB
     let total_flops = flops_per_dispatch * (dispatches_completed as f64);
     let fp32_gflops = ((total_flops / elapsed_secs) / 1e9 * 10.0).round() / 10.0;
     let fp32_tflops = (fp32_gflops / 1000.0 * 100.0).round() / 100.0;
+
+    // Phase 2 (v3.3.0): Uncapped Native 1080p 3D Ray-Traced Terrain & Orb Render Pass (ZERO VSync lock!)
+    let (uncapped_3d_fps, uncapped_3d_low1_fps, gpixels_per_sec, preview_data_url) =
+        run_native_uncapped_3d_pass(&device, &queue);
+
     let (status, tier) = classify_gpu_compute_tier(fp32_gflops, verified_ok, is_software);
 
     let speed_str = if fp32_gflops >= 1000.0 {
         format!("{:.2} TFLOPS ({:.0} GFLOPS)", fp32_tflops, fp32_gflops)
     } else {
         format!("{:.1} GFLOPS", fp32_gflops)
+    };
+    let fps3d_str = if uncapped_3d_fps > 0.0 {
+        format!(" • Uncapped 1080p 3D: {:.1} FPS (1% Low {:.1})", uncapped_3d_fps, uncapped_3d_low1_fps)
+    } else {
+        String::new()
     };
     let plain_summary = if !verified_ok {
         format!(
@@ -1253,13 +1272,13 @@ pub fn run_gpu_compute_bench(adapter_index: Option<usize>) -> Result<GpuComputeB
         )
     } else if status == TestStatus::Warn {
         format!(
-            "WARN: {} ({}) measured only {} — possible software render fallback or severe power-limit throttle.",
-            adapter_name, backend, speed_str
+            "WARN: {} ({}) measured only {}{} — possible software render fallback or severe power-limit throttle.",
+            adapter_name, backend, speed_str, fps3d_str
         )
     } else {
         format!(
-            "{} ({}) verified at {} FP32 compute ({}; pipeline compile {:.1} ms, 0 ALU errors).",
-            adapter_name, backend, speed_str, tier, pipeline_compile_ms
+            "{} ({}) verified at {} FP32 compute{} ({}; pipeline compile {:.1} ms, 0 ALU errors).",
+            adapter_name, backend, speed_str, fps3d_str, tier, pipeline_compile_ms
         )
     };
 
@@ -1274,9 +1293,236 @@ pub fn run_gpu_compute_bench(adapter_index: Option<usize>) -> Result<GpuComputeB
         elapsed_secs: (elapsed_secs * 100.0).round() / 100.0,
         verified_ok,
         tier: tier.clone(),
-        summary: format!("{} • {}", speed_str, tier),
+        summary: format!("{}{} • {}", speed_str, fps3d_str, tier),
         plain_summary,
+        uncapped_3d_fps,
+        uncapped_3d_low1_fps,
+        gpixels_per_sec,
+        preview_data_url,
     })
+}
+
+fn run_native_uncapped_3d_pass(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> (f64, f64, f64, Option<String>) {
+    let width: u32 = 1920;
+    let height: u32 = 1080;
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Native Uncapped 3D Render Shader"),
+        source: wgpu::ShaderSource::Wgsl(GPU_RENDER_3D_WGSL.into()),
+    });
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Uncapped3DTarget"),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    let ubuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Render3dUniforms"),
+        contents: bytemuck::cast_slice(&[Render3dUniforms {
+            resolution: [width as f32, height as f32],
+            time: 0.8,
+            pad: 0.0,
+        }]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Render3d BGL"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Render3d BG"),
+        layout: &bgl,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: ubuf.as_entire_binding(),
+        }],
+    });
+    let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Render3d PL"),
+        bind_group_layouts: &[&bgl],
+        push_constant_ranges: &[],
+    });
+    let pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Render3d Pipeline"),
+        layout: Some(&pl),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    // Warmup frame
+    {
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rp.set_pipeline(&pipe);
+            rp.set_bind_group(0, &bg, &[]);
+            rp.draw(0..6, 0..1);
+        }
+        queue.submit(Some(enc.finish()));
+        device.poll(wgpu::Maintain::Wait);
+    }
+
+    // Uncapped timed 1080p render burst (~1.5s)
+    let mut frame_fps_samples: Vec<f64> = Vec::with_capacity(256);
+    let mut frames_done: u32 = 0;
+    let t_start = Instant::now();
+    while t_start.elapsed().as_secs_f64() < 1.5 && frames_done < 900 {
+        let tf = Instant::now();
+        let cur_t = 0.8 + t_start.elapsed().as_secs_f32() * 1.6;
+        queue.write_buffer(
+            &ubuf,
+            0,
+            bytemuck::cast_slice(&[Render3dUniforms {
+                resolution: [width as f32, height as f32],
+                time: cur_t,
+                pad: 0.0,
+            }]),
+        );
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rp.set_pipeline(&pipe);
+            rp.set_bind_group(0, &bg, &[]);
+            rp.draw(0..6, 0..1);
+        }
+        queue.submit(Some(enc.finish()));
+        device.poll(wgpu::Maintain::Wait);
+        let dt_s = tf.elapsed().as_secs_f64().max(0.0002);
+        frame_fps_samples.push(1.0 / dt_s);
+        frames_done += 1;
+    }
+    let total_s = t_start.elapsed().as_secs_f64().max(0.001);
+    let avg_fps = ((frames_done as f64 / total_s) * 10.0).round() / 10.0;
+    let low1_fps = (compute_low_1pct(&frame_fps_samples, avg_fps) * 10.0).round() / 10.0;
+    let gp_s = (((width as f64) * (height as f64) * avg_fps / 1e9) * 100.0).round() / 100.0;
+
+    // Readback single rendered 1080p frame -> downsample 3x to 640x360 JPEG preview
+    let unpadded_bpr = width * 4;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bpr = ((unpadded_bpr + align - 1) / align) * align;
+    let read_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Uncapped3DReadback"),
+        size: (padded_bpr * height) as u64,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    {
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &read_buf,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bpr),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        );
+        queue.submit(Some(enc.finish()));
+        device.poll(wgpu::Maintain::Wait);
+    }
+
+    let mut preview_url = None;
+    let slice = read_buf.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    device.poll(wgpu::Maintain::Wait);
+    if matches!(rx.recv(), Ok(Ok(()))) {
+        let raw = slice.get_mapped_range();
+        let step = 3usize;
+        let pw = (width as usize) / step;
+        let ph = (height as usize) / step;
+        let mut rgb = Vec::with_capacity(pw * ph * 3);
+        for y in 0..ph {
+            let row_off = (y * step) * (padded_bpr as usize);
+            for x in 0..pw {
+                let off = row_off + (x * step) * 4;
+                rgb.push(raw[off]);
+                rgb.push(raw[off + 1]);
+                rgb.push(raw[off + 2]);
+            }
+        }
+        drop(raw);
+        read_buf.unmap();
+        let mut jpg_bytes = Vec::new();
+        let mut enc = JpegEncoder::new_with_quality(&mut jpg_bytes, 78);
+        if enc.encode(&rgb, pw as u32, ph as u32, ColorType::Rgb8.into()).is_ok() {
+            preview_url = Some(format!("data:image/jpeg;base64,{}", B64.encode(&jpg_bytes)));
+        }
+    }
+
+    (avg_fps, low1_fps, gp_s, preview_url)
 }
 
 #[cfg(test)]

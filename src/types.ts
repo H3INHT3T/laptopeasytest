@@ -993,6 +993,10 @@ export interface GpuComputeBenchResult {
   tier: string;
   plainSummary: string;
   summary: string;
+  uncapped3dFps?: number;
+  uncapped3dLow1Fps?: number;
+  gpixelsPerSec?: number;
+  previewDataUrl?: string | null;
 }
 
 export interface GraphicsFpsSceneScore {

@@ -284,7 +284,7 @@ impl PageBuilder {
             // Hairline footer rule
             self.line(MARGIN, 34.0, MARGIN + content_w, 34.0, 0.6, COL_RULE);
             let footer = format!(
-                "LaptopBench QC v3.2.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
+                "LaptopBench QC v3.3.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
                 self.cert_id, page_num
             );
             let _ = writeln!(
@@ -1177,12 +1177,18 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
                 TestStatus::Fail => "fail",
                 _ => "warn",
             };
+            let fps3d_part = if gc.uncapped_3d_fps > 0.0 {
+                format!(" | Uncapped 1080p 3D: {:.1} FPS (1%L {:.1})", gc.uncapped_3d_fps, gc.uncapped_3d_low1_fps)
+            } else {
+                String::new()
+            };
             let body = format!(
-                "Adapter: {} ({}) | FP32: {:.1} GFLOPS ({:.2} TFLOPS) | Compile: {:.1}ms | Verified: {} — {}",
+                "Adapter: {} ({}) | FP32: {:.1} GFLOPS ({:.2} TFLOPS){} | Compile: {:.1}ms | Verified: {} — {}",
                 gc.adapter_name,
                 gc.backend,
                 gc.fp32_gflops,
                 gc.fp32_tflops,
+                fps3d_part,
                 gc.pipeline_compile_ms,
                 if gc.verified_ok { "OK" } else { "FAULT" },
                 gc.plain_summary
@@ -1386,7 +1392,7 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     ));
-    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.2.0 protocol.", stage_count);
+    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.3.0 protocol.", stage_count);
     let notes_s = format!(
         "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
@@ -1607,7 +1613,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("LaptopBench QC v3.2.0"));
+        assert!(text.contains("LaptopBench QC v3.3.0"));
         assert!(text.contains("Created by Hein Htet Zaw"));
         assert!(text.contains("@ich8g92"));
         assert!(!text.contains("v2.1."));
@@ -2371,6 +2377,10 @@ mod tests {
                 tier: "High-Performance Discrete GPU".into(),
                 plain_summary: "Verified 9.82 TFLOPS native wgpu FP32 compute.".into(),
                 summary: "9820.5 GFLOPS verified".into(),
+                uncapped_3d_fps: 242.5,
+                uncapped_3d_low1_fps: 210.0,
+                gpixels_per_sec: 0.50,
+                preview_data_url: None,
             }),
             perf_bench: Some(PerfBenchResult {
                 video_encode_fps: 42.5,

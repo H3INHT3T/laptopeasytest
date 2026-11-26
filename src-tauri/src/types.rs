@@ -1335,6 +1335,14 @@ pub struct GpuComputeBenchResult {
     pub tier: String,
     pub plain_summary: String,
     pub summary: String,
+    #[serde(default)]
+    pub uncapped_3d_fps: f64,
+    #[serde(default)]
+    pub uncapped_3d_low1_fps: f64,
+    #[serde(default)]
+    pub gpixels_per_sec: f64,
+    #[serde(default)]
+    pub preview_data_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

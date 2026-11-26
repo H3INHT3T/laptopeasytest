@@ -458,11 +458,15 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
           fp32Tflops: 1.62,
           pipelineCompileMs: 14.2,
           dispatchesCompleted: 96,
-          elapsedSecs: 1.1,
+          elapsedSecs: 2.4,
           verifiedOk: true,
           tier: "Modern Integrated / Entry dGPU",
-          plainSummary: "Intel Iris Xe Graphics (Dx12) verified 1620.4 GFLOPS (1.62 TFLOPS) FP32 compute.",
-          summary: "1620.4 GFLOPS (1.62 TFLOPS) FP32 verified on Intel Iris Xe Graphics (Dx12)",
+          plainSummary: "Intel Iris Xe Graphics (Dx12) verified 1620.4 GFLOPS • Uncapped 1080p 3D: 68.4 FPS.",
+          summary: "1620.4 GFLOPS • Uncapped 1080p 3D: 68.4 FPS",
+          uncapped3dFps: 68.4,
+          uncapped3dLow1Fps: 59.2,
+          gpixelsPerSec: 0.14,
+          previewDataUrl: null,
         },
       run_vram_test: async () =>
         runLongCommand("vram", "vram:progress", fixture.vramTest, {

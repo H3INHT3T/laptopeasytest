@@ -816,7 +816,12 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         out.push(["Graphics Lab", `${graphicsFpsResult.compositeScore} (${graphicsFpsResult.smoothnessTier})`]);
       }
       if (gpuComputeResult) {
-        out.push(["wgpu FP32", `${gpuComputeResult.fp32Gflops.toFixed(0)} GFLOPS`]);
+        out.push([
+          "wgpu Native",
+          gpuComputeResult.uncapped3dFps
+            ? `${gpuComputeResult.uncapped3dFps.toFixed(1)} FPS (1080p) • ${gpuComputeResult.fp32Gflops.toFixed(0)} GFLOPS`
+            : `${gpuComputeResult.fp32Gflops.toFixed(0)} GFLOPS`,
+        ]);
       }
       if (vramResult) {
         out.push(["VRAM", `${vramResult.errorsFound} err (${vramResult.totalGbVerified.toFixed(1)} GB)`]);

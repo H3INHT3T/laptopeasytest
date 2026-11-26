@@ -151,7 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
           <div className="font-mono text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
-            v3.2.0
+            v3.3.0
           </div>
         </div>
       </div>

@@ -976,7 +976,7 @@ export const tests = [
       const out = `${selfTest.stdout}\n${selfTest.stderr}`;
       ctx.assert.match(out, /\[PASS\]/);
       ctx.assert.equal(/\[FAIL\]/i.test(out), false, `--self-test reported [FAIL]: ${out}`);
-      ctx.assert.match(out, /ALL v3\.2\.0 SELF-TESTS PASSED/i);
+      ctx.assert.match(out, /ALL v3\.3\.0 SELF-TESTS PASSED/i);
 
       const binaries = ctx.cli.checkNoBundledBinaries();
       ctx.assert.equal(binaries.ok, true, `Bundled binaries found: ${JSON.stringify(binaries.found)}`);
@@ -988,8 +988,8 @@ export const tests = [
         `Static Swiss color violations: ${JSON.stringify(swissStatic.violations.slice(0, 5))}`
       );
 
-      // v3.2.0: All 8 manifests/UI/report sources aligned to 3.2.0
-      const align = ctx.cli.checkVersionAlignment("3.2.0");
+      // v3.3.0: All 8 manifests/UI/report sources aligned to 3.3.0
+      const align = ctx.cli.checkVersionAlignment("3.3.0");
       ctx.assert.equal(
         align.ok,
         true,

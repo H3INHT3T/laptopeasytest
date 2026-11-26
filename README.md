@@ -1,10 +1,26 @@
-# LaptopBench QC v3.2.0
+# LaptopBench QC v3.3.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v3.2.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, fullscreen graphics/mini-game FPS benchmark, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, **WebGL2**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) interface.
+**LaptopBench QC v3.3.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, photorealistic real 2D & 3D fullscreen graphics benchmark, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, **WebGL2**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) interface.
 
-## What's New in v3.2.0 — Fullscreen Graphics & Playable Mini-Game FPS Lab, Native wgpu FP32 Compute & Stage 12 Media/Dev Suite
+## What's New in v3.3.0 — Real Full-Color 2D & 3D Graphics Benchmarks, 3-Act 15s Progression & Uncapped Native 1080p wgpu 3D FPS
+
+- **Real Selectable Benchmark Durations & 3-Act Progression (Zero Toy Loops):** Choose **Quick (10s/scene • ~1.5m)**, **Standard (15s/scene • ~2.2m, default)**, or **Extended Stress (30s/scene • ~4.5m)**. Every scene progresses continuously through **Act I (Baseline) → Act II (Dynamic Lighting/Ramp) → Act III (Peak Stress Saturation)** with live countdown clock, live **GPU Temp (°C) / GPU Load (%) / GPU Clock (MHz) / CPU (%)** hardware telemetry HUD, and real throughput counters (**MTri/s, MRays/s, MP/s, Max Vectors @ 60 FPS, Glyphs/s**).
+- **4 Photorealistic Full-Color WebGL2 3D Worlds (`shaders3d.ts`):**
+  1. **3D Alpine Terrain, Ocean Water & Volumetric Sun Flythrough** *(Unigine style)* — Full-color snow peaks, granite cliffs, pine valleys, dynamic sun shadows, reflective Fresnel ocean waves & 3-act canyon flight.
+  2. **3D Real-Time Ray-Traced Chrome, Glass & Soft Shadows** *(3DMark Solar Bay style)* — Multi-bounce GLSL ray tracer (`2 → 6` bounces) with metallic gold/chrome/copper spheres, Snell's-law refractive glass orb & soft shadows.
+  3. **3D PBR Cyberpunk Megacity Flythrough** — Up to `7,800` instanced 3D skyscraper meshes with illuminated window shaders, specular glass facades, aerial traffic light streaks & downtown canyon dive.
+  4. **3D Volumetric Plasma Nebula & Fusion Reactor Torture** — Heavy 3D volumetric raymarch ramping from `32 → 112` steps/pixel to stress GPU ALUs and fillrate.
+- **3 PassMark-2D / MotionMark-Class Full-Color 2D Engines + 2 Escalating Playable Mini-Games (`engines2d.ts`):**
+  5. **2D Escalating Vector Ceiling Engine** — Interlocking mechanical gears, PCB schematics & prism shards dynamically ramping to find true **Max Vectors @ 60 FPS**.
+  6. **2D High-Res Topographic Satellite Map & CAD Deep-Zoom (`0.35× → 64×`)** — Real shaded-relief satellite bitmap + hairline CAD overlay with multi-layer compositing (`MP/s`) + interactive wheel/drag zoom.
+  7. **2D Rich IDE Code, Data Table & Multi-Script Typography** — Syntax-highlighted code, live telemetry table, Myanmar (`မင်္ဂလာပါ`) & CJK scripts with 120Hz+ scroll & live font scaling (`Glyphs/s`).
+  8. **Mini-Game 1: 3-Act Starfighter Wave & Dreadnought Boss Arena** — Scout waves → heavy cruiser bullet curtains → Dreadnought Boss with HP bar, screen-shake & explosions (Auto-AI or live Mouse/WASD Play).
+  9. **Mini-Game 2: 3-Act Rigid-Body Demolition & 3,500-Body Gravity Sandbox** — Destructible tower collapse → vortex centrifuge → full velocity-lit spatial-hash swarm + click/drag shockwaves.
+- **Native Rust `wgpu` Uncapped 1080p 3D FPS + FP32 Compute Benchmark (`gpu_render_3d.wgsl`):** Breaks the 60Hz WebView VSync cap by rendering a photorealistic 1920×1080 3D terrain + chrome orb scene directly on DX12/Vulkan/Metal alongside verified FP32 GFLOPS/TFLOPS, returning true **Uncapped 1080p 3D FPS**, **1% Low**, **GPixels/s**, and a live rendered JPEG frame preview.
+
+## Highlights from v3.2.0 — Stage 12 Media/Crypto/JSON/Core-Scaling & Graphics Lab Foundation
 
 - **Fullscreen 9-Scene Graphics, Zooming, Text, 3D WebGL2 & Playable Mini-Game Lab (Stage 13 Tab 04):** True borderless fullscreen benchmark portal (`Esc` to exit cleanly) with floating live HUD (**FPS / 1% Low / 0.1% Low / Frametime ms Graph / Load Preset `Light–Ultra` / 1-Click `"Take Control (Play)"` vs `"Auto-AI"` toggle**) and 1-click **Full Automated Suite (~45s)** or individual scene launch:
   1. **Graphic Rendering (2D Vectors & Particle Storm)** — Procedural Bezier ribbons, radial light fields & scaling physics particles.
