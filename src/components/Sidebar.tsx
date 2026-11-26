@@ -1,7 +1,43 @@
 import React from "react";
-import { Activity, FileCheck2, Lock, Send } from "lucide-react";
+import {
+  Activity,
+  Battery,
+  Camera,
+  Cpu,
+  FileCheck2,
+  FileWarning,
+  Fingerprint,
+  Flame,
+  Gauge,
+  Hand,
+  HardDrive,
+  Keyboard,
+  Lock,
+  MemoryStick,
+  Monitor,
+  Send,
+  ShieldCheck,
+  Usb,
+} from "lucide-react";
 import type { ModuleRecord, StepModuleId, TestModuleId } from "../types";
 import { StatusBadge } from "./StatusBadge";
+
+const STEP_ICONS: Record<StepModuleId, React.ComponentType<{ className?: string }>> = {
+  specs: Cpu,
+  security: ShieldCheck,
+  battery: Battery,
+  logs: FileWarning,
+  storage: HardDrive,
+  display: Monitor,
+  touchscreen: Hand,
+  keyboard: Keyboard,
+  biometrics: Fingerprint,
+  media: Camera,
+  ram: MemoryStick,
+  performance: Gauge,
+  gpu: Flame,
+  ports_speakers: Usb,
+};
 
 interface SidebarProps {
   activeTab: TestModuleId;
@@ -40,8 +76,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="min-w-0 flex-1">
           <div className="font-black text-xs tracking-wider uppercase text-black flex items-center justify-between">
             <span>LaptopBench QC</span>
-            <span className="font-mono text-[9px] font-bold px-1 py-0.5 bg-blue-600 text-white rounded-[2px]">
-              v2.1
+            <span className="font-mono text-[9px] font-bold px-1 py-0.5 bg-blue-600 text-white rounded-[2px] normal-case">
+              v2.3.0
             </span>
           </div>
           <div className="font-mono text-[10px] text-zinc-500 tracking-tight truncate">
@@ -82,6 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const isUnlocked = idx <= unlockedIndex;
           const isActive = activeTab === id;
           const num = String(idx + 1).padStart(2, "0");
+          const StepIcon = STEP_ICONS[id];
 
           return (
             <button
@@ -97,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : "bg-transparent border-l-transparent text-zinc-500 cursor-not-allowed"
               }`}
             >
-              <span className="flex items-center gap-2 min-w-0">
+              <span className="flex items-center gap-1.5 min-w-0">
                 <span
                   className={`font-mono text-[10px] tabular-nums font-bold shrink-0 ${
                     isActive
@@ -109,6 +146,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   {num}
                 </span>
+                <StepIcon
+                  className={`w-3 h-3 shrink-0 ${
+                    isActive
+                      ? "text-blue-600"
+                      : isUnlocked
+                      ? "text-zinc-600"
+                      : "text-zinc-400"
+                  }`}
+                />
                 <span className="truncate tracking-tight">{mod.name}</span>
                 {id === "gpu" && isGamingCapable && (
                   <span className="px-1 py-0.2 bg-blue-600 text-white font-mono text-[8px] font-bold rounded-[2px] shrink-0">
@@ -145,7 +191,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={onOpenReportModal}
           disabled={!allStepsDone}
-          title={allStepsDone ? "Open Swiss Lab Certificate & Export" : "Complete or explicitly skip all 13 steps to unlock Certificate"}
+          title={
+            allStepsDone
+              ? "Open Swiss Lab Certificate & Export"
+              : `Complete or explicitly skip all ${stepOrder.length} steps to unlock Certificate`
+          }
           className={`w-full py-2 px-3 rounded-[2px] font-mono font-bold text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border ${
             allStepsDone
               ? "bg-blue-600 hover:bg-blue-700 border-blue-600 text-white cursor-pointer"

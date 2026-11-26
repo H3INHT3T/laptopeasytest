@@ -53,17 +53,20 @@ pub fn simd_ai_gemm_step(dim: usize, seed: f32) -> f32 {
     }
 
     // Scalar fallback
-    for i in 0..n {
-        for k in 0..n {
-            let aik = a[i * n + k];
-            let b_row = &b[k * n..(k + 1) * n];
-            let c_row = &mut c[i * n..(i + 1) * n];
-            for j in 0..n {
-                c_row[j] = aik.mul_add(b_row[j], c_row[j]);
+    #[allow(unreachable_code)]
+    {
+        for i in 0..n {
+            for k in 0..n {
+                let aik = a[i * n + k];
+                let b_row = &b[k * n..(k + 1) * n];
+                let c_row = &mut c[i * n..(i + 1) * n];
+                for j in 0..n {
+                    c_row[j] = aik.mul_add(b_row[j], c_row[j]);
+                }
             }
         }
+        black_box(c.iter().sum())
     }
-    black_box(c.iter().sum())
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CheckCircle2, Maximize2, Monitor, XCircle } from "lucide-react";
+import { CheckCircle2, Maximize2, Monitor, Sparkles, XCircle } from "lucide-react";
 import type { TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
@@ -26,13 +26,17 @@ interface PatternDef {
     | "contrast"
     | "gamma"
     | "pixelwalk"
+    | "moire_dot"
+    | "moire_line"
+    | "persistence"
+    | "power_zoom"
     | "readability"
     | "grid"
     | "motion";
   color?: string;
 }
 
-// 18 authentic PassMark MonitorTest 4.0-inspired full-screen display patterns
+// 23 PassMark MonitorTest 4.0-inspired full-screen display patterns
 const PATTERNS: PatternDef[] = [
   { id: "black", name: "Pure Black (0,0,0)", desc: "Check bright stuck pixels & edge backlight bleed", kind: "solid", color: "#000000" },
   { id: "white", name: "Pure White (255,255,255)", desc: "Check dark dead pixels, yellowing & pressure spots", kind: "solid", color: "#ffffff" },
@@ -45,13 +49,47 @@ const PATTERNS: PatternDef[] = [
   { id: "gray3", name: "Dark Gray 3% (OLED/Bleed)", desc: "Inspect near-black IPS glow & OLED vertical banding", kind: "solid", color: "#080808" },
   { id: "gray10", name: "Dark Gray 10% (Uniformity)", desc: "Inspect clouding & dirty-screen effect", kind: "solid", color: "#1a1a1a" },
   { id: "gray20", name: "Dark Gray 20% (Uniformity)", desc: "Inspect panel gray balance & uniformity", kind: "solid", color: "#333333" },
-  { id: "gray50", name: "Mid Gray 50% (Tint/Burn-in)", desc: "Inspect color tinting & image retention", kind: "solid", color: "#808080" },
-  { id: "gradient", name: "256-Step RGB & Gray Gradients", desc: "Check color bit-depth banding & smooth transitions", kind: "gradient" },
+  {
+    id: "persistence",
+    name: "Persistence / Burn-In Hold",
+    desc: "Hold 15–30s then advance to Mid Gray 50% to check OLED/IPS image retention",
+    kind: "persistence",
+  },
+  { id: "gray50", name: "Mid Gray 50% (Tint/Burn-in)", desc: "Inspect color tinting & post-hold image retention", kind: "solid", color: "#808080" },
+  {
+    id: "gradient",
+    name: "256-Step RGB & Gray Gradients",
+    desc: "Check 0–255 bit-depth banding, shadow ramp (0–32) & smooth transitions",
+    kind: "gradient",
+  },
   { id: "contrast", name: "Contrast & Black-Level Steps", desc: "Verify dark shadow & highlight step separation", kind: "contrast" },
-  { id: "gamma", name: "Gamma 1.8 / 2.2 / 2.4 Calibration", desc: "Check panel gamma balance against 50% dither bars", kind: "gamma" },
+  {
+    id: "gamma",
+    name: "Gamma 1.8 / 2.2 / 2.4 & RGB Check",
+    desc: "Match neutral gray & RGB channel patches to 50% dithered reference",
+    kind: "gamma",
+  },
   { id: "pixelwalk", name: "1px Pixel-Walk / LCD Inversion", desc: "Check for flicker, shimmer, or column inversion noise", kind: "pixelwalk" },
-  { id: "readability", name: "Sharpness & Font Matrix (6pt–16pt)", desc: "Verify crisp subpixel text clarity edge-to-edge", kind: "readability" },
+  {
+    id: "moire_dot",
+    name: "Dot Moiré (1px / 2px Check)",
+    desc: "Expose pixel clock/phase shimmer, FRC temporal noise & dot interference",
+    kind: "moire_dot",
+  },
+  {
+    id: "moire_line",
+    name: "Line Moiré (V/H Line Pairs)",
+    desc: "Expose scaling aliasing, column crosstalk & sharpness ringing",
+    kind: "moire_line",
+  },
+  { id: "readability", name: "Sharpness & Font Matrix (8px–18px)", desc: "Verify crisp subpixel text clarity edge-to-edge", kind: "readability" },
   { id: "grid", name: "Geometry, Convergence & Aspect Grid", desc: "Check alignment, aspect circles & corner sharpness", kind: "grid" },
+  {
+    id: "power_zoom",
+    name: "Power Supply Stability (Zooming)",
+    desc: "Dynamic 10%↔95% white frame load to expose backlight PSU flicker or coil whine",
+    kind: "power_zoom",
+  },
   { id: "motion", name: "Motion Clarity, Ghosting & Live Hz", desc: "Verify refresh rate, frame pacing & overdrive ghosting", kind: "motion" },
 ];
 
@@ -72,9 +110,15 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   const [cursorHidden, setCursorHidden] = useState(false);
   const [measuredHz, setMeasuredHz] = useState<number>(60);
   const [droppedFrames, setDroppedFrames] = useState<number>(0);
+  const [persistenceSecs, setPersistenceSecs] = useState<number>(0);
+  const [powerZoomPct, setPowerZoomPct] = useState<number>(50);
   const [notes, setNotes] = useState(initialNotes);
+
   const motionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const powerZoomBoxRef = useRef<HTMLDivElement | null>(null);
   const idleTimerRef = useRef<number | null>(null);
+  const activeRef = useRef<boolean>(false);
+  activeRef.current = active;
 
   const enterFullscreen = async (startIdx = 0) => {
     setIdx(startIdx);
@@ -110,14 +154,18 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   useEffect(() => {
     return () => {
       // Safety restore window chrome if component unmounts while active
-      if (active) {
-        const win = getCurrentWindow();
-        win.setFullscreen(false).catch(() => {});
-        win.setAlwaysOnTop(false).catch(() => {});
-        win.setDecorations(true).catch(() => {});
+      if (activeRef.current) {
+        try {
+          const win = getCurrentWindow();
+          win.setFullscreen(false).catch(() => {});
+          win.setAlwaysOnTop(false).catch(() => {});
+          win.setDecorations(true).catch(() => {});
+        } catch {
+          // Ignore outside Tauri
+        }
       }
     };
-  }, [active]);
+  }, []);
 
   useEffect(() => {
     if (!active) return;
@@ -157,6 +205,46 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
       if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
     };
   }, [active]);
+
+  // Persistence / Burn-In hold timer
+  useEffect(() => {
+    if (!active || PATTERNS[idx].kind !== "persistence") {
+      setPersistenceSecs(0);
+      return;
+    }
+    const start = Date.now();
+    setPersistenceSecs(0);
+    const id = window.setInterval(() => {
+      setPersistenceSecs(Math.floor((Date.now() - start) / 1000));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [active, idx]);
+
+  // Power Supply Stability (Zooming) requestAnimationFrame oscillation loop
+  useEffect(() => {
+    if (!active || PATTERNS[idx].kind !== "power_zoom") return;
+    let raf = 0;
+    const start = performance.now();
+    let lastHudUpdate = start;
+
+    const tick = (now: number) => {
+      const elapsedSec = (now - start) / 1000;
+      // Smooth 2 Hz triangle/sine sweep between 10% and 95% screen load
+      const wave = 0.5 - 0.5 * Math.cos(elapsedSec * Math.PI * 2 * 1.15);
+      const scalePct = 10 + wave * 85;
+      if (powerZoomBoxRef.current) {
+        powerZoomBoxRef.current.style.width = `${scalePct.toFixed(2)}vw`;
+        powerZoomBoxRef.current.style.height = `${scalePct.toFixed(2)}vh`;
+      }
+      if (now - lastHudUpdate >= 120) {
+        setPowerZoomPct(Math.round(scalePct));
+        lastHudUpdate = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active, idx]);
 
   // Motion & live Hz + dropped-frame loop
   useEffect(() => {
@@ -224,12 +312,12 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   }, [active, idx]);
 
   const pattern = PATTERNS[idx];
-
   const hudVisible = hudPinned || hudHover;
 
   const fullscreenOverlay = active
     ? createPortal(
         <div
+          data-testid="display-fullscreen-portal"
           onClick={() => setIdx((i) => (i + 1) % PATTERNS.length)}
           onMouseMove={(e) => {
             setCursorHidden(false);
@@ -258,11 +346,39 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
           className={`select-none overflow-hidden ${cursorHidden && !hudVisible ? "cursor-none" : "cursor-pointer"}`}
         >
           {pattern.kind === "gradient" && (
-            <div className="w-full h-full flex flex-col">
-              <div className="flex-1" style={{ background: "linear-gradient(90deg, #000000, #ffffff)" }} />
-              <div className="flex-1" style={{ background: "linear-gradient(90deg, #000000, #ff0000)" }} />
-              <div className="flex-1" style={{ background: "linear-gradient(90deg, #000000, #00ff00)" }} />
-              <div className="flex-1" style={{ background: "linear-gradient(90deg, #000000, #0000ff)" }} />
+            <div className="w-full h-full flex flex-col bg-black">
+              {/* Top 0-255 Scale Ruler */}
+              <div className="px-4 py-1.5 flex items-center justify-between text-[10px] font-mono text-white/80 border-b border-white/15">
+                {[0, 32, 64, 96, 128, 160, 192, 224, 255].map((mark) => (
+                  <span key={mark}>{mark}</span>
+                ))}
+              </div>
+              <div className="flex-1 flex flex-col">
+                <div className="flex-1 relative" style={{ background: "linear-gradient(90deg, #000000, #ffffff)" }}>
+                  <span className="absolute left-3 top-2 text-[10px] font-mono text-white/75">GRAYSCALE 0 → 255</span>
+                </div>
+                <div className="flex-1 relative" style={{ background: "linear-gradient(90deg, #000000, #ff0000)" }}>
+                  <span className="absolute left-3 top-2 text-[10px] font-mono text-white/75">RED 0 → 255</span>
+                </div>
+                <div className="flex-1 relative" style={{ background: "linear-gradient(90deg, #000000, #00ff00)" }}>
+                  <span className="absolute left-3 top-2 text-[10px] font-mono text-white/75">GREEN 0 → 255</span>
+                </div>
+                <div className="flex-1 relative" style={{ background: "linear-gradient(90deg, #000000, #0000ff)" }}>
+                  <span className="absolute left-3 top-2 text-[10px] font-mono text-white/75">BLUE 0 → 255</span>
+                </div>
+              </div>
+              {/* Near-Black Shadow Ramp (0..32) to expose 6-bit+FRC clipping */}
+              <div className="h-14 flex border-t border-white/15">
+                {Array.from({ length: 33 }).map((_, v) => (
+                  <div
+                    key={v}
+                    className="flex-1 flex items-end justify-center pb-1 text-[9px] font-mono"
+                    style={{ backgroundColor: `rgb(${v},${v},${v})`, color: "rgba(255,255,255,0.55)" }}
+                  >
+                    {v % 4 === 0 ? v : ""}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -294,28 +410,52 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
           )}
 
           {pattern.kind === "gamma" && (
-            <div className="w-full h-full bg-black flex items-center justify-center gap-10 p-10">
-              {[
-                { label: "Gamma 1.8", gray: 174 },
-                { label: "Gamma 2.2 (Target)", gray: 186 },
-                { label: "Gamma 2.4", gray: 193 },
-              ].map((g) => (
-                <div key={g.label} className="flex flex-col items-center gap-3">
-                  <div
-                    className="w-56 h-72 flex items-center justify-center border border-white/40"
-                    style={{
-                      backgroundImage:
-                        "repeating-linear-gradient(0deg, #000000 0px, #000000 1px, #ffffff 1px, #ffffff 2px)",
-                    }}
-                  >
+            <div className="w-full h-full bg-black flex flex-col items-center justify-center gap-8 p-10">
+              <div className="flex items-center justify-center gap-10">
+                {[
+                  { label: "Gamma 1.8", gray: 174 },
+                  { label: "Gamma 2.2 (Target)", gray: 186 },
+                  { label: "Gamma 2.4", gray: 191 },
+                ].map((g) => (
+                  <div key={g.label} className="flex flex-col items-center gap-3">
                     <div
-                      className="w-28 h-36"
-                      style={{ backgroundColor: `rgb(${g.gray},${g.gray},${g.gray})` }}
-                    />
+                      className="w-52 h-64 flex items-center justify-center border border-white/40"
+                      style={{
+                        backgroundImage:
+                          "repeating-linear-gradient(0deg, #000000 0px, #000000 1px, #ffffff 1px, #ffffff 2px)",
+                      }}
+                    >
+                      <div
+                        className="w-24 h-32"
+                        style={{ backgroundColor: `rgb(${g.gray},${g.gray},${g.gray})` }}
+                      />
+                    </div>
+                    <div className="text-white font-mono text-xs">
+                      {g.label} ({g.gray})
+                    </div>
                   </div>
-                  <div className="text-white font-mono text-xs">{g.label}</div>
-                </div>
-              ))}
+                ))}
+              </div>
+              {/* RGB Channel Gamma 2.2 Comparison Strips */}
+              <div className="flex items-center justify-center gap-8">
+                {[
+                  { label: "Red 2.2 (186)", solid: "rgb(186,0,0)", bar: "#ff0000" },
+                  { label: "Green 2.2 (186)", solid: "rgb(0,186,0)", bar: "#00ff00" },
+                  { label: "Blue 2.2 (186)", solid: "rgb(0,0,186)", bar: "#0000ff" },
+                ].map((ch) => (
+                  <div key={ch.label} className="flex flex-col items-center gap-2">
+                    <div
+                      className="w-44 h-20 flex items-center justify-center border border-white/30"
+                      style={{
+                        backgroundImage: `repeating-linear-gradient(0deg, #000000 0px, #000000 1px, ${ch.bar} 1px, ${ch.bar} 2px)`,
+                      }}
+                    >
+                      <div className="w-20 h-10" style={{ backgroundColor: ch.solid }} />
+                    </div>
+                    <div className="text-zinc-300 font-mono text-[11px]">{ch.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -328,6 +468,112 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
                 backgroundSize: "2px 2px",
               }}
             />
+          )}
+
+          {pattern.kind === "moire_dot" && (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-2">
+              <div
+                style={{
+                  backgroundImage: "repeating-conic-gradient(#000000 0% 25%, #ffffff 0% 50%)",
+                  backgroundSize: "2px 2px",
+                }}
+              />
+              <div
+                style={{
+                  backgroundImage:
+                    "radial-gradient(#ffffff 0.75px, #000000 0.75px)",
+                  backgroundSize: "3px 3px",
+                }}
+              />
+              <div
+                style={{
+                  backgroundImage:
+                    "radial-gradient(#000000 1px, #ffffff 1px)",
+                  backgroundSize: "4px 4px",
+                }}
+              />
+              <div
+                style={{
+                  backgroundImage: "repeating-conic-gradient(#ffffff 0% 25%, #000000 0% 50%)",
+                  backgroundSize: "2px 2px",
+                }}
+              />
+            </div>
+          )}
+
+          {pattern.kind === "moire_line" && (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-2">
+              {/* Top-left: 1px Vertical line pairs */}
+              <div
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(90deg, #000000 0px, #000000 1px, #ffffff 1px, #ffffff 2px)",
+                }}
+              />
+              {/* Top-right: 1px Horizontal line pairs */}
+              <div
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(0deg, #000000 0px, #000000 1px, #ffffff 1px, #ffffff 2px)",
+                }}
+              />
+              {/* Bottom-left: 2px Vertical line pairs */}
+              <div
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(90deg, #000000 0px, #000000 2px, #ffffff 2px, #ffffff 4px)",
+                }}
+              />
+              {/* Bottom-right: 2px Horizontal line pairs */}
+              <div
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(0deg, #000000 0px, #000000 2px, #ffffff 2px, #ffffff 4px)",
+                }}
+              />
+            </div>
+          )}
+
+          {pattern.kind === "persistence" && (
+            <div className="w-full h-full bg-black relative flex items-center justify-center">
+              <div className="w-[72vw] h-[72vh] grid grid-cols-4 grid-rows-2 border-4 border-white">
+                <div className="bg-white" />
+                <div className="bg-black flex items-center justify-center">
+                  <div className="w-16 h-16 bg-white" />
+                </div>
+                <div className="bg-white flex items-center justify-center">
+                  <div className="w-16 h-16 bg-black" />
+                </div>
+                <div className="bg-black" />
+                <div className="bg-black flex items-center justify-center">
+                  <div className="w-20 h-4 bg-white" />
+                </div>
+                <div className="bg-white" />
+                <div className="bg-black" />
+                <div className="bg-white flex items-center justify-center">
+                  <div className="w-4 h-20 bg-black" />
+                </div>
+              </div>
+              <div className="absolute top-4 right-4 px-3 py-1.5 bg-black/85 border border-white/40 text-white font-mono text-xs font-bold tabular-nums">
+                HOLD: {persistenceSecs}s (Adv. to Mid Gray 50% next)
+              </div>
+            </div>
+          )}
+
+          {pattern.kind === "power_zoom" && (
+            <div className="w-full h-full bg-black flex items-center justify-center relative">
+              <div
+                ref={powerZoomBoxRef}
+                style={{
+                  width: "50vw",
+                  height: "50vh",
+                  backgroundColor: "#ffffff",
+                }}
+              />
+              <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/80 border border-white/30 text-white font-mono text-xs tabular-nums">
+                PSU LOAD SWEEP: {powerZoomPct}% WHITE
+              </div>
+            </div>
           )}
 
           {pattern.kind === "readability" && (
@@ -383,7 +629,7 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             onClick={(e) => e.stopPropagation()}
             onMouseEnter={() => setHudHover(true)}
             onMouseLeave={() => setHudHover(false)}
-            className={`fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/90 border border-white/25 rounded-xl px-5 py-3 text-xs text-white flex items-center gap-4 shadow-2xl transition-opacity duration-200 ${
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/90 border border-white/25 rounded-[2px] px-5 py-3 text-xs text-white flex items-center gap-4 shadow-2xl transition-opacity duration-200 ${
               hudVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
             }`}
           >
@@ -391,6 +637,8 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
               <div className="font-bold">
                 [{idx + 1}/{PATTERNS.length}] {pattern.name}
                 {pattern.kind === "motion" ? ` • ~${measuredHz} Hz (${droppedFrames} drops)` : ""}
+                {pattern.kind === "persistence" ? ` • Hold ${persistenceSecs}s` : ""}
+                {pattern.kind === "power_zoom" ? ` • Load ${powerZoomPct}%` : ""}
               </div>
               <div className="text-zinc-300 text-[11px]">{pattern.desc}</div>
             </div>
@@ -398,20 +646,23 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
               Click / Space: Next • Esc / Right-Click: Exit
             </div>
             <button
+              type="button"
               onClick={() => setIdx((i) => (i - 1 + PATTERNS.length) % PATTERNS.length)}
-              className="px-2.5 py-1.5 rounded-lg border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
+              className="px-2.5 py-1.5 rounded-[2px] border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
             >
               Prev
             </button>
             <button
+              type="button"
               onClick={() => setIdx((i) => (i + 1) % PATTERNS.length)}
-              className="px-2.5 py-1.5 rounded-lg border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
+              className="px-2.5 py-1.5 rounded-[2px] border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
             >
               Next
             </button>
             <button
+              type="button"
               onClick={exitFullscreen}
-              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+              className="px-3.5 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
             >
               Exit
             </button>
@@ -428,11 +679,11 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
       <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
         <div>
           <div className="flex items-center gap-2.5">
-            <span className="px-2 py-0.5 rounded bg-black text-white font-mono text-xs font-bold">
-              0{stepNumber}
+            <span className="px-2 py-0.5 rounded-[2px] bg-black text-white font-mono text-xs font-bold">
+              STAGE {String(stepNumber).padStart(2, "0")}
             </span>
             <h1 className="text-xl font-black text-black tracking-tight">
-              Display Check (MonitorTest 19-Pattern Suite)
+              Display Check (MonitorTest {PATTERNS.length}-Pattern Suite)
             </h1>
             <StatusBadge status={status} />
           </div>
@@ -441,8 +692,9 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
           </p>
         </div>
         <button
+          type="button"
           onClick={() => enterFullscreen(0)}
-          className="px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-2 cursor-pointer shadow-sm"
+          className="px-4 py-2.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-2 cursor-pointer"
         >
           <Maximize2 className="w-4 h-4" />
           Launch True Fullscreen Test ({viewedSet.size}/{PATTERNS.length} Inspected)
@@ -456,11 +708,12 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
           return (
             <button
               key={p.id}
+              type="button"
               onClick={() => enterFullscreen(i)}
-              className={`rounded-xl border p-2.5 text-left transition cursor-pointer ${
+              className={`rounded-[2px] border p-2.5 text-left transition cursor-pointer ${
                 seen
                   ? "border-blue-600 bg-blue-50/40"
-                  : "border-zinc-200 hover:border-black bg-white"
+                  : "border-zinc-300 hover:border-black bg-white"
               }`}
             >
               <div
@@ -475,7 +728,7 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
                   color: p.color === "#ffffff" || p.color === "#ffff00" || p.color === "#00ffff" ? "#000" : "#fff",
                 }}
               >
-                {p.kind !== "solid" && p.kind.toUpperCase()}
+                {p.kind !== "solid" && p.kind.replace("_", " ").toUpperCase()}
               </div>
               <div className="text-[11px] font-bold text-black truncate">{p.name}</div>
               <div className="text-[10px] text-zinc-500 font-mono">
@@ -486,8 +739,27 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
         })}
       </div>
 
+      {/* Plain-Language Diagnostic Guide */}
+      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2">
+        <div className="flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-wider text-blue-700">
+          <Sparkles className="w-3.5 h-3.5" />
+          What This Means for Long-Term Use
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] text-zinc-600">
+          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
+            <strong className="text-black">Pixels, Bleed &amp; Retention:</strong> Pure Black/White/RGB checks catch dead pixels and edge IPS bleed; Persistence Hold followed by Mid Gray 50% exposes OLED burn-in or failing panel retention.
+          </div>
+          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
+            <strong className="text-black">Moiré &amp; PSU Stability:</strong> Dot/Line Moiré catches scaling artifacts or eDP cable crosstalk; Power Supply Zooming stresses backlight power rails to reveal flicker or inverter coil whine.
+          </div>
+          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
+            <strong className="text-black">Gamma, Bit-Depth &amp; Motion:</strong> 256-step gradients + 0–32 shadow ramp detect 6-bit FRC banding, Gamma 2.2 checks tonal accuracy, and Motion Clarity measures live Hz pacing.
+          </div>
+        </div>
+      </div>
+
       {/* Verdict Panel */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 text-sm font-bold text-black">
             <Monitor className="w-4 h-4 text-blue-600" />
@@ -501,11 +773,12 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
           type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional panel notes (e.g. 0 dead pixels, clean uniformity, 144Hz smooth)"
-          className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
+          placeholder="Optional panel notes (e.g. 0 dead pixels, clean uniformity, 144Hz smooth, no burn-in)"
+          className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
         />
         <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={() =>
               onVerdict(
                 "pass",
@@ -513,12 +786,13 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
                 notes
               )
             }
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />
             Pass Display Check
           </button>
           <button
+            type="button"
             onClick={() =>
               onVerdict(
                 "warn",
@@ -526,19 +800,20 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
                 notes
               )
             }
-            className="px-4 py-2 rounded-lg border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xs cursor-pointer"
+            className="px-4 py-2 rounded-[2px] border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xs cursor-pointer"
           >
             Mark Minor Issue (WARN)
           </button>
           <button
+            type="button"
             onClick={() =>
               onVerdict(
                 "fail",
-                "Display defect found (dead pixels, lines, flicker, or severe bleed).",
+                "Display defect found (dead pixels, lines, flicker, burn-in, or severe bleed).",
                 notes
               )
             }
-            className="px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
             <XCircle className="w-4 h-4" />
             Fail Display Check

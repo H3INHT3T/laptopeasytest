@@ -1,5 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
+  Activity,
+  CheckSquare,
   Cpu,
   HardDrive,
   Laptop,
@@ -10,7 +13,7 @@ import {
   Usb,
   Wifi,
 } from "lucide-react";
-import type { SystemSpecs, TestStatus } from "../types";
+import type { NetworkDiagnosticsReport, SystemSpecs, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 
@@ -20,6 +23,10 @@ interface SpecsViewProps {
   status: TestStatus;
   stepNumber: number;
   totalSteps: number;
+  networkReport?: NetworkDiagnosticsReport | null;
+  loadingNetwork?: boolean;
+  onRunNetworkDiagnostics?: () => Promise<NetworkDiagnosticsReport | null>;
+  onNetworkComplete?: (rep: NetworkDiagnosticsReport) => void;
   onRefresh: () => void;
   onNext: () => void;
   onSkip: () => void;
@@ -43,17 +50,72 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
   status,
   stepNumber,
   totalSteps,
+  networkReport = null,
+  loadingNetwork = false,
+  onRunNetworkDiagnostics,
+  onNetworkComplete,
   onRefresh,
   onNext,
   onSkip,
 }) => {
+  const [localNetReport, setLocalNetReport] = useState<NetworkDiagnosticsReport | null>(null);
+  const [localNetLoading, setLocalNetLoading] = useState(false);
+  const [netError, setNetError] = useState<string | null>(null);
+
+  const effectiveNetReport = networkReport ?? localNetReport;
+  const effectiveNetLoading = Boolean(loadingNetwork || localNetLoading);
+
+  const handleRunNetworkCheck = async () => {
+    setNetError(null);
+    setLocalNetLoading(true);
+    try {
+      const rep = onRunNetworkDiagnostics
+        ? await onRunNetworkDiagnostics()
+        : await invoke<NetworkDiagnosticsReport>("run_network_diagnostics");
+      if (rep) {
+        setLocalNetReport(rep);
+        onNetworkComplete?.(rep);
+      }
+    } catch (e) {
+      setNetError(String(e));
+    } finally {
+      setLocalNetLoading(false);
+    }
+  };
+
+  const isSolderedOrLpddr = specs
+    ? specs.ramModules.length === 0 ||
+      specs.ramModules.every(
+        (m) =>
+          /lpddr/i.test(m.memoryType) || /onboard|soldered|unified/i.test(m.formFactor)
+      ) ||
+      /unified|soldered/i.test(specs.ramChannelMode ?? "")
+    : false;
+
+  const freeRamSlots =
+    specs && specs.ramSlotsTotal != null
+      ? Math.max(0, specs.ramSlotsTotal - specs.ramModules.length)
+      : 0;
+
+  const ramUpgradeBadge = !specs
+    ? ""
+    : isSolderedOrLpddr
+    ? "SOLDERED / NON-UPGRADEABLE"
+    : freeRamSlots > 0
+    ? `UPGRADEABLE (${freeRamSlots} FREE SLOT${freeRamSlots > 1 ? "S" : ""})`
+    : "SLOTS FULL (REPLACEMENT UPGRADE)";
+
+  const fallbackPlainSummary = specs
+    ? `${specs.manufacturer} ${specs.model} equipped with ${specs.cpuBrand} (${specs.cpuPhysicalCores}C/${specs.cpuLogicalCores}T), ${specs.totalRamGb.toFixed(1)} GB ${specs.ramChannelMode ?? "RAM"}, and ${specs.disks.length} physical storage drive${specs.disks.length === 1 ? "" : "s"}.`
+    : "";
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-300">
         <div>
           <div className="flex items-center gap-2.5">
-            <span className="px-2 py-0.5 rounded bg-black text-white font-mono text-xs font-bold">
-              0{stepNumber}
+            <span className="px-2 py-0.5 rounded-[2px] bg-black text-white font-mono text-xs font-bold">
+              STAGE {String(stepNumber).padStart(2, "0")}
             </span>
             <h1 className="text-xl font-black text-black tracking-tight">
               Complete Hardware Specifications
@@ -67,7 +129,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
         <button
           onClick={onRefresh}
           disabled={loading}
-          className="px-3.5 py-2 rounded-lg border border-black bg-white hover:bg-zinc-100 text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
+          className="px-3.5 py-2 rounded-[2px] border border-black bg-white hover:bg-zinc-100 text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-600" : ""}`} />
           Re-scan All Hardware
@@ -75,13 +137,13 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
       </div>
 
       {!specs ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-10 text-center text-sm text-zinc-600">
+        <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-10 text-center text-sm text-zinc-600">
           {loading ? "Enumerating all laptop hardware subsystems..." : "Click Re-scan All Hardware to inspect specifications."}
         </div>
       ) : (
         <div className="space-y-4">
           {!specs.isElevated && specs.osFamily === "windows" && (
-            <div className="rounded-xl border border-blue-600 bg-blue-50 px-4 py-3 flex items-center gap-3 text-xs text-black">
+            <div className="rounded-[2px] border border-blue-600 bg-blue-50/40 px-4 py-3 flex items-center gap-3 text-xs text-black">
               <ShieldAlert className="w-4 h-4 shrink-0 text-blue-600" />
               <span>
                 Running without Administrator elevation. Release builds automatically prompt UAC for complete SMART, BitLocker, and System Event Logs.
@@ -89,9 +151,34 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
             </div>
           )}
 
+          {/* Plain-Language Specs Interpretation & Reliability Notes */}
+          <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
+              Plain-Language Specs Interpretation
+            </div>
+            <div className="text-xs text-black font-medium">
+              {specs.plainSummary || fallbackPlainSummary}
+            </div>
+            {(specs.reliabilityNotes?.length ?? 0) > 0 && (
+              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-3 space-y-1">
+                <div className="font-mono text-[10px] font-bold uppercase text-zinc-600">
+                  Reliability &amp; Hardware Audit Notes
+                </div>
+                <ul className="space-y-1 text-xs text-zinc-700">
+                  {specs.reliabilityNotes!.map((note, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <CheckSquare className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                      <span>{note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
           {/* System, Motherboard, BIOS & CPU */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-zinc-200 bg-white p-4">
+            <div className="rounded-[2px] border border-zinc-300 bg-white p-4">
               <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider mb-3">
                 <Laptop className="w-4 h-4" /> System, Chassis &amp; Motherboard
               </div>
@@ -108,7 +195,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
               <Row label="Hostname" value={specs.hostname} />
             </div>
 
-            <div className="rounded-xl border border-zinc-200 bg-white p-4">
+            <div className="rounded-[2px] border border-zinc-300 bg-white p-4">
               <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider mb-3">
                 <Cpu className="w-4 h-4" /> Processor (CPU) Architecture
               </div>
@@ -163,13 +250,24 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
           {/* Memory (RAM) Full DIMM Table */}
           <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider flex-wrap">
                 <MemoryStick className="w-4 h-4" /> Memory (RAM) — {specs.totalRamGb.toFixed(1)} GB Installed
                 {specs.ramChannelMode && (
                   <span className="px-1.5 py-0.5 rounded-[2px] bg-[#F8FAFC] border border-zinc-300 text-black font-mono text-[10px]">
                     {specs.ramChannelMode}
                   </span>
                 )}
+                <span
+                  className={`px-1.5 py-0.5 rounded-[2px] font-mono text-[10px] font-bold border ${
+                    isSolderedOrLpddr
+                      ? "bg-black text-white border-black"
+                      : freeRamSlots > 0
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-[#F8FAFC] text-black border-zinc-300"
+                  }`}
+                >
+                  {ramUpgradeBadge}
+                </span>
               </div>
               <div className="text-xs font-mono text-zinc-600">
                 Slots Used: <strong className="text-black">{specs.ramModules.length}</strong>
@@ -177,9 +275,19 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                 {specs.ramMaxCapacityGb ? ` • Max Supported: ${specs.ramMaxCapacityGb.toFixed(0)} GB` : ""}
               </div>
             </div>
+            {(specs.ramReliabilityNote || isSolderedOrLpddr) && (
+              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] px-3 py-2 text-xs text-zinc-700">
+                <span className="font-mono text-[10px] font-bold uppercase text-black mr-2">
+                  Upgradeability Note:
+                </span>
+                {isSolderedOrLpddr && !/soldered|non-upgradeable|integrated/i.test(specs.ramReliabilityNote ?? "")
+                  ? `Onboard / Soldered LPDDR/Unified memory (${specs.totalRamGb.toFixed(1)} GB) is permanently soldered to the motherboard and cannot be upgraded later.`
+                  : specs.ramReliabilityNote}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-zinc-50 border-y border-zinc-200 text-zinc-500 uppercase text-[10px]">
+                <thead className="bg-[#F8FAFC] border-y border-zinc-200 text-zinc-500 uppercase text-[10px]">
                   <tr>
                     <th className="py-2 px-3">Slot</th>
                     <th className="py-2 px-3">Capacity</th>
@@ -195,7 +303,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                   {specs.ramModules.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-3 px-3 text-zinc-500">
-                        Unified / Integrated Memory ({specs.totalRamGb.toFixed(1)} GB)
+                        Unified / Integrated Memory ({specs.totalRamGb.toFixed(1)} GB — Onboard / Soldered)
                       </td>
                     </tr>
                   ) : (
@@ -219,17 +327,17 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
 
           {/* Graphics & Display Panels */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+            <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
               <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
                 <Monitor className="w-4 h-4" /> Graphics Adapters (GPUs)
               </div>
               <div className="space-y-2.5">
                 {specs.gpus.map((g, idx) => (
-                  <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs space-y-1">
+                  <div key={idx} className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-3 text-xs space-y-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-bold text-black">{g.name}</span>
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        className={`px-2 py-0.5 rounded-[2px] text-[10px] font-bold ${
                           g.isDiscrete ? "bg-blue-600 text-white" : "bg-white border border-zinc-300 text-zinc-700"
                         }`}
                       >
@@ -251,7 +359,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
               </div>
             </div>
 
-            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+            <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
               <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
                 <Monitor className="w-4 h-4" /> Display Panels (EDID)
               </div>
@@ -260,7 +368,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                   <div className="text-xs text-zinc-500">Default Active Display</div>
                 ) : (
                   specs.displays.map((d, i) => (
-                    <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs">
+                    <div key={i} className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-3 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-black">{d.name}</span>
                         <span className="font-mono font-bold text-blue-700">
@@ -280,13 +388,13 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
           </div>
 
           {/* Storage Drives & Volumes */}
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
               <HardDrive className="w-4 h-4" /> Physical Storage Drives &amp; Partitions
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-zinc-50 border-y border-zinc-200 text-zinc-500 uppercase text-[10px]">
+                <thead className="bg-[#F8FAFC] border-y border-zinc-200 text-zinc-500 uppercase text-[10px]">
                   <tr>
                     <th className="py-2 px-3">Drive Model</th>
                     <th className="py-2 px-3">Capacity</th>
@@ -315,7 +423,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                 {specs.volumes.map((vol, i) => {
                   const usedPct = vol.totalGb > 0 ? Math.round(((vol.totalGb - vol.freeGb) / vol.totalGb) * 100) : 0;
                   return (
-                    <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-mono">
+                    <div key={i} className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5 text-xs font-mono">
                       <div className="flex justify-between font-bold text-black">
                         <span>{vol.mount} {vol.label ? `(${vol.label})` : ""}</span>
                         <span className="text-blue-700">{vol.fileSystem}</span>
@@ -323,12 +431,100 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                       <div className="text-[11px] text-zinc-600 mt-1">
                         {vol.freeGb.toFixed(1)} GB free / {vol.totalGb.toFixed(1)} GB total ({usedPct}% used)
                       </div>
-                      <div className="h-1.5 rounded-full bg-zinc-200 mt-1.5 overflow-hidden">
+                      <div className="h-1.5 rounded-[2px] bg-zinc-200 mt-1.5 overflow-hidden">
                         <div className="h-full bg-blue-600" style={{ width: `${usedPct}%` }} />
                       </div>
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          {/* Live Network & Wi-Fi Stability Diagnostics */}
+          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
+                <Activity className="w-4 h-4" /> Live Network &amp; Wi-Fi Stability Diagnostics
+                {effectiveNetReport && (
+                  <>
+                    <StatusBadge status={effectiveNetReport.status} compact />
+                    <span className="px-1.5 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] font-mono text-[10px] font-bold text-black">
+                      {effectiveNetReport.verdict}
+                    </span>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={handleRunNetworkCheck}
+                disabled={effectiveNetLoading}
+                className="px-3 py-1.5 rounded-[2px] border border-black bg-white hover:bg-zinc-100 font-mono text-[11px] font-bold uppercase text-black flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${effectiveNetLoading ? "animate-spin text-blue-600" : ""}`} />
+                {effectiveNetLoading ? "Checking Network..." : "Run Network Check"}
+              </button>
+            </div>
+
+            {netError && (
+              <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{netError}</div>
+            )}
+
+            {!effectiveNetReport ? (
+              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] px-3 py-3 text-xs text-zinc-600 font-mono">
+                {effectiveNetLoading
+                  ? "PROBING ACTIVE INTERFACE, GATEWAY PING, PACKET LOSS & DNS..."
+                  : "Click Run Network Check to verify link speed, Wi-Fi RSSI, gateway latency, packet loss, and DNS resolution."}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border border-zinc-300 rounded-[2px] divide-x divide-y lg:divide-y-0 divide-zinc-200 font-mono tabular-nums text-xs">
+                  <div className="p-2.5 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">Interface</div>
+                    <div className="text-xs font-black text-black mt-0.5 truncate" title={effectiveNetReport.interfaceName}>
+                      {effectiveNetReport.interfaceName || "—"}
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">Link Speed</div>
+                    <div className="text-sm font-black text-blue-700 mt-0.5">
+                      {effectiveNetReport.linkSpeedMbps != null ? `${effectiveNetReport.linkSpeedMbps} Mbps` : "—"}
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">Wi-Fi SSID / Signal</div>
+                    <div className="text-xs font-black text-black mt-0.5 truncate">
+                      {effectiveNetReport.wifiSsid || "Wired / N/A"}
+                    </div>
+                    {effectiveNetReport.wifiSignalPct != null && (
+                      <div className="text-[10px] text-zinc-500">
+                        {effectiveNetReport.wifiSignalPct}% ({effectiveNetReport.rssiDbm ?? "—"} dBm)
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-2.5 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">Gateway Ping</div>
+                    <div className="text-sm font-black text-black mt-0.5">
+                      {effectiveNetReport.gatewayPingMs != null
+                        ? `${effectiveNetReport.gatewayPingMs.toFixed(1)} ms`
+                        : "—"}
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">Packet Loss</div>
+                    <div className={`text-sm font-black mt-0.5 ${effectiveNetReport.packetLossPct > 0 ? "text-black underline" : "text-blue-700"}`}>
+                      {effectiveNetReport.packetLossPct.toFixed(0)}%
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">DNS Status</div>
+                    <div className={`text-sm font-black mt-0.5 ${effectiveNetReport.dnsResolveOk ? "text-blue-700" : "text-black underline"}`}>
+                      {effectiveNetReport.dnsResolveOk ? "OK" : "Failed"}
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-[2px] border border-zinc-200 border-l-[3px] border-l-blue-600 bg-white px-3 py-2 text-xs text-black">
+                  {effectiveNetReport.plainSummary}
+                </div>
               </div>
             )}
           </div>
@@ -363,10 +559,10 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
               ) : (
                 <div className="space-y-2">
                   {specs.networkAdapters.map((n, i) => (
-                    <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs">
+                    <div key={i} className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-black">{n.name}</span>
-                        <span className="px-1.5 py-0.5 rounded bg-white border border-zinc-300 font-mono text-[10px] font-bold">
+                        <span className="px-1.5 py-0.5 rounded-[2px] bg-white border border-zinc-300 font-mono text-[10px] font-bold">
                           {n.kind}
                         </span>
                       </div>
@@ -379,7 +575,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
               )}
             </div>
 
-            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2.5">
+            <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2.5">
               <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider">
                 <Usb className="w-4 h-4" /> Audio, Camera, Bluetooth &amp; USB Controllers
               </div>
@@ -390,7 +586,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                   specs.peripherals.map((p, i) => (
                     <div key={i} className="py-1.5 flex items-center justify-between gap-2 text-xs">
                       <div className="min-w-0">
-                        <span className="inline-block px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[10px] font-bold mr-2">
+                        <span className="inline-block px-1.5 py-0.5 rounded-[2px] bg-blue-50 text-blue-800 border border-blue-200 font-mono text-[10px] font-bold mr-2">
                           {p.category}
                         </span>
                         <span className="font-medium text-black">{p.name}</span>

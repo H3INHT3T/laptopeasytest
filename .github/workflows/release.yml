@@ -68,20 +68,21 @@ jobs:
             - **Windows (x64):** `.exe` (NSIS Setup) or `.msi` installer (requests Administrator UAC for full NVMe/SATA SMART, BitLocker & Event Logs)
             - **macOS (Universal — Apple Silicon & Intel):** `.dmg` disk image
 
-            ### Included Diagnostics
-            1. System Specifications & Gaming/dGPU Auto-Detection
+            ### Included Diagnostics (14-Step Sequential Pipeline)
+            1. All-Hardware Specifications, RAM Channel Mode & Network/Wi-Fi Diagnostics (Ping, Loss, DNS)
             2. Lock, MDM / DEP, Activation Lock, OEM License, BitLocker/FileVault & TPM/Secure Boot Audit
-            3. Battery Health Report, Cycle Count & Live Charge/Discharge Wattage Monitor
-            4. System Error Logs (Windows Event Logs / Minidumps & macOS Kernel Panics)
-            5. Fullscreen Display Check (15 MonitorTest-style patterns + Motion Hz)
-            6. Offline Keyboard Test (Windows Compact, Full+Numpad, MacBook + Chatter Detector)
-            7. SSD SMART Health & Non-Destructive Speed Benchmark
-            8. Multi-Threaded RAM Pattern Stress Test (TestMem5-style)
+            3. Battery Health, Cycle Count, 15s Voltage Sag Pulse & Battery Discharge Normality Classifier
+            4. System Error & Crash Logs (Windows Event Logs / Minidumps & macOS Kernel Panics)
+            5. SSD DriveDx-Style NVMe SMART Health & Hardware-Safe Direct I/O Speed Benchmark (128/256/512 MB Budget)
+            6. Unobstructed Fullscreen Display Check (23 MonitorTest Patterns + Motion Hz)
+            7. Interactive Touchscreen & Multi-Touch Display Test (16x10 Grid Coverage, Linearity & Skip Step)
+            8. Offline Keyboard Test (Windows Compact, Full+Numpad, MacBook, NKRO & Chatter Detector)
             9. Two-Stage Fingerprint & Face ID / Touch ID Verification
-            10. Camera Preview & Microphone Waveform + Loopback Test
-            11. CPU & Memory Performance Benchmark
-            12. Native `wgpu` FurMark-Style 3D GPU Stress Test with Thermal Cutoff
-            13. Pre-Report Ports & Speaker Reminder (with L/R Stereo Chimes) + Branded PDF / HTML / JSON QC Certificate
+            10. Camera Preview & Microphone Waveform + SNR + Loopback Test
+            11. Multi-Threaded RAM Pattern Stress Test (TestMem5 MT0.dll Kernels + OS Reserve Guard)
+            12. 360° Performance & Creator Suite (PassMark Weighted Harmonic Mean + UserBenchmark Vehicle Tiers)
+            13. Native `wgpu` FurMark-2 GPU Stress, Dedicated VRAM Integrity & Combined Power Torture (Thermal Cutoffs)
+            14. Pre-Report Ports & Speaker Sign-Off + Branded Swiss Lab PDF / HTML / JSON QC Certificate
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

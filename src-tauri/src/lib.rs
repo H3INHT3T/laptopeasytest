@@ -3,9 +3,9 @@ mod modules;
 mod types;
 
 use modules::{
-    battery, biometrics, error_logs, gpu_stress, keyboard_hook, perf_bench, power_torture,
-    ram_test, raytracer, report, security_audit, session, shop_history, simd_kernels, specs,
-    storage, telemetry, usb_ports, vram_test,
+    baselines, battery, biometrics, error_logs, gpu_stress, keyboard_hook, network, perf_bench,
+    power_torture, ram_test, raytracer, report, security_audit, session, shop_history,
+    simd_kernels, specs, storage, telemetry, usb_ports, userbenchmark, vram_test,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -13,16 +13,22 @@ use std::sync::{
 };
 use tauri::{AppHandle, State};
 use types::{
-    BatteryHealthReport, BatterySagResult, BiometricAuthResult, BiometricsHardwareReport,
-    BurnInResult, ErrorLogsReport, ExportReportPayload, ExportedReportPaths, GpuAdapterInfo,
-    GpuStressResult, LiveTelemetrySnapshot, PerfBenchResult, PowerTortureResult, RamTestResult,
-    SavedSessionPayload, SecurityAuditReport, ShopModelBenchmarkAvg, ShopModelComparison,
-    ShopProfile, StorageBenchResult, StorageSmartReport, SystemSpecs, UsbDeviceInfo, VramTestResult,
+    BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample, BatterySagResult,
+    BiometricAuthResult, BiometricsHardwareReport, BurnInResult, ErrorLogsReport,
+    ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
+    LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult, PowerTortureResult,
+    RamTestResult, SavedSessionPayload, SecurityAuditReport, ShopModelBenchmarkAvg,
+    ShopModelComparison, ShopProfile, StorageBenchResult, StorageSmartReport, SystemSpecs,
+    TestStatus, TouchscreenTestResult, UsbDeviceInfo, UserBenchmarkComparison,
+    UserBenchmarkInput, VramTestResult, BATTERY_DISCHARGE_MAX_SECS, BATTERY_LOW_SOC_ABORT_PCT,
+    CPU_THERMAL_CUTOFF_DEFAULT_C, CPU_THERMAL_CUTOFF_MAX_C, CPU_THERMAL_CUTOFF_MIN_C,
+    GPU_THERMAL_CUTOFF_DEFAULT_C, GPU_THERMAL_CUTOFF_MAX_C, GPU_THERMAL_CUTOFF_MIN_C,
 };
 
 pub struct CancelRegistry {
     pub battery_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub battery_sag_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub battery_discharge_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub usb_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub keyboard_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub storage_cancel: Mutex<Option<Arc<AtomicBool>>>,
@@ -39,6 +45,7 @@ impl Default for CancelRegistry {
         Self {
             battery_stop: Mutex::new(None),
             battery_sag_cancel: Mutex::new(None),
+            battery_discharge_cancel: Mutex::new(None),
             usb_stop: Mutex::new(None),
             keyboard_stop: Mutex::new(None),
             storage_cancel: Mutex::new(None),
@@ -49,6 +56,20 @@ impl Default for CancelRegistry {
             torture_cancel: Mutex::new(None),
             burnin_cancel: Mutex::new(None),
         }
+    }
+}
+
+fn clamp_gpu_thermal_cutoff_cmd(thermal_cutoff_c: Option<f32>) -> f32 {
+    match thermal_cutoff_c {
+        Some(c) if c.is_finite() => c.clamp(GPU_THERMAL_CUTOFF_MIN_C, GPU_THERMAL_CUTOFF_MAX_C),
+        _ => GPU_THERMAL_CUTOFF_DEFAULT_C,
+    }
+}
+
+fn clamp_torture_thermal_cutoff_cmd(thermal_cutoff_c: Option<f32>) -> f32 {
+    match thermal_cutoff_c {
+        Some(c) if c.is_finite() => c.clamp(CPU_THERMAL_CUTOFF_MIN_C, CPU_THERMAL_CUTOFF_MAX_C),
+        _ => CPU_THERMAL_CUTOFF_DEFAULT_C,
     }
 }
 
@@ -118,6 +139,32 @@ async fn run_battery_sag_pulse(
 #[tauri::command]
 fn cancel_battery_sag_pulse(state: State<'_, CancelRegistry>) {
     signal_stop(&state.battery_sag_cancel);
+}
+
+#[tauri::command]
+async fn run_battery_discharge_test(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    duration_secs: Option<u32>,
+) -> Result<BatteryDischargeResult, String> {
+    let cancel = replace_flag(&state.battery_discharge_cancel);
+    tauri::async_runtime::spawn_blocking(move || {
+        battery::run_battery_discharge_test(duration_secs, &app, &cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_battery_discharge_test(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.battery_discharge_cancel);
+}
+
+#[tauri::command]
+async fn run_network_diagnostics() -> Result<NetworkDiagnosticsReport, String> {
+    tauri::async_runtime::spawn_blocking(network::run_network_diagnostics)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -290,7 +337,7 @@ async fn run_gpu_stress(
     thermal_cutoff_c: Option<f32>,
 ) -> Result<GpuStressResult, String> {
     let cancel = replace_flag(&state.gpu_cancel);
-    let cutoff = thermal_cutoff_c.unwrap_or(95.0).clamp(75.0, 105.0);
+    let cutoff = clamp_gpu_thermal_cutoff_cmd(thermal_cutoff_c);
     let extreme = extreme_mode.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         gpu_stress::run_gpu_stress_test(&app, adapter_index, &preset, &resolution, extreme, cutoff, cancel)
@@ -311,11 +358,23 @@ async fn run_vram_test(
     adapter_index: Option<usize>,
     target_vram_mb: Option<u64>,
     duration_secs: Option<u64>,
+    thermal_cutoff_c: Option<f32>,
 ) -> Result<VramTestResult, String> {
     let cancel = replace_flag(&state.vram_cancel);
     let dur = duration_secs.unwrap_or(60).clamp(20, 1800);
-    tauri::async_runtime::spawn_blocking(move || {
-        vram_test::run_vram_integrity_test(&app, adapter_index, target_vram_mb, dur, cancel)
+    tauri::async_runtime::spawn_blocking(move || match thermal_cutoff_c {
+        Some(_) => {
+            let cutoff = clamp_gpu_thermal_cutoff_cmd(thermal_cutoff_c);
+            vram_test::run_vram_integrity_test_with_cutoff(
+                &app,
+                adapter_index,
+                target_vram_mb,
+                dur,
+                cutoff,
+                cancel,
+            )
+        }
+        None => vram_test::run_vram_integrity_test(&app, adapter_index, target_vram_mb, dur, cancel),
     })
     .await
     .map_err(|e| e.to_string())?
@@ -336,7 +395,7 @@ async fn run_power_torture(
 ) -> Result<PowerTortureResult, String> {
     let cancel = replace_flag(&state.torture_cancel);
     let dur = duration_secs.unwrap_or(120).clamp(30, 1800);
-    let cutoff = thermal_cutoff_c.unwrap_or(95.0).clamp(75.0, 105.0);
+    let cutoff = clamp_torture_thermal_cutoff_cmd(thermal_cutoff_c);
     tauri::async_runtime::spawn_blocking(move || {
         power_torture::run_power_torture(&app, adapter_index, dur, cutoff, cancel)
     })
@@ -358,7 +417,7 @@ async fn run_shelf_burnin(
     memory_type_hint: Option<String>,
 ) -> Result<BurnInResult, String> {
     let cancel = replace_flag(&state.burnin_cancel);
-    let cutoff = thermal_cutoff_c.unwrap_or(95.0).clamp(75.0, 105.0);
+    let cutoff = clamp_torture_thermal_cutoff_cmd(thermal_cutoff_c);
     tauri::async_runtime::spawn_blocking(move || {
         power_torture::run_shelf_burnin(&app, total_minutes, cutoff, memory_type_hint, cancel)
     })
@@ -427,10 +486,26 @@ async fn export_qc_report(
         .map_err(|e| e.to_string())?
 }
 
-pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.0 Self-Test & Hardware Verification ===");
+#[tauri::command]
+async fn compare_userbenchmark(
+    input: UserBenchmarkInput,
+) -> Result<UserBenchmarkComparison, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(userbenchmark::compare_userbenchmark(&input)))
+        .await
+        .map_err(|e| e.to_string())?
+}
 
-    // 1. RAM pattern verification
+struct SelfTestTempDirGuard(std::path::PathBuf);
+impl Drop for SelfTestTempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+pub fn run_self_test() -> Result<(), String> {
+    println!("=== LaptopBench QC v2.3.0 Self-Test & Hardware Verification ===");
+
+    // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
     for pid in 0..5 {
         let errs = ram_test::verify_pattern_pass(&mut ram_buf, pid, 42);
@@ -438,7 +513,23 @@ pub fn run_self_test() -> Result<(), String> {
             return Err(format!("RAM clean pattern {} unexpectedly reported {} errors", pid, errs));
         }
     }
-    println!("[PASS] RAM pattern verifier (5 patterns, 0 errors)");
+    let res_8gb = ram_test::compute_ram_os_reserve_mb(8192);
+    let res_16gb = ram_test::compute_ram_os_reserve_mb(16384);
+    let res_2gb = ram_test::compute_ram_os_reserve_mb(2048);
+    if res_2gb != 512 || res_8gb != 1800 || res_16gb != 1800 {
+        return Err(format!(
+            "RAM OS reserve check failed (2GB={}, 8GB={}, 16GB={})",
+            res_2gb, res_8gb, res_16gb
+        ));
+    }
+    let (win_mb, win_res) = ram_test::compute_safe_ram_window_mb(16384, 10000, 75)?;
+    if win_mb > 10000 - win_res || win_res != 1800 {
+        return Err(format!("Safe RAM window exceeded reserve: win={} res={}", win_mb, win_res));
+    }
+    println!(
+        "[PASS] RAM pattern verifier & OS Reserve (22% / min 512 MB / cap 1800 MB; 16GB reserve={} MB, safe window={} MB)",
+        win_res, win_mb
+    );
 
     // 2. Bare-metal SIMD AI GEMM & Creator Image kernels
     let isa = simd_kernels::detected_simd_isa();
@@ -449,7 +540,188 @@ pub fn run_self_test() -> Result<(), String> {
     }
     println!("[PASS] SIMD Kernels ({} | GEMM={:.1} | ImageConv={})", isa, gemm_sum, img_sum);
 
-    // 3. Cinebench-style 3D Path-Tracer smoke render
+    // 3. PassMark-style Weighted Harmonic Mean
+    let hm = baselines::weighted_harmonic_mean(&[(1.0, 100.0), (1.0, 300.0)], 1.0);
+    if (hm - 150.0).abs() > 0.01 {
+        return Err(format!("Weighted harmonic mean mismatch: got {:.3}, expected 150.0", hm));
+    }
+    let cpu_mark = baselines::compute_cpu_mark_harmonic(&baselines::CpuSubtestScores {
+        single_core: 3200.0,
+        integer_math: 28000.0,
+        float_math: 22000.0,
+        prime: 48.0,
+        vector_ext: 14000.0,
+        encryption: 8500.0,
+        compression: 19000.0,
+        sorting: 11000.0,
+        physics: 950.0,
+    });
+    let mem_mark = baselines::compute_memory_mark_harmonic(&baselines::MemorySubtestMetrics {
+        database_kops: 140.0,
+        read_cached_mb_s: 36000.0,
+        read_uncached_mb_s: 22000.0,
+        write_mb_s: 28000.0,
+        available_ram_mb: 16384.0,
+        latency_ns: 68.0,
+        threaded_mb_s: 34000.0,
+    });
+    if cpu_mark == 0 || mem_mark == 0 {
+        return Err("Weighted harmonic CPU/Memory mark returned 0".into());
+    }
+    println!(
+        "[PASS] Weighted Harmonic Mean (H(100,300)={:.1} | CPU Mark={} | Memory Mark={})",
+        hm, cpu_mark, mem_mark
+    );
+
+    // 4. UserBenchmark offline calibration & Vehicle Tier
+    let ub_cmp = userbenchmark::compare_userbenchmark(&UserBenchmarkInput {
+        cpu_brand: "Intel Core i7-1365U".into(),
+        cpu_physical_cores: Some(10),
+        cpu_logical_cores: Some(12),
+        cpu_single_core: Some(3600),
+        cpu_multi_core: Some(14500),
+        cpu_composite: Some(13800),
+        gpu_name: Some("NVIDIA GeForce RTX 4060 Laptop GPU".into()),
+        gpu_resolution: Some("1080p".into()),
+        gpu_avg_fps: Some(88.0),
+        gpu_fps_drop_pct: Some(3.5),
+        ssd_model: Some("Samsung 980 PRO 1TB".into()),
+        ssd_interface: Some("NVMe".into()),
+        ssd_seq_read_mb_s: Some(5200.0),
+        ssd_seq_write_mb_s: Some(4100.0),
+        ssd_rand_4k_read_mb_s: Some(78.0),
+        ssd_rand_4k_write_mb_s: Some(210.0),
+        ram_type: Some("DDR5".into()),
+        ram_bandwidth_gb_s: Some(48.0),
+        ram_latency_ns: Some(62.0),
+        ram_channel_mode: Some("Dual Channel".into()),
+        allow_live_lookup: false,
+        ..Default::default()
+    });
+    if ub_cmp.overall_vehicle_tier.is_empty() || ub_cmp.source_mode != "offline_calibrated" {
+        return Err("UserBenchmark offline calibration returned invalid tier or mode".into());
+    }
+    println!(
+        "[PASS] UserBenchmark Offline Calibration (Vehicle Tier={} | Game {:.0}% / Desk {:.0}% / WS {:.0}% | mode={})",
+        ub_cmp.overall_vehicle_tier, ub_cmp.gaming_pct, ub_cmp.desktop_pct, ub_cmp.workstation_pct, ub_cmp.source_mode
+    );
+
+    // 5. Battery Discharge Normality classifier & safety bounds
+    if (BATTERY_LOW_SOC_ABORT_PCT - 15.0).abs() > f64::EPSILON || BATTERY_DISCHARGE_MAX_SECS != 90 {
+        return Err("Battery safety constants out of specification".into());
+    }
+    if battery::clamp_discharge_duration(Some(999)) != 90 || battery::clamp_discharge_duration(Some(5)) != 20 {
+        return Err("Battery discharge duration clamping failed".into());
+    }
+    let dummy_health = BatteryHealthReport {
+        present: true,
+        status: TestStatus::Pass,
+        manufacturer: "SelfTest".into(),
+        chemistry: "Li-Ion".into(),
+        design_capacity_mwh: Some(60_000),
+        full_charge_capacity_mwh: Some(55_000),
+        health_percent: Some(91.7),
+        wear_percent: Some(8.3),
+        cycle_count: Some(45),
+        current_charge_percent: Some(80.0),
+        is_charging: false,
+        ac_plugged: false,
+        voltage_mv: Some(11_400),
+        rate_mw: Some(-18_000),
+        adapter_watts: None,
+        notes: String::new(),
+    };
+    let normal_samples: Vec<BatteryLiveSample> = (0..12)
+        .map(|i| BatteryLiveSample {
+            timestamp_ms: i * 3000,
+            charge_percent: 80.0 - (i as f64) * 0.08,
+            ac_plugged: false,
+            is_charging: false,
+            voltage_mv: Some(if i < 4 { 11_420 } else { 11_210 }),
+            rate_mw: Some(if i < 4 { -7_000 } else { -22_000 }),
+            watts: Some(if i < 4 { 7.0 } else { 22.0 }),
+        })
+        .collect();
+    let bat_norm = battery::classify_battery_discharge(&normal_samples, 4, &dummy_health, 36.0, None, false);
+    if bat_norm.verdict != "NORMAL" {
+        return Err(format!("Expected NORMAL battery discharge verdict, got {}", bat_norm.verdict));
+    }
+    let abnormal_samples: Vec<BatteryLiveSample> = (0..12)
+        .map(|i| BatteryLiveSample {
+            timestamp_ms: i * 3000,
+            charge_percent: if i < 6 { 80.0 } else { 73.0 },
+            ac_plugged: false,
+            is_charging: false,
+            voltage_mv: Some(if i < 4 { 11_400 } else { 10_100 }),
+            rate_mw: Some(if i < 4 { -7_000 } else if i % 2 == 0 { -45_000 } else { -9_000 }),
+            watts: Some(if i < 4 { 7.0 } else if i % 2 == 0 { 45.0 } else { 9.0 }),
+        })
+        .collect();
+    let bat_abn = battery::classify_battery_discharge(&abnormal_samples, 4, &dummy_health, 36.0, None, false);
+    if bat_abn.verdict != "ABNORMAL" {
+        return Err(format!("Expected ABNORMAL battery discharge verdict, got {}", bat_abn.verdict));
+    }
+    println!(
+        "[PASS] Battery Discharge Normality (normal={}, abnormal={}, SoC abort={}%, max={}s)",
+        bat_norm.verdict, bat_abn.verdict, BATTERY_LOW_SOC_ABORT_PCT, BATTERY_DISCHARGE_MAX_SECS
+    );
+
+    // 6. SSD Safe Write Budget (128/256/512 MB), Free-Space Guard & RAII TempFileGuard
+    let b_q = storage::compute_ssd_write_budget("quick");
+    let b_s = storage::compute_ssd_write_budget("standard");
+    let b_b = storage::compute_ssd_write_budget("burnin");
+    if b_q.total_budget_mb != 128 || b_s.total_budget_mb != 256 || b_b.total_budget_mb != 512 {
+        return Err("SSD Safe Write Budget mismatch".into());
+    }
+    if storage::validate_free_space_mb(1024, 256).is_ok() || storage::validate_free_space_mb(4096, 256).is_err() {
+        return Err("SSD free-space 4x multiplier guard failed".into());
+    }
+    let tmp_guard_path = std::env::temp_dir().join(format!("lbqc_guard_test_{}.tmp", std::process::id()));
+    {
+        let _tg = storage::TempFileGuard(tmp_guard_path.clone());
+        std::fs::write(_tg.path(), b"selftest").map_err(|e| e.to_string())?;
+        if !tmp_guard_path.exists() {
+            return Err("TempFileGuard test file was not created".into());
+        }
+    }
+    if tmp_guard_path.exists() {
+        return Err("RAII TempFileGuard failed to clean up temp file on drop".into());
+    }
+    println!("[PASS] SSD Safe Write Budget (128/256/512 MB, 4x free-space guard, RAII TempFileGuard drop cleanup)");
+
+    // 7. Thermal Cutoff Bounds & Telemetry Safety Evaluation
+    if (clamp_gpu_thermal_cutoff_cmd(Some(105.0)) - 92.0).abs() > 0.01
+        || (clamp_gpu_thermal_cutoff_cmd(Some(60.0)) - 75.0).abs() > 0.01
+        || (clamp_torture_thermal_cutoff_cmd(Some(105.0)) - 95.0).abs() > 0.01
+        || (clamp_torture_thermal_cutoff_cmd(Some(60.0)) - 80.0).abs() > 0.01
+    {
+        return Err("Thermal cutoff clamping bounds failed".into());
+    }
+    let hot_snap = LiveTelemetrySnapshot {
+        cpu_usage_pct: 100.0,
+        cpu_clock_mhz: 3500,
+        cpu_temp_c: Some(96.0),
+        cpu_power_w: None,
+        gpu_temp_c: Some(93.0),
+        gpu_load_pct: None,
+        gpu_power_w: None,
+        fan_rpm: None,
+        ac_plugged: Some(true),
+        battery_percent: Some(100.0),
+        battery_watts: None,
+        sensor_source: "SelfTest".into(),
+        cpu_temp_available: true,
+        gpu_temp_available: true,
+        power_watts_available: false,
+        temp_source: "SelfTest".into(),
+    };
+    match telemetry::TelemetryReader::is_thermal_safe(&hot_snap, 95.0, 92.0) {
+        telemetry::ThermalSafetyCheck::CutoffTriggered { .. } => {}
+        other => return Err(format!("Expected CutoffTriggered thermal check, got {:?}", other)),
+    }
+    println!("[PASS] Thermal Cutoff Bounds (GPU 75-92C / CPU 80-95C, TelemetryReader::is_thermal_safe verified)");
+
+    // 8. Cinebench-style 3D Path-Tracer smoke render
     let cancel_false = Arc::new(AtomicBool::new(false));
     let (rt_score, mrays, rt_jpg) = raytracer::run_creator_raytrace_bench(
         128,
@@ -465,24 +737,27 @@ pub fn run_self_test() -> Result<(), String> {
     }
     println!("[PASS] 3D Path-Tracer (Score={} | {:.2} MRays/s | JPEG ok)", rt_score, mrays);
 
-    // 4. Dedicated VRAM wgpu compute shader smoke test
+    // 9. Dedicated VRAM wgpu compute shader smoke test
     match vram_test::smoke_test_vram_shader() {
         Ok(msg) => println!("[PASS] VRAM Compute Shader: {}", msg),
         Err(e) => println!("[WARN] VRAM Compute Shader skipped: {}", e),
     }
 
-    // 5. Native PDF 1.4 generator check
+    // 10. Full HTML + PDF + JSON Report Export (with RAII temp dir cleanup)
+    let report_tmp_dir = std::env::temp_dir().join(format!("lbqc_selftest_reports_{}", std::process::id()));
+    let _report_dir_guard = SelfTestTempDirGuard(report_tmp_dir.clone());
     let sample_payload = ExportReportPayload {
         shop_profile: ShopProfile {
-            shop_name: "Self-Test Shop".into(),
-            technician_name: "Verifier".into(),
+            shop_name: "Self-Test Lab".into(),
+            technician_name: "Hein Htet Zaw".into(),
             logo_data_url: None,
             default_output_dir: None,
         },
-        customer_or_sku: "TEST-001".into(),
-        technician_notes: "Automated self-test".into(),
+        customer_or_sku: "SELFTEST-V230".into(),
+        technician_notes: "Automated v2.3.0 self-test".into(),
         overall_verdict: "PASSED".into(),
         durability_grade: Some("A+".into()),
+        plain_verdict_summary: Some("All 14 stages passed cleanly in v2.3.0 self-test.".into()),
         subsystem_scores: vec![types::SubsystemScoreBar {
             label: "RAM Stability".into(),
             score_pct: 100.0,
@@ -492,8 +767,8 @@ pub fn run_self_test() -> Result<(), String> {
         specs: None,
         tests: vec![types::ReportTestEntry {
             id: "ram".into(),
-            name: "RAM Stress Test".into(),
-            category: "Stress".into(),
+            name: "11. RAM Stress Test".into(),
+            category: "Deep Stress".into(),
             status: types::TestStatus::Pass,
             summary: "0 errors".into(),
             metrics: vec![],
@@ -505,15 +780,65 @@ pub fn run_self_test() -> Result<(), String> {
             speakers_checked: true,
             speakers_notes: "OK".into(),
         },
-        output_dir: None,
+        output_dir: Some(report_tmp_dir.to_string_lossy().to_string()),
+        user_benchmark: Some(ub_cmp),
+        battery_discharge: Some(bat_norm),
+        touchscreen: Some(TouchscreenTestResult {
+            touch_capable: false,
+            status: TestStatus::Skipped,
+            verdict: "SKIPPED".into(),
+            plain_summary: "Non-touch laptop skipped via Skip Step.".into(),
+            ..Default::default()
+        }),
+        network_report: Some(network::classify_network_report(
+            "Wi-Fi".into(),
+            Some(866.0),
+            Some("LabBench".into()),
+            Some(90),
+            Some(-50),
+            Some(2.0),
+            true,
+            0.0,
+        )),
     };
-    let pdf = modules::pdf_gen::render_qc_certificate_pdf(&sample_payload, "2026-11-25 22:00:00");
-    if !pdf.starts_with(b"%PDF-1.4") || !pdf.ends_with(b"%%EOF\n") {
-        return Err("PDF generator failed header/EOF integrity check".into());
+    let exported = report::export_qc_report_files(&sample_payload)?;
+    let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
+    let html_str = std::fs::read_to_string(&exported.html_path).map_err(|e| e.to_string())?;
+    let json_str = std::fs::read_to_string(&exported.json_path).map_err(|e| e.to_string())?;
+    if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
+        return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    println!("[PASS] Native PDF 1.4 certificate generator ({} bytes)", pdf.len());
+    if !html_str.contains("LaptopBench QC v2.3.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.3.0 or attribution".into());
+    }
+    if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
+        return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
+    }
+    println!(
+        "[PASS] Native PDF 1.4 + HTML + JSON Report Export ({} bytes PDF, cleaned up on drop)",
+        pdf_bytes.len()
+    );
 
-    // 6. Live Telemetry & OS diagnostic probes
+    // 11. Network Diagnostics + Live Telemetry & OS diagnostic probes
+    let net_cls = network::classify_network_report(
+        "Ethernet".into(),
+        Some(1000.0),
+        None,
+        None,
+        None,
+        Some(1.2),
+        true,
+        0.0,
+    );
+    if net_cls.verdict != "HEALTHY" {
+        return Err(format!("Network classifier returned {}", net_cls.verdict));
+    }
+    let net_live = network::run_network_diagnostics()?;
+    println!(
+        "[PASS] Network Diagnostics ({}): iface={} ping={:?}ms dns={}",
+        net_live.verdict, net_live.interface_name, net_live.gateway_ping_ms, net_live.dns_resolve_ok
+    );
+
     let mut tel = telemetry::TelemetryReader::new();
     let snap = tel.sample(true);
     println!(
@@ -554,7 +879,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.3.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -572,6 +897,9 @@ pub fn run() {
             stop_battery_monitor,
             run_battery_sag_pulse,
             cancel_battery_sag_pulse,
+            run_battery_discharge_test,
+            cancel_battery_discharge_test,
+            run_network_diagnostics,
             list_usb_devices,
             start_usb_monitor,
             stop_usb_monitor,
@@ -607,7 +935,30 @@ pub fn run() {
             load_shop_profile,
             save_shop_profile,
             export_qc_report,
+            compare_userbenchmark,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lib_thermal_cutoff_clamping_bounds() {
+        assert_eq!(clamp_gpu_thermal_cutoff_cmd(None), 92.0);
+        assert_eq!(clamp_gpu_thermal_cutoff_cmd(Some(105.0)), 92.0);
+        assert_eq!(clamp_gpu_thermal_cutoff_cmd(Some(60.0)), 75.0);
+        assert_eq!(clamp_gpu_thermal_cutoff_cmd(Some(85.0)), 85.0);
+        assert_eq!(clamp_gpu_thermal_cutoff_cmd(Some(f32::NAN)), 92.0);
+        assert_eq!(clamp_gpu_thermal_cutoff_cmd(Some(f32::INFINITY)), 92.0);
+
+        assert_eq!(clamp_torture_thermal_cutoff_cmd(None), 92.0);
+        assert_eq!(clamp_torture_thermal_cutoff_cmd(Some(105.0)), 95.0);
+        assert_eq!(clamp_torture_thermal_cutoff_cmd(Some(60.0)), 80.0);
+        assert_eq!(clamp_torture_thermal_cutoff_cmd(Some(88.0)), 88.0);
+        assert_eq!(clamp_torture_thermal_cutoff_cmd(Some(f32::NAN)), 92.0);
+        assert_eq!(clamp_torture_thermal_cutoff_cmd(Some(f32::NEG_INFINITY)), 92.0);
+    }
 }

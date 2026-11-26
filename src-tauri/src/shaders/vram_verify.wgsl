@@ -62,3 +62,29 @@ fn cs_verify(@builtin(global_invocation_id) gid: vec3<u32>) {
         atomicAdd(&error_counter[0], 1u);
     }
 }
+
+@compute @workgroup_size(64)
+fn cs_alu_verify(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    if (idx >= params.word_count) {
+        return;
+    }
+    let base_seed = params.seed ^ idx;
+    var a: f32 = f32((base_seed & 1023u) + 1u) * 0.003125;
+    var b: f32 = a;
+    var ha: u32 = hash_u32(base_seed);
+    var hb: u32 = hash_u32(idx ^ params.seed);
+
+    for (var r: u32 = 0u; r < 8u; r = r + 1u) {
+        let s = sin(a + f32(r) * 0.25);
+        let c = cos(b + f32(r) * 0.25);
+        a = fma(s, 0.75, c * 0.25) + 0.125;
+        b = s * 0.75 + c * 0.25 + 0.125;
+        ha = hash_u32(ha ^ r);
+        hb = hash_u32(hb ^ r);
+    }
+
+    if (abs(a - b) > 1e-4 || a != a || b != b || ha != hb) {
+        atomicAdd(&error_counter[0], 1u);
+    }
+}

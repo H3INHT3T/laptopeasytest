@@ -22,6 +22,7 @@ export type StepModuleId =
   | "logs"
   | "storage"
   | "display"
+  | "touchscreen"
   | "keyboard"
   | "biometrics"
   | "media"
@@ -33,6 +34,138 @@ export type StepModuleId =
 export type TestModuleId = "dashboard" | StepModuleId;
 
 export type StressPreset = "quick" | "standard" | "burnin";
+
+// ============================================================================
+// Hardware Safety Constants & Bounds (v2.3.0 — mirrors src-tauri/src/types.rs)
+// ============================================================================
+
+export const CPU_THERMAL_CUTOFF_DEFAULT_C = 92;
+export const CPU_THERMAL_CUTOFF_MIN_C = 80;
+export const CPU_THERMAL_CUTOFF_MAX_C = 95;
+export const GPU_THERMAL_CUTOFF_DEFAULT_C = 92;
+export const GPU_THERMAL_CUTOFF_MIN_C = 75;
+export const GPU_THERMAL_CUTOFF_MAX_C = 92;
+export const SSD_WRITE_BUDGET_QUICK_MB = 128;
+export const SSD_WRITE_BUDGET_STD_MB = 256;
+export const SSD_WRITE_BUDGET_MAX_MB = 512;
+export const SSD_FREE_SPACE_MULTIPLIER = 4;
+export const RAM_OS_RESERVE_FLOOR_MB = 512;
+export const RAM_OS_RESERVE_PCT = 22;
+export const RAM_OS_RESERVE_16GB_CAP_MB = 1800;
+export const BATTERY_LOW_SOC_ABORT_PCT = 15.0;
+export const BATTERY_DISCHARGE_MAX_SECS = 90;
+
+export interface HardwareSafetyBounds {
+  cpuThermalCutoffC: number;
+  gpuThermalCutoffC: number;
+  ssdWriteBudgetQuickMb: number;
+  ssdWriteBudgetStdMb: number;
+  ssdWriteBudgetMaxMb: number;
+  ssdFreeSpaceMultiplier: number;
+  ramOsReserveFloorMb: number;
+  ramOsReservePct: number;
+  batteryLowSocAbortPct: number;
+  batteryDischargeMaxSecs: number;
+}
+
+export const DEFAULT_HARDWARE_SAFETY_BOUNDS: HardwareSafetyBounds = {
+  cpuThermalCutoffC: CPU_THERMAL_CUTOFF_DEFAULT_C,
+  gpuThermalCutoffC: GPU_THERMAL_CUTOFF_DEFAULT_C,
+  ssdWriteBudgetQuickMb: SSD_WRITE_BUDGET_QUICK_MB,
+  ssdWriteBudgetStdMb: SSD_WRITE_BUDGET_STD_MB,
+  ssdWriteBudgetMaxMb: SSD_WRITE_BUDGET_MAX_MB,
+  ssdFreeSpaceMultiplier: SSD_FREE_SPACE_MULTIPLIER,
+  ramOsReserveFloorMb: RAM_OS_RESERVE_FLOOR_MB,
+  ramOsReservePct: RAM_OS_RESERVE_PCT,
+  batteryLowSocAbortPct: BATTERY_LOW_SOC_ABORT_PCT,
+  batteryDischargeMaxSecs: BATTERY_DISCHARGE_MAX_SECS,
+};
+
+// ============================================================================
+// UserBenchmark Comparison & Rating Contracts
+// ============================================================================
+
+export type UserBenchmarkVehicleTier =
+  | "UFO"
+  | "Nuclear Submarine"
+  | "Aircraft Carrier"
+  | "Battleship"
+  | "Cruiser"
+  | "Destroyer"
+  | "Speedboat"
+  | "Jet Ski"
+  | "Raft";
+
+export type UserBenchmarkStandingLabel =
+  | "Above Expectations"
+  | "As Expected"
+  | "Below Expectations"
+  | "Underperforming";
+
+export interface UserBenchmarkComponentRating {
+  component: string;
+  detectedModel: string;
+  effectiveSpeedPct: number;
+  expectedClassPct: number;
+  relativeStandingPct: number;
+  vehicleTier: UserBenchmarkVehicleTier | string;
+  standingLabel: UserBenchmarkStandingLabel | string;
+  plainSummary: string;
+  sourceMode: string;
+  subMetrics: [string, string][];
+  bottleneckFlag: string | null;
+}
+
+export interface UserBenchmarkComparison {
+  gamingPct: number;
+  desktopPct: number;
+  workstationPct: number;
+  overallVehicleTier: UserBenchmarkVehicleTier | string;
+  cpu: UserBenchmarkComponentRating | null;
+  gpu: UserBenchmarkComponentRating | null;
+  ssd: UserBenchmarkComponentRating | null;
+  ram: UserBenchmarkComponentRating | null;
+  headlineSummary: string;
+  recommendations: string[];
+  sourceMode: string;
+}
+
+export interface UserBenchmarkInput {
+  cpuBrand?: string;
+  cpuPhysicalCores?: number | null;
+  cpuLogicalCores?: number | null;
+  cpuSingleCore?: number | null;
+  cpuMultiCore?: number | null;
+  cpuComposite?: number | null;
+  gpuName?: string | null;
+  gpuResolution?: string | null;
+  gpuAvgFps?: number | null;
+  gpuFpsDropPct?: number | null;
+  gpuThermalCutoff?: boolean;
+  ssdModel?: string | null;
+  ssdInterface?: string | null;
+  ssdMediaType?: string | null;
+  ssdSeqReadMbS?: number | null;
+  ssdSeqWriteMbS?: number | null;
+  ssdRand4kReadMbS?: number | null;
+  ssdRand4kWriteMbS?: number | null;
+  ssdIntegrityErrors?: number;
+  ramType?: string | null;
+  ramBandwidthGbS?: number | null;
+  ramLatencyNs?: number | null;
+  ramChannelMode?: string | null;
+  ramErrorsFound?: number;
+  allowLiveLookup?: boolean;
+  specs?: SystemSpecs | null;
+  perf?: PerfBenchResult | null;
+  gpu?: GpuStressResult | null;
+  storage?: StorageBenchResult | null;
+  ram?: RamTestResult | null;
+}
+
+// ============================================================================
+// System Specs, Security, Battery, Network, USB, Error Logs, Storage, RAM
+// ============================================================================
 
 export interface RamModuleInfo {
   slot: string;
@@ -141,6 +274,9 @@ export interface SystemSpecs {
   wifiAntennaWarning?: string | null;
   ramChannelMode?: string | null;
   ramConfigWarning?: string | null;
+  ramReliabilityNote?: string | null;
+  reliabilityNotes?: string[];
+  plainSummary?: string;
   isGamingCapable: boolean;
   isElevated: boolean;
   uptimeSeconds: number;
@@ -152,6 +288,7 @@ export interface SecurityCheckItem {
   value: string;
   status: TestStatus;
   detail: string;
+  buyerNote?: string;
 }
 
 export interface SecurityAuditReport {
@@ -161,6 +298,8 @@ export interface SecurityAuditReport {
   activationLocked: boolean | null;
   items: SecurityCheckItem[];
   summary: string;
+  plainSummary?: string;
+  ownershipRisks?: string[];
 }
 
 export interface BatteryHealthReport {
@@ -218,12 +357,80 @@ export interface BatterySagResult {
   summary: string;
 }
 
+export interface BatteryDischargeProgress {
+  running: boolean;
+  phase: string;
+  elapsedSecs: number;
+  durationSecs: number;
+  chargePercent: number;
+  voltageMv: number | null;
+  watts: number | null;
+  acPlugged: boolean;
+  voltageSagMv: number;
+  chargeDropPct: number;
+  note: string;
+}
+
+export type BatteryDischargeVerdict =
+  | "NORMAL"
+  | "ABNORMAL"
+  | "NOT_APPLICABLE"
+  | "AC_CONNECTED"
+  | "ABORTED_LOW_BATTERY"
+  | "CANCELLED"
+  | "INSUFFICIENT_SAMPLES";
+
+export interface BatteryDischargeResult {
+  status: TestStatus;
+  verdict: BatteryDischargeVerdict | string;
+  plainSummary: string;
+  reasons: string[];
+  idleAvgWatts: number;
+  loadAvgWatts: number;
+  powerCvPct: number;
+  voltageSagMv: number;
+  socStartPct: number;
+  socEndPct: number;
+  maxStepDropPct: number;
+  wearPct: number;
+  cycleCount: number;
+  bmsDriftRatio: number;
+  durationSecs: number;
+  samples: BatteryLiveSample[];
+}
+
+export type NetworkDiagnosticsVerdict =
+  | "HEALTHY"
+  | "LOCAL_ONLY_NO_DNS"
+  | "DEGRADED"
+  | "POOR_LINK"
+  | "NO_ACTIVE_LINK"
+  | "NOT_APPLICABLE";
+
+export interface NetworkDiagnosticsReport {
+  status: TestStatus;
+  interfaceName: string;
+  linkSpeedMbps: number | null;
+  wifiSsid: string | null;
+  wifiSignalPct: number | null;
+  rssiDbm: number | null;
+  gatewayPingMs: number | null;
+  dnsResolveOk: boolean;
+  packetLossPct: number;
+  verdict: NetworkDiagnosticsVerdict | string;
+  plainSummary: string;
+}
+
 export interface UsbDeviceInfo {
   instanceId: string;
   name: string;
   speedClass: string;
   isSuperspeed: boolean;
   status: string;
+  negotiatedMbps?: number | null;
+  controllerType?: string;
+  errorCode?: number | null;
+  reliabilityNote?: string;
 }
 
 export interface UsbHotplugEvent {
@@ -239,6 +446,31 @@ export interface SavedSessionPayload {
   savedAt: string;
   activeStressStage: string | null;
   stateJson: string;
+}
+
+export interface RawKeyEvent {
+  vkCode: number;
+  scanCode: number;
+  code: string;
+  pressed: boolean;
+}
+
+export interface TouchscreenTestResult {
+  touchCapable: boolean;
+  maxTouchPointsReported: number;
+  gridRows: number;
+  gridCols: number;
+  coveredCells: number;
+  totalCells: number;
+  coveragePct: number;
+  maxSimultaneousTouches: number;
+  swipeLinearityRmsPx: number;
+  maxLinearityErrorPx?: number;
+  pollingHz: number;
+  tapLatencyMs?: number | null;
+  status: TestStatus;
+  verdict: "PASS" | "WARN" | "FAIL" | "SKIPPED";
+  plainSummary: string;
 }
 
 export interface ErrorLogEntry {
@@ -262,6 +494,9 @@ export interface ErrorLogsReport {
   minidumpFiles: string[];
   entries: ErrorLogEntry[];
   summary: string;
+  thermalEventCount?: number;
+  plainSummary?: string;
+  buyerInterpretation?: string[];
 }
 
 export interface DriveSmartInfo {
@@ -285,6 +520,10 @@ export interface DriveSmartInfo {
   tbwGb: number | null;
   availableSparePct: number | null;
   notes: string;
+  criticalWarningFlags?: string[];
+  availableSpareThresholdPct?: number | null;
+  percentageUsedRaw?: number | null;
+  plainSummary?: string;
 }
 
 export interface StorageSmartReport {
@@ -299,6 +538,8 @@ export interface StorageBenchProgress {
   currentMbS: number;
   elapsedSecs: number;
   integrityErrors: number;
+  driveTempC?: number | null;
+  thermalWarning?: boolean;
 }
 
 export interface StorageBenchResult {
@@ -318,6 +559,21 @@ export interface StorageBenchResult {
   elapsedSecs: number;
   baseline: BaselineRating;
   summary: string;
+  totalWrittenMb?: number;
+  rand4kQd32ReadMbS?: number;
+  rand4kQd32WriteMbS?: number;
+  rand4kQd32ReadIops?: number;
+  rand4kQd32WriteIops?: number;
+  mixedRwMbS?: number;
+  mixedRwIops?: number;
+  slcSustainedMbS?: number;
+  slcCacheDropPct?: number;
+  writeStabilityPct?: number;
+  peakDriveTempC?: number | null;
+  thermalWarning?: boolean;
+  thermalCutoffTriggered?: boolean;
+  userbenchmarkRating?: UserBenchmarkComponentRating | null;
+  plainSummary?: string;
 }
 
 export interface RamTestProgress {
@@ -335,6 +591,8 @@ export interface RamTestProgress {
   perTestErrors: number[];
   elapsedSecs: number;
   durationSecs: number;
+  cpuTempC?: number | null;
+  thermalWarning?: boolean;
 }
 
 export interface RamTestResult {
@@ -355,6 +613,12 @@ export interface RamTestResult {
   cancelled: boolean;
   baseline: BaselineRating;
   summary: string;
+  osReserveMb?: number;
+  peakCpuTempC?: number | null;
+  thermalCutoffTriggered?: boolean;
+  sensorUnavailable?: boolean;
+  userbenchmarkRating?: UserBenchmarkComponentRating | null;
+  plainSummary?: string;
 }
 
 export interface BiometricSensorInfo {
@@ -392,6 +656,10 @@ export interface LiveTelemetrySnapshot {
   batteryPercent: number | null;
   batteryWatts: number | null;
   sensorSource: string;
+  cpuTempAvailable?: boolean;
+  gpuTempAvailable?: boolean;
+  powerWattsAvailable?: boolean;
+  tempSource?: string;
 }
 
 export interface ShopModelBenchmarkAvg {
@@ -467,6 +735,14 @@ export interface PerfBenchResult {
   baseline: BaselineRating;
   shopComparison: ShopModelComparison | null;
   summary: string;
+  memoryUncachedReadGbS?: number;
+  memoryThreadedGbS?: number;
+  memoryDatabaseKops?: number;
+  availableRamMb?: number;
+  thermalCutoffTriggered?: boolean;
+  sensorUnavailable?: boolean;
+  userbenchmarkRating?: UserBenchmarkComponentRating | null;
+  plainSummary?: string;
 }
 
 export interface VramTestProgress {
@@ -482,6 +758,8 @@ export interface VramTestProgress {
   elapsedSecs: number;
   durationSecs: number;
   gpuTempC: number | null;
+  thermalWarning?: boolean;
+  gpuTempAvailable?: boolean;
 }
 
 export interface VramTestResult {
@@ -498,6 +776,10 @@ export interface VramTestResult {
   cancelled: boolean;
   baseline: BaselineRating;
   summary: string;
+  thermalCutoffTriggered?: boolean;
+  effectiveCutoffC?: number;
+  sensorAvailable?: boolean;
+  plainSummary?: string;
 }
 
 export interface PowerTortureProgress {
@@ -516,6 +798,8 @@ export interface PowerTortureProgress {
   batteryDrainWhilePlugged: boolean;
   thermalWarning: boolean;
   previewDataUrl: string | null;
+  artifactErrors?: number;
+  throttleState?: string;
 }
 
 export interface PowerTortureResult {
@@ -538,6 +822,16 @@ export interface PowerTortureResult {
   durabilityGrade: string;
   baseline: BaselineRating;
   summary: string;
+  artifactErrors?: number;
+  avgGpuPowerW?: number | null;
+  peakCpuPowerW?: number | null;
+  thermalThrottlingDetected?: boolean;
+  powerLimitThrottling?: boolean;
+  throttleReason?: string;
+  sensorAvailable?: boolean;
+  effectiveCpuCutoffC?: number;
+  effectiveGpuCutoffC?: number;
+  plainSummary?: string;
 }
 
 export interface BurnInProgress {
@@ -565,6 +859,8 @@ export interface BurnInResult {
   tortureResult: PowerTortureResult | null;
   durabilityGrade: string;
   summary: string;
+  thermalCutoffTriggered?: boolean;
+  plainSummary?: string;
 }
 
 export interface GpuAdapterInfo {
@@ -594,6 +890,9 @@ export interface GpuStressProgress {
   gpuPowerW: number | null;
   thermalWarning: boolean;
   previewDataUrl: string | null;
+  artifactErrors?: number;
+  gpuTempAvailable?: boolean;
+  throttleState?: string;
 }
 
 export interface GpuStressResult {
@@ -615,6 +914,16 @@ export interface GpuStressResult {
   cancelled: boolean;
   baseline: BaselineRating;
   summary: string;
+  artifactErrors?: number;
+  avgPowerW?: number | null;
+  avgLoadPct?: number | null;
+  thermalThrottlingDetected?: boolean;
+  powerLimitThrottling?: boolean;
+  throttleReason?: string;
+  sensorAvailable?: boolean;
+  effectiveCutoffC?: number;
+  plainSummary?: string;
+  userbenchmarkRating?: UserBenchmarkComponentRating | null;
 }
 
 export interface ShopProfile {
@@ -641,11 +950,31 @@ export interface PortsSpeakerSignoff {
   speakersNotes: string;
 }
 
+export interface SavedSessionState {
+  unlockedIndex: number;
+  modules: Partial<Record<StepModuleId, ModuleRecord>>;
+  signoff: PortsSpeakerSignoff;
+  touchscreenResult?: TouchscreenTestResult | null;
+  batteryDischargeResult?: BatteryDischargeResult | null;
+  networkReport?: NetworkDiagnosticsReport | null;
+  userbenchmarkComparison?: UserBenchmarkComparison | null;
+}
+
 export interface SubsystemScoreBar {
   label: string;
   scorePct: number;
   metricText: string;
   statusLabel: string;
+}
+
+export interface ReportTestEntry {
+  id: string;
+  name: string;
+  category: string;
+  status: TestStatus;
+  summary: string;
+  metrics: [string, string][];
+  notes: string;
 }
 
 export interface ExportReportPayload {
@@ -656,17 +985,14 @@ export interface ExportReportPayload {
   durabilityGrade?: string | null;
   subsystemScores?: SubsystemScoreBar[];
   specs: SystemSpecs | null;
-  tests: Array<{
-    id: string;
-    name: string;
-    category: string;
-    status: TestStatus;
-    summary: string;
-    metrics: [string, string][];
-    notes: string;
-  }>;
+  tests: ReportTestEntry[];
   signoff: PortsSpeakerSignoff;
   outputDir: string | null;
+  plainVerdictSummary?: string | null;
+  userBenchmark?: UserBenchmarkComparison | null;
+  batteryDischarge?: BatteryDischargeResult | null;
+  touchscreen?: TouchscreenTestResult | null;
+  networkReport?: NetworkDiagnosticsReport | null;
 }
 
 export interface ExportedReportPaths {

@@ -1,47 +1,61 @@
-# LaptopBench QC v2.0
+# LaptopBench QC v2.3.0
 
-> **Created by Hein Htet Zaw** • Telegram: `@ich8g92`
+> **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.0** is a 100% offline, native-Rust-powered cross-platform laptop hardware diagnostics, durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a clean **White, Black & Cobalt Blue** sequential step-by-step interface.
+**LaptopBench QC v2.3.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict **Swiss Precision Light** (`#FFFFFF`, `#09090B`, `#2563EB` / `#1D4ED8`) sequential step-by-step interface.
 
-## What's New in v2.0 — 360° All-Scope Performance & Durability Engine
+## What's New in v2.3.0 — Real-World Calibration, Safety Bounds & Long-Term Reliability
 
-- **Bare-Metal SIMD Kernels (`x86_64 AVX2+FMA` & `ARM64 NEON`)** for high-throughput AI Dense Matrix Multiply (GEMM) and Creator 1080p Image Convolution.
-- **Cinebench-Style Multi-Core 3D Path-Tracing Renderer** streaming live 32×32 progressive studio render tiles with Mega-Rays/sec scoring.
-- **Full 14-Stage All-Scope Performance Suite (Step 11)** producing **Office Scope**, **Creator & AI Scope**, **CPU Multi-Core**, **Memory Mark**, **Hot-CPU Throttle Drop %**, and an overall **A+ to FAIL Durability Grade**.
-- **Dedicated GPU VRAM Integrity Test (Step 12)** — OCCT-style native `wgpu` compute shader sweeping 256 MB–4 GB GPU VRAM pools across 4 deterministic bit-patterns to expose failing GDDR chips & artifacts.
-- **Combined CPU + GPU + RAM Power & AC Charger Torture (Step 12)** — pushes the entire chassis to 100% simultaneous load and flags **Battery Drain While Plugged In** (catches under-rated/fake chargers and weak DC-in circuits) plus thermal safety cutoff.
-- **Zero-Driver Native Telemetry + Auto-Link** — native OS clocks/usage, NVIDIA NVML (`nvidia-smi`), AC/Battery wattage, macOS IOKit/SMC, plus automatic Windows WMI bridge when **LibreHardwareMonitor / OpenHardwareMonitor** is running.
-- **Factory Normal Baselines + Auto-Learning Shop Model History** — compares each tested laptop against BOTH factory normal ranges AND your shop's own rolling average for that exact model (`shop_model_history.json` with Export/Import JSON across shop benches).
-- **1-Click Unattended Shelf Burn-In Marathon (5m / 15m / 30m)** — hands-free sequential RAM → GPU VRAM → Combined CPU+GPU+RAM Power Torture right from the Dashboard.
+- **UserBenchmark Offline-First Comparison & Vehicle Tiers** — Evaluates CPU, GPU, SSD, and RAM against mobile-aware UserBenchmark-calibrated hardware tiers (**UFO** down to **Raft**), **Gaming / Desktop / Workstation** scores, Same-Class Standing (`Above Expectations`, `As Expected`, `Below Expectations`, `Underperforming`), bottleneck detection, plain-language buyer takeaways, and optional non-blocking live lookup fallback.
+- **PassMark-11 Weighted Harmonic Mean Calibration** — Computes CPU Mark (9 subtests: Single-Core, Integer, Float, Prime, Vector AVX2/NEON, Encryption, Compression, Sorting, Physics) and Memory Mark (Database, Cached/Uncached Read, Write, Available RAM, Latency, Threaded) alongside Office, Creator AI GEMM, and 3D Path-Tracer scopes.
+- **Battery Discharge Normality Test** — Two-phase Idle + Load battery discharge diagnostic measuring average watts, power draw stability (`CV%`), voltage sag (`mV`), SoC cliff detection (`>=3%/5s`), BMS drift ratio, and wear indicators to classify discharge behavior as **`NORMAL`** or **`ABNORMAL`** (gracefully handling `AC_CONNECTED`, `NOT_APPLICABLE`, and `<=15%` low-SoC safety aborts).
+- **Interactive Touchscreen Display Test (Stage 07)** — Fullscreen-ready `16x10` dead-zone grid coverage, multi-touch `pointerId` tracking, swipe linearity RMS error, and touch polling rate (`Hz`), with one-click **Skip Step** on non-touch laptops.
+- **23-Pattern MonitorTest Display Check & NKRO Keyboard Suite** — Expanded persistence/burn-in, Moiré dot/line, power-supply zooming, gamma, and 256-step gradient patterns in an unobstructed fullscreen portal, plus stuck-key pre-check, NKRO rollover counter, and `<25ms` key-chatter detection.
+- **Hard Hardware-Safety Bounds Enforced in Native Rust**:
+  - **Thermal Cutoffs**: CPU `<=95°C` (default `92°C`) and GPU/VRAM `<=92°C` (clamped `75–92°C`) mid-stage safety abort.
+  - **SSD Safe Write Budget**: Capped at `128 MB` (Quick), `256 MB` (Standard), or `512 MB` (Burn-In), requiring `>= 4x` free disk space (min `2048 MB`) with RAII `TempFileGuard` cleanup.
+  - **RAM OS Reserve Headroom**: Protects `>= max(512 MB, 22% RAM)` capped at `1800 MB` for OS & WebView2 stability.
+  - **Battery Safety Bounds**: `<=15%` SoC abort floor and `90s` hard discharge test cap.
+- **Swiss Lab Certificates (PDF + HTML + Tamper-Check JSON)** — Plain-language `"What This Means for Long-Term Use"` buyer summary, UserBenchmark standings, Battery Discharge Normality, Touchscreen & Network diagnostics, offline QR seal, and `"Created by Hein Htet Zaw • Telegram: @ich8g92"` attribution.
 
-## 13-Step Sequential Diagnostic Pipeline (Windows & macOS Parity)
+## 14-Step Sequential Diagnostic Pipeline (Windows & macOS Parity)
 
-1. **All-Hardware Specifications** — Complete CPU, caches, RAM DIMM slots/speed/serials, integrated & discrete GPUs, NVMe/SATA drives, volumes, displays, network adapters, USB/audio/camera peripherals, motherboard, BIOS, and serial numbers.
-2. **Lock, MDM & License Audit** — Windows Intune/Autopilot/Azure AD/Domain (`dsregcmd`), OEM activation, BitLocker, TPM 2.0, Secure Boot; macOS DEP/MDM (`profiles`), Activation Lock / Find My Mac, FileVault, SIP.
-3. **Battery Health & Guided Live Charge/Discharge** — Design vs Full capacity, health/wear %, cycles, voltage, live wattage chart guiding unplug & replug verification.
-4. **System Error & Crash Logs** — Windows Event Logs & Minidumps (BSOD, Kernel-Power 41, WHEA, Disk, GPU TDR); macOS `panic-full` DiagnosticReports & unified logs.
-5. **SSD SMART Health & Direct I/O Durability Benchmark** — NVMe/SATA SMART wear, health %, temp, power-on hours, media errors, plus unbuffered Direct I/O Sequential + Random 4K IOPS/Latency + Read-Back Data Integrity verification.
-6. **Display Fullscreen Check (19 MonitorTest Patterns)** — True borderless fullscreen with bottom-edge hover-only HUD and auto-hiding cursor: dead-pixel colors, backlight-bleed grays, RGB/grayscale gradients, gamma/contrast steps, geometry grids, and motion/ghosting bar with live Hz.
-7. **Keyboard Test (Offline Key-Test)** — Windows Compact, Windows Full + Numpad, and MacBook layouts, live pressed/tested highlighting, `<25ms` key-chatter detector, and Windows low-level hook (`Win` / `PrintScreen`).
-8. **Fingerprint & Face ID Biometrics** — Two-stage check: detects sensor hardware & driver health first, plus optional live Windows Hello / macOS Touch ID prompt.
-9. **Camera & Microphone Test** — Live webcam preview with resolution/FPS readout + live microphone waveform, dB meter, and 3-second Record & Playback loopback.
-10. **RAM Stress Test (TestMem5 Engine)** — Multi-threaded native Rust time-enforced TM5 profiles (`Default @ serj`, `Absolut @ anta777`, `Extreme @ anta777`) verifying RefreshStable, SimpleTest, MirrorMove, and MirrorMove128.
-11. **360° All-Scope Performance & Creator Suite (v2.0)** — 14-stage PassMark 11 + Office + SIMD AI GEMM + Cinebench-style 3D Path-Tracer + Memory + Hot-CPU Throttle Drop + Factory & Shop Model History comparison.
-12. **GPU Burn-In, Dedicated VRAM Integrity & Combined Power Torture (v2.0)** — Native `wgpu` FurMark 2 3D shader stress, Dedicated VRAM Compute Integrity sweep, and Simultaneous CPU+GPU+RAM Power & Charger Torture.
-13. **Ports & Speakers Sign-Off + Branded QC Export** — Built-in Left/Right/Stereo speaker chimes, physical port checklist, persistent Shop Name / Technician / Logo, and offline **PDF Certificate + Branded HTML + JSON Archive** export.
+Every stage runs in a locked sequential pipeline with an explicit **`Skip Step`** option on every module:
 
-## Local Development & Building
+1. **All-Hardware Specifications & Network Diagnostics** — CPU, caches, RAM DIMM slots/channel mode, iGPU/dGPU, NVMe/SATA drives, displays, Wi-Fi signal/RSSI, USB/audio/camera peripherals, plus live gateway ping, packet loss, and DNS resolution check.
+2. **Lock, MDM & License Audit** — Windows Intune/Autopilot/Azure AD, OEM license, BitLocker, TPM 2.0, Secure Boot; macOS DEP/MDM (`profiles`), Activation Lock / Find My Mac, FileVault, SIP.
+3. **Battery Health, Voltage Sag & Discharge Normality** — Design vs Full capacity, wear %, cycle count, live wattage monitor, 15s voltage sag pulse, and two-phase Battery Discharge Normality classifier.
+4. **System Error & Crash Logs** — Windows Event Logs & Minidumps (BSOD, Kernel-Power 41, WHEA, Disk, GPU TDR, thermal events); macOS `panic-full` DiagnosticReports & unified logs.
+5. **SSD SMART Health (DriveDx-Style) & Direct I/O Benchmark** — NVMe SMART Log `0x02` (`Percentage Used`, `Available Spare`, `Critical Warning`, `Media Errors`, `Unsafe Shutdowns`, `TBW`) plus unbuffered Direct I/O Seq, 4K QD1/QD32, 70/30 Mixed, SLC sustained curve, and read-back verification within safe `128/256/512 MB` budgets.
+6. **Display Fullscreen Check (23 MonitorTest Patterns)** — Unobstructed borderless fullscreen with hover-only HUD: dead pixels, backlight bleed, Moiré dot/line, burn-in persistence, gamma, 256-step gradients, power-supply zooming, and motion Hz.
+7. **Touchscreen & Multi-Touch Display Test** — Interactive `16x10` grid coverage, simultaneous multi-touch tracking, swipe linearity RMS, polling Hz, and 1-click **Skip Step** for non-touch laptops.
+8. **Keyboard & Touchpad Test** — Windows Compact, Windows Full + Numpad, and MacBook layouts, stuck-key pre-check, NKRO rollover counter, key latency, `<25ms` chatter detection, and low-level Windows hook.
+9. **Fingerprint & Face ID Biometrics** — Sensor hardware & driver health check plus live Windows Hello / macOS Touch ID prompt.
+10. **Camera & Microphone Test** — Live webcam resolution/FPS preview, microphone SNR & dB waveform, and 3-second loopback playback.
+11. **RAM Stress Test (TestMem5 Engine)** — Native multi-threaded `MT0.dll` kernels (`RefreshStable`, `SimpleTest 1MB–64MB` with prime `257/359/479` & `256` strides, `MirrorMove`, `MirrorMove128`, `BlockMove`) respecting OS reserve headroom and CPU thermal cutoff.
+12. **360° Perf & Creator Suite + UserBenchmark Calibration** — PassMark-11 Weighted Harmonic Mean CPU & Memory Marks, AVX2/NEON SIMD GEMM, 3D Path-Tracer, Hot-CPU Throttle Drop %, Shop Model History, and UserBenchmark Vehicle Tier standings.
+13. **GPU Burn-In, VRAM Integrity & Combined Power Torture** — Native `wgpu` FurMark-2 shader stress with artifact & throttle detection, Dedicated VRAM Integrity sweep (`<=92°C` cutoff), and Simultaneous CPU+GPU+RAM Power & AC Charger Torture.
+14. **Ports & Speakers Sign-Off + Branded QC Export** — Left/Right/Stereo speaker sweep, physical port checklist, persistent Shop Profile, and offline **PDF + HTML + SHA-256 JSON** certification export.
 
-```bash
-# Install frontend dependencies
+## Local Development, Testing & Windows GNU Toolchain
+
+```powershell
+# Windows GNU builds require w64devkit\windres-only first on PATH (filtering WinLibs/MinGW):
+$w = "$env:LOCALAPPDATA\w64devkit\windres-only"
+$cleanPath = ($env:PATH -split ';' | Where-Object { $_ -and ($_ -notmatch 'mingw|WinLibs|WinGet') }) -join ';'
+$env:PATH = "$w;$cleanPath"
+
+# Install & build frontend
 pnpm install
-
-# Build frontend
+pnpm exec tsc --noEmit
 pnpm build
 
-# Run in development mode
-pnpm tauri dev
+# Run Rust unit tests & build debug binary
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo build --manifest-path src-tauri/Cargo.toml
+
+# Run CLI hardware & safety self-test
+.\src-tauri\target\debug\laptopbench-qc.exe --self-test
 
 # Build production installers (.msi/.exe on Windows, .dmg/.app on macOS)
 pnpm tauri build
@@ -49,6 +63,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a git tag (e.g., `git tag v2.0.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and upload both:
-- **Windows x64** `.msi` and `.exe` (NSIS) installers
-- **macOS Universal (Apple Silicon + Intel)** `.dmg` bundle
+Push a version tag (e.g., `git tag v2.3.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+- **Windows x64**: `.msi` and `.exe` (NSIS) installers
+- **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

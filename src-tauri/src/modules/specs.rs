@@ -90,7 +90,7 @@ pub fn collect_system_specs() -> SystemSpecs {
     let (ram_channel_mode, ram_config_warning) =
         audit_ram_configuration(&hw.ram_modules, hw.ram_slots_total);
 
-    SystemSpecs {
+    let mut specs = SystemSpecs {
         os_family,
         os_name,
         os_version,
@@ -135,10 +135,20 @@ pub fn collect_system_specs() -> SystemSpecs {
         wifi_antenna_warning,
         ram_channel_mode,
         ram_config_warning,
+        ram_reliability_note: None,
+        reliability_notes: Vec::new(),
+        plain_summary: String::new(),
         is_gaming_capable,
         is_elevated: is_elevated(),
         uptime_seconds,
-    }
+    };
+
+    let (ram_reliability_note, reliability_notes, plain_summary) =
+        build_specs_reliability_notes(&specs);
+    specs.ram_reliability_note = ram_reliability_note;
+    specs.reliability_notes = reliability_notes;
+    specs.plain_summary = plain_summary;
+    specs
 }
 
 /// Audits installed RAM DIMMs for single-channel bottlenecks, mismatched speeds (downclocking),
@@ -152,9 +162,22 @@ fn audit_ram_configuration(
     }
     if modules.len() == 1 {
         let m = &modules[0];
-        let is_unified = m.form_factor.to_lowercase().contains("unified")
-            || m.memory_type.to_lowercase().contains("lpddr");
-        if !is_unified && slots_total.unwrap_or(2) >= 2 {
+        let ff_l = m.form_factor.to_lowercase();
+        let mt_l = m.memory_type.to_lowercase();
+        let slot_l = m.slot.to_lowercase();
+        let is_unified = ff_l.contains("unified")
+            || slot_l.contains("unified")
+            || mt_l.contains("unified")
+            || mt_l.contains("lpddr");
+        let is_soldered = ff_l.contains("onboard") || ff_l.contains("soldered");
+
+        if is_unified {
+            return (Some("Unified / Integrated Memory".into()), None);
+        }
+        if is_soldered {
+            return (Some("On-Board / Soldered".into()), None);
+        }
+        if slots_total.unwrap_or(2) >= 2 {
             return (
                 Some(format!("Single-Channel (1 of {} slots)", slots_total.unwrap_or(2))),
                 Some(format!(
@@ -170,8 +193,11 @@ fn audit_ram_configuration(
     let speeds: Vec<u32> = modules.iter().filter_map(|m| m.speed_mhz).filter(|&s| s > 0).collect();
     let min_spd = speeds.iter().copied().min();
     let max_spd = speeds.iter().copied().max();
-    let caps: Vec<u64> = modules.iter().map(|m| m.capacity_gb.round() as u64).collect();
-    let asymmetric_cap = caps.windows(2).any(|w| w[0] != w[1]);
+    let caps_tenths: Vec<u64> = modules
+        .iter()
+        .map(|m| (m.capacity_gb * 10.0).round() as u64)
+        .collect();
+    let asymmetric_cap = caps_tenths.windows(2).any(|w| w[0] != w[1]);
     let mismatched_spd = match (min_spd, max_spd) {
         (Some(a), Some(b)) => b.saturating_sub(a) >= 200,
         _ => false,
@@ -187,7 +213,17 @@ fn audit_ram_configuration(
         ));
     }
     if asymmetric_cap {
-        let cap_str = caps.iter().map(|c| format!("{}GB", c)).collect::<Vec<_>>().join(" + ");
+        let cap_str = modules
+            .iter()
+            .map(|m| {
+                if (m.capacity_gb - m.capacity_gb.round()).abs() < 0.05 {
+                    format!("{:.0}GB", m.capacity_gb)
+                } else {
+                    format!("{:.1}GB", m.capacity_gb)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" + ");
         warnings.push(format!(
             "ASYMMETRIC RAM CAPACITY ({}) — running in partial Flex Mode instead of full symmetric Dual-Channel.",
             cap_str
@@ -206,6 +242,107 @@ fn audit_ram_configuration(
         Some(warnings.join(" | "))
     };
     (Some(mode), warn_opt)
+}
+
+fn is_placeholder_dmi(val: &str) -> bool {
+    let low = val.trim().to_lowercase();
+    low.is_empty()
+        || low == "unknown"
+        || low == "none"
+        || low == "default string"
+        || low == "system serial number"
+        || low == "to be filled by o.e.m."
+        || low == "not specified"
+        || low == "00000000-0000-0000-0000-000000000000"
+        || low == "ffffffff-ffff-ffff-ffff-ffffffffffff"
+}
+
+pub(crate) fn build_specs_reliability_notes(
+    specs: &SystemSpecs,
+) -> (Option<String>, Vec<String>, String) {
+    let mode_str = specs
+        .ram_channel_mode
+        .as_deref()
+        .unwrap_or("Unknown");
+    let slots_note = match specs.ram_slots_total {
+        Some(total) if total > 0 && !specs.ram_modules.is_empty() => {
+            let used = specs.ram_modules.len() as u32;
+            let free = total.saturating_sub(used);
+            if free > 0 && !mode_str.contains("Soldered") && !mode_str.contains("Unified") {
+                format!("{} ({} of {} slots used, {} free for upgrade)", mode_str, used, total, free)
+            } else {
+                format!("{} ({} of {} slots populated)", mode_str, used, total)
+            }
+        }
+        _ => mode_str.to_string(),
+    };
+    let max_note = specs
+        .ram_max_capacity_gb
+        .filter(|&m| m > 0.0)
+        .map(|m| format!("; board max {:.0} GB", m))
+        .unwrap_or_default();
+    let ram_reliability_note = if let Some(ref w) = specs.ram_config_warning {
+        Some(format!("{}{}. {}", slots_note, max_note, w))
+    } else if mode_str.contains("Unified") || mode_str.contains("Soldered") {
+        Some(format!(
+            "{}{} — factory-soldered memory (cannot be upgraded after purchase, verify capacity meets your needs).",
+            slots_note, max_note
+        ))
+    } else {
+        Some(format!("{}{} — optimal memory channel layout.", slots_note, max_note))
+    };
+
+    let mut notes = Vec::new();
+    if is_placeholder_dmi(&specs.serial_number) || is_placeholder_dmi(&specs.system_uuid) {
+        notes.push(
+            "DMI/Serial Anomaly: System serial number or SMBIOS UUID is blank/generic ('To be filled by O.E.M.' / 'Default string') — common after an unprogrammed motherboard replacement."
+                .to_string(),
+        );
+    }
+    if let Some(ref rw) = specs.ram_config_warning {
+        notes.push(rw.clone());
+    }
+    if let Some(ref ww) = specs.wifi_antenna_warning {
+        notes.push(ww.clone());
+    }
+    if specs.cpu_virtualization == Some(false) {
+        notes.push(
+            "CPU Virtualization (VT-x / AMD-V) is disabled in BIOS — enable in firmware if running VMs, Docker, or WSL2."
+                .to_string(),
+        );
+    }
+    for gpu in &specs.gpus {
+        let g_l = gpu.name.to_lowercase();
+        let drv_l = gpu.driver_version.to_lowercase();
+        if g_l.contains("microsoft basic")
+            || (gpu.is_discrete && (gpu.driver_version.trim().is_empty() || drv_l.contains("basic")))
+        {
+            notes.push(format!(
+                "GPU Driver Missing ({}) — running on basic fallback or missing vendor driver; install official NVIDIA/AMD/Intel driver and re-verify.",
+                gpu.name
+            ));
+        }
+    }
+
+    let health_tail = if notes.is_empty() {
+        "All core hardware identifiers, memory channels, and adapters look consistent for second-hand purchase.".to_string()
+    } else {
+        format!("{} reliability note(s) flagged for review.", notes.len())
+    };
+    let plain_summary = format!(
+        "{} {} — {} ({}C/{}T), {:.1} GB RAM ({}), {} storage drive(s). {}",
+        specs.manufacturer,
+        specs.model,
+        specs.cpu_brand,
+        specs.cpu_physical_cores,
+        specs.cpu_logical_cores,
+        specs.total_ram_gb,
+        mode_str,
+        specs.disks.len(),
+        health_tail
+    );
+
+    (ram_reliability_note, notes, plain_summary)
 }
 
 /// Probes connected Wi-Fi RSSI / Signal % to catch disconnected internal M.2 antenna coax cables
@@ -507,6 +644,7 @@ $usb = @(Get-CimInstance Win32_USBController -ErrorAction SilentlyContinue | For
                         30 => "LPDDR4",
                         34 => "DDR5",
                         35 => "LPDDR5",
+                        36 => "LPDDR5X",
                         _ => "RAM",
                     }
                     .to_string();
@@ -895,4 +1033,121 @@ fn collect_macos_hardware() -> DetailedHw {
     }
 
     hw
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_dimm(cap: f64, speed: Option<u32>, mem_type: &str, form_factor: &str) -> RamModuleInfo {
+        RamModuleInfo {
+            slot: "DIMM 0".into(),
+            capacity_gb: cap,
+            speed_mhz: speed,
+            memory_type: mem_type.into(),
+            form_factor: form_factor.into(),
+            manufacturer: "Samsung".into(),
+            part_number: "M471".into(),
+            serial_number: "1234".into(),
+        }
+    }
+
+    #[test]
+    fn test_audit_ram_configuration_channels_and_soldered() {
+        // 1. Single SO-DIMM across 2 slots -> Single-Channel warning
+        let (mode, warn) = audit_ram_configuration(
+            &[mk_dimm(16.0, Some(3200), "DDR4", "SO-DIMM")],
+            Some(2),
+        );
+        assert_eq!(mode.as_deref(), Some("Single-Channel (1 of 2 slots)"));
+        assert!(warn.unwrap().contains("SINGLE-CHANNEL BOTTLENECK"));
+
+        // 2. Single soldered/onboard DDR4/DDR5 entry even if slots_total=2 -> NO false warning
+        let (s_mode, s_warn) = audit_ram_configuration(
+            &[mk_dimm(16.0, Some(5200), "DDR5", "Onboard / Soldered")],
+            Some(2),
+        );
+        assert_eq!(s_mode.as_deref(), Some("On-Board / Soldered"));
+        assert!(s_warn.is_none());
+
+        // 3. Unified Apple Silicon (empty modules)
+        let (u_mode, u_warn) = audit_ram_configuration(&[], Some(1));
+        assert_eq!(u_mode.as_deref(), Some("Unified / Integrated Memory"));
+        assert!(u_warn.is_none());
+
+        // 4. Dual-channel matched
+        let (d_mode, d_warn) = audit_ram_configuration(
+            &[
+                mk_dimm(16.0, Some(4800), "DDR5", "SO-DIMM"),
+                mk_dimm(16.0, Some(4800), "DDR5", "SO-DIMM"),
+            ],
+            Some(2),
+        );
+        assert_eq!(d_mode.as_deref(), Some("Dual-Channel Matched (2x DIMM)"));
+        assert!(d_warn.is_none());
+
+        // 5. Flex mode + mismatched speed
+        let (f_mode, f_warn) = audit_ram_configuration(
+            &[
+                mk_dimm(8.0, Some(2666), "DDR4", "SO-DIMM"),
+                mk_dimm(16.0, Some(3200), "DDR4", "SO-DIMM"),
+            ],
+            Some(2),
+        );
+        assert_eq!(f_mode.as_deref(), Some("Flex Mode (2x DIMM)"));
+        let fw = f_warn.unwrap();
+        assert!(fw.contains("MISMATCHED RAM SPEEDS"));
+        assert!(fw.contains("ASYMMETRIC RAM CAPACITY"));
+    }
+
+    #[test]
+    fn test_build_specs_reliability_notes() {
+        let mut specs = SystemSpecs {
+            manufacturer: "Dell".into(),
+            model: "Latitude 5430".into(),
+            serial_number: "To be filled by O.E.M.".into(),
+            system_uuid: "00000000-0000-0000-0000-000000000000".into(),
+            cpu_brand: "Intel Core i5-1245U".into(),
+            cpu_physical_cores: 10,
+            cpu_logical_cores: 12,
+            cpu_virtualization: Some(false),
+            total_ram_gb: 16.0,
+            ram_slots_total: Some(2),
+            ram_max_capacity_gb: Some(64.0),
+            ram_channel_mode: Some("Dual-Channel Matched (2x DIMM)".into()),
+            ram_modules: vec![
+                mk_dimm(8.0, Some(3200), "DDR4", "SO-DIMM"),
+                mk_dimm(8.0, Some(3200), "DDR4", "SO-DIMM"),
+            ],
+            gpus: vec![GpuSpecInfo {
+                name: "NVIDIA GeForce RTX 3050 Laptop GPU".into(),
+                vendor: "NVIDIA".into(),
+                vram_mb: Some(4096),
+                driver_version: String::new(),
+                driver_date: String::new(),
+                pnp_device_id: String::new(),
+                is_discrete: true,
+            }],
+            wifi_antenna_warning: Some("WEAK WI-FI SIGNAL (30% / -85 dBm)".into()),
+            ..Default::default()
+        };
+
+        let (ram_note, notes, summary) = build_specs_reliability_notes(&specs);
+        assert!(ram_note.unwrap().contains("board max 64 GB"));
+        assert!(notes.iter().any(|n| n.contains("DMI/Serial Anomaly")));
+        assert!(notes.iter().any(|n| n.contains("Virtualization")));
+        assert!(notes.iter().any(|n| n.contains("GPU Driver Missing")));
+        assert!(notes.iter().any(|n| n.contains("WEAK WI-FI SIGNAL")));
+        assert!(summary.contains("reliability note(s) flagged"));
+
+        // Healthy specs
+        specs.serial_number = "5CD1234ABC".into();
+        specs.system_uuid = "11223344-5566-7788-99aa-bbccddeeff00".into();
+        specs.cpu_virtualization = Some(true);
+        specs.wifi_antenna_warning = None;
+        specs.gpus[0].driver_version = "31.0.15.5186".into();
+        let (_, clean_notes, clean_summary) = build_specs_reliability_notes(&specs);
+        assert!(clean_notes.is_empty(), "Unexpected notes: {:?}", clean_notes);
+        assert!(clean_summary.contains("consistent for second-hand purchase"));
+    }
 }

@@ -1,16 +1,56 @@
-use crate::modules::baselines;
-use crate::modules::telemetry::TelemetryReader;
-use crate::types::{TestStatus, VramTestProgress, VramTestResult};
+use crate::modules::{
+    baselines,
+    telemetry::{TelemetryReader, ThermalSafetyCheck},
+};
+use crate::types::{
+    LiveTelemetrySnapshot, TestStatus, VramTestProgress, VramTestResult,
+    GPU_THERMAL_CUTOFF_DEFAULT_C, GPU_THERMAL_CUTOFF_MAX_C, GPU_THERMAL_CUTOFF_MIN_C,
+};
 use bytemuck::{Pod, Zeroable};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use wgpu::util::DeviceExt;
 
 const VRAM_SHADER_WGSL: &str = include_str!("../shaders/vram_verify.wgsl");
+
+pub(crate) fn clamp_gpu_thermal_cutoff(cutoff_c: f32) -> f32 {
+    if !cutoff_c.is_finite() {
+        GPU_THERMAL_CUTOFF_DEFAULT_C
+    } else {
+        cutoff_c.clamp(GPU_THERMAL_CUTOFF_MIN_C, GPU_THERMAL_CUTOFF_MAX_C)
+    }
+}
+
+pub(crate) fn compute_vram_sensor_bounded_duration(
+    duration_secs: u64,
+    sensor_unavailable: bool,
+) -> u64 {
+    if sensor_unavailable {
+        duration_secs.min(180)
+    } else {
+        duration_secs
+    }
+}
+
+fn poll_gpu_thermal(
+    telemetry: &mut TelemetryReader,
+    safe_cutoff_c: f32,
+) -> (Option<f32>, ThermalSafetyCheck) {
+    let (gpu_temp_c, gpu_load_pct, gpu_power_w) = telemetry.sample_gpu_only();
+    let snap = LiveTelemetrySnapshot {
+        gpu_temp_c,
+        gpu_load_pct,
+        gpu_power_w,
+        gpu_temp_available: gpu_temp_c.is_some(),
+        ..Default::default()
+    };
+    let check = TelemetryReader::is_thermal_safe(&snap, f32::INFINITY, safe_cutoff_c);
+    (gpu_temp_c, check)
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -210,7 +250,26 @@ pub fn run_vram_integrity_test(
     duration_secs: u64,
     cancel: Arc<AtomicBool>,
 ) -> Result<VramTestResult, String> {
-    let duration_secs = duration_secs.clamp(20, 1800);
+    run_vram_integrity_test_with_cutoff(
+        app,
+        adapter_index,
+        target_vram_mb,
+        duration_secs,
+        GPU_THERMAL_CUTOFF_DEFAULT_C,
+        cancel,
+    )
+}
+
+pub fn run_vram_integrity_test_with_cutoff(
+    app: &AppHandle,
+    adapter_index: Option<usize>,
+    target_vram_mb: Option<u64>,
+    duration_secs: u64,
+    thermal_cutoff_c: f32,
+    cancel: Arc<AtomicBool>,
+) -> Result<VramTestResult, String> {
+    let safe_cutoff_c = clamp_gpu_thermal_cutoff(thermal_cutoff_c);
+    let requested_duration_secs = duration_secs.clamp(20, 1800);
 
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
@@ -311,7 +370,7 @@ pub fn run_vram_integrity_test(
     // Allocate all VRAM chunks upfront so the GPU memory controller holds the entire working set simultaneously
     let mut chunks = Vec::with_capacity(num_chunks);
     let mut bind_groups = Vec::with_capacity(num_chunks);
-    for i in 0..num_chunks {
+    for _i in 0..num_chunks {
         let buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("VRAM Chunk"),
             size: chunk_bytes,
@@ -329,7 +388,54 @@ pub fn run_vram_integrity_test(
         });
         chunks.push(buf);
         bind_groups.push(bg);
-        let _ = i;
+    }
+
+    struct VramThermalState {
+        last_poll: Instant,
+        cur_gpu_temp: Option<f32>,
+        peak_temp: Option<f32>,
+        cutoff_triggered: bool,
+        sensor_polls: u32,
+        sensor_available_ever: bool,
+        duration_secs: u64,
+        requested_duration_secs: u64,
+        safe_cutoff_c: f32,
+    }
+    impl VramThermalState {
+        fn poll(&mut self, telemetry: &mut TelemetryReader, started: &Instant, force: bool) -> bool {
+            if !force && self.last_poll.elapsed() < Duration::from_millis(900) {
+                return self.cutoff_triggered;
+            }
+            self.last_poll = Instant::now();
+            self.sensor_polls += 1;
+            let (gt, check) = poll_gpu_thermal(telemetry, self.safe_cutoff_c);
+            self.cur_gpu_temp = gt;
+            if let Some(t) = gt {
+                self.sensor_available_ever = true;
+                self.peak_temp = Some(self.peak_temp.map_or(t, |p| p.max(t)));
+            }
+            match check {
+                ThermalSafetyCheck::CutoffTriggered { temp_c, .. } => {
+                    self.peak_temp = Some(self.peak_temp.map_or(temp_c, |p| p.max(temp_c)));
+                    self.cutoff_triggered = true;
+                    true
+                }
+                ThermalSafetyCheck::SensorUnavailable => {
+                    if !self.sensor_available_ever
+                        && self.sensor_polls >= 2
+                        && started.elapsed().as_secs_f64() >= 2.0
+                    {
+                        self.duration_secs =
+                            compute_vram_sensor_bounded_duration(self.requested_duration_secs, true);
+                    }
+                    false
+                }
+                ThermalSafetyCheck::Safe => {
+                    self.sensor_available_ever = true;
+                    false
+                }
+            }
+        }
     }
 
     let mut telemetry = TelemetryReader::new();
@@ -337,12 +443,22 @@ pub fn run_vram_integrity_test(
     let mut total_errors: u64 = 0;
     let mut total_gb_verified: f64 = 0.0;
     let mut passes_completed: u32 = 0;
-    let mut peak_temp: Option<f32> = None;
     let mut cancelled = false;
-    let mut last_temp_poll = Instant::now() - std::time::Duration::from_secs(5);
-    let mut cur_gpu_temp: Option<f32> = None;
+    let mut thermal = VramThermalState {
+        last_poll: Instant::now() - Duration::from_secs(5),
+        cur_gpu_temp: None,
+        peak_temp: None,
+        cutoff_triggered: false,
+        sensor_polls: 0,
+        sensor_available_ever: false,
+        duration_secs: requested_duration_secs,
+        requested_duration_secs,
+        safe_cutoff_c,
+    };
 
-    while started.elapsed().as_secs() < duration_secs {
+    thermal.poll(&mut telemetry, &started, true);
+
+    while !thermal.cutoff_triggered && started.elapsed().as_secs() < thermal.duration_secs {
         if cancel.load(Ordering::Relaxed) {
             cancelled = true;
             break;
@@ -358,10 +474,13 @@ pub fn run_vram_integrity_test(
 
         let t_pass = Instant::now();
 
-        // Phase A: Write all chunks across VRAM banks
+        // Phase A: Write all chunks across VRAM banks (with <= 1s thermal polling)
         for (c_idx, bg) in bind_groups.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 cancelled = true;
+                break;
+            }
+            if thermal.poll(&mut telemetry, &started, false) {
                 break;
             }
             let p = VramParams {
@@ -381,14 +500,17 @@ pub fn run_vram_integrity_test(
             queue.submit(Some(enc.finish()));
         }
         device.poll(wgpu::Maintain::Wait);
-        if cancelled {
+        if cancelled || thermal.cutoff_triggered {
             break;
         }
 
-        // Phase B: Verify all chunks back from VRAM
+        // Phase B: Verify all chunks back from VRAM (with <= 1s thermal polling)
         for (c_idx, bg) in bind_groups.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 cancelled = true;
+                break;
+            }
+            if thermal.poll(&mut telemetry, &started, false) {
                 break;
             }
             let p = VramParams {
@@ -411,7 +533,7 @@ pub fn run_vram_integrity_test(
         copy_enc.copy_buffer_to_buffer(&err_buf, 0, &err_readback, 0, 4);
         queue.submit(Some(copy_enc.finish()));
         device.poll(wgpu::Maintain::Wait);
-        if cancelled {
+        if cancelled || thermal.cutoff_triggered {
             break;
         }
 
@@ -424,17 +546,14 @@ pub fn run_vram_integrity_test(
         total_gb_verified += pass_gb;
         let inst_bw = ((pass_gb / pass_secs) * 10.0).round() / 10.0;
 
-        if last_temp_poll.elapsed().as_secs_f64() >= 1.5 {
-            let snap = telemetry.sample(false);
-            cur_gpu_temp = snap.gpu_temp_c;
-            if let Some(gt) = cur_gpu_temp {
-                peak_temp = Some(peak_temp.map_or(gt, |p| p.max(gt)));
-            }
-            last_temp_poll = Instant::now();
-        }
+        let _ = thermal.poll(&mut telemetry, &started, false);
 
         let elapsed = started.elapsed().as_secs_f64();
-        let pct = ((elapsed / duration_secs as f64) * 100.0).min(99.5);
+        let pct = ((elapsed / thermal.duration_secs as f64) * 100.0).min(99.5);
+        let thermal_warning = thermal
+            .cur_gpu_temp
+            .map(|t| t >= safe_cutoff_c - 6.0)
+            .unwrap_or(false);
         let _ = app.emit(
             "vram:progress",
             VramTestProgress {
@@ -448,8 +567,10 @@ pub fn run_vram_integrity_test(
                 bandwidth_gb_s: inst_bw,
                 errors_found: total_errors,
                 elapsed_secs: (elapsed * 10.0).round() / 10.0,
-                duration_secs,
-                gpu_temp_c: cur_gpu_temp,
+                duration_secs: thermal.duration_secs,
+                gpu_temp_c: thermal.cur_gpu_temp,
+                thermal_warning,
+                gpu_temp_available: thermal.sensor_available_ever,
             },
         );
     }
@@ -457,10 +578,14 @@ pub fn run_vram_integrity_test(
     drop(bind_groups);
     drop(chunks);
 
+    let peak_temp = thermal.peak_temp;
+    let thermal_cutoff_triggered = thermal.cutoff_triggered;
+    let sensor_available_ever = thermal.sensor_available_ever;
+
     let elapsed = started.elapsed().as_secs_f64().max(0.001);
     let avg_bw = ((total_gb_verified / elapsed) * 10.0).round() / 10.0;
     let baseline = baselines::rate_vram(&adapter_name, is_discrete, avg_bw, total_errors);
-    let status = if total_errors > 0 {
+    let status = if total_errors > 0 || thermal_cutoff_triggered {
         TestStatus::Fail
     } else if cancelled {
         TestStatus::Warn
@@ -468,7 +593,16 @@ pub fn run_vram_integrity_test(
         TestStatus::Pass
     };
 
-    let summary = if total_errors > 0 {
+    let summary = if thermal_cutoff_triggered {
+        format!(
+            "GPU THERMAL CUTOFF ({:.0}°C >= {:.0}°C) during VRAM test on {} — stopped safely after {:.1} GB ({} err).",
+            peak_temp.unwrap_or(safe_cutoff_c),
+            safe_cutoff_c,
+            adapter_name,
+            total_gb_verified,
+            total_errors
+        )
+    } else if total_errors > 0 {
         format!(
             "FAIL: {} GPU VRAM bit-flip error(s) detected on {} ({} MB pool, {:.1} GB verified)!",
             total_errors, adapter_name, allocated_vram_mb, total_gb_verified
@@ -485,6 +619,30 @@ pub fn run_vram_integrity_test(
         )
     };
 
+    let sensor_note = if !sensor_available_ever {
+        " GPU thermal sensor unavailable — duration safely bounded."
+    } else {
+        ""
+    };
+    let plain_summary = if thermal_cutoff_triggered {
+        format!(
+            "VRAM test aborted because {} reached {:.0}°C (safety limit {:.0}°C). Inspect GPU cooling.",
+            adapter_name,
+            peak_temp.unwrap_or(safe_cutoff_c),
+            safe_cutoff_c
+        )
+    } else if total_errors > 0 {
+        format!(
+            "Faulty GPU memory: {} VRAM bit error(s) detected on {} ({} MB pool). Avoid this unit.",
+            total_errors, adapter_name, allocated_vram_mb
+        )
+    } else {
+        format!(
+            "VRAM healthy on {}: 0 bit errors across {:.1} GB verified ({} MB pool, {:.1} GB/s).{}",
+            adapter_name, total_gb_verified, allocated_vram_mb, avg_bw, sensor_note
+        )
+    };
+
     Ok(VramTestResult {
         status,
         adapter_name,
@@ -494,10 +652,82 @@ pub fn run_vram_integrity_test(
         total_gb_verified: (total_gb_verified * 10.0).round() / 10.0,
         avg_bandwidth_gb_s: avg_bw,
         errors_found: total_errors,
-        peak_temp_c: peak_temp,
+        peak_temp_c: peak_temp.map(|t| (t * 10.0).round() / 10.0),
         elapsed_secs: (elapsed * 10.0).round() / 10.0,
         cancelled,
         baseline,
         summary,
+        thermal_cutoff_triggered,
+        effective_cutoff_c: safe_cutoff_c,
+        sensor_available: sensor_available_ever,
+        plain_summary,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vram_thermal_cutoff_clamp_and_trigger() {
+        assert_eq!(clamp_gpu_thermal_cutoff(95.0), 92.0);
+        assert_eq!(clamp_gpu_thermal_cutoff(105.0), 92.0);
+        assert_eq!(clamp_gpu_thermal_cutoff(92.0), 92.0);
+        assert_eq!(clamp_gpu_thermal_cutoff(85.0), 85.0);
+        assert_eq!(clamp_gpu_thermal_cutoff(60.0), 75.0);
+        assert_eq!(clamp_gpu_thermal_cutoff(f32::NAN), 92.0);
+        assert_eq!(clamp_gpu_thermal_cutoff(f32::INFINITY), 92.0);
+
+        let hot = LiveTelemetrySnapshot {
+            gpu_temp_c: Some(92.0),
+            gpu_temp_available: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            TelemetryReader::is_thermal_safe(&hot, f32::INFINITY, clamp_gpu_thermal_cutoff(100.0)),
+            ThermalSafetyCheck::CutoffTriggered {
+                sensor: "GPU",
+                temp_c: 92.0
+            }
+        );
+
+        let cool = LiveTelemetrySnapshot {
+            gpu_temp_c: Some(78.0),
+            gpu_temp_available: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            TelemetryReader::is_thermal_safe(&cool, f32::INFINITY, clamp_gpu_thermal_cutoff(95.0)),
+            ThermalSafetyCheck::Safe
+        );
+
+        let missing = LiveTelemetrySnapshot {
+            gpu_temp_c: None,
+            gpu_temp_available: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            TelemetryReader::is_thermal_safe(&missing, f32::INFINITY, 92.0),
+            ThermalSafetyCheck::SensorUnavailable
+        );
+    }
+
+    #[test]
+    fn test_vram_sensor_unavailable_caps_duration() {
+        assert_eq!(compute_vram_sensor_bounded_duration(900, true), 180);
+        assert_eq!(compute_vram_sensor_bounded_duration(120, true), 120);
+        assert_eq!(compute_vram_sensor_bounded_duration(900, false), 900);
+    }
+
+    #[test]
+    fn test_vram_result_serde_backward_compat() {
+        let v22 = r#"{"status":"pass","adapterName":"RTX 4060","errorsFound":0}"#;
+        let res: VramTestResult = serde_json::from_str(v22).unwrap();
+        assert_eq!(res.adapter_name, "RTX 4060");
+        assert!(!res.thermal_cutoff_triggered);
+        assert_eq!(res.effective_cutoff_c, 0.0);
+
+        let empty_prog: VramTestProgress = serde_json::from_str("{}").unwrap();
+        assert!(!empty_prog.thermal_warning);
+    }
 }

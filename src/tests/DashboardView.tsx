@@ -18,14 +18,18 @@ import {
   X,
 } from "lucide-react";
 import type {
+  BatteryDischargeResult,
   BurnInProgress,
   BurnInResult,
   ModuleRecord,
+  NetworkDiagnosticsReport,
   SavedSessionPayload,
   ShopModelBenchmarkAvg,
   StepModuleId,
   SystemSpecs,
   TestModuleId,
+  TouchscreenTestResult,
+  UserBenchmarkComparison,
 } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -38,6 +42,10 @@ interface DashboardViewProps {
   allStepsDone: boolean;
   savedSession: SavedSessionPayload | null;
   crashAlert: string | null;
+  userbenchmarkComparison?: UserBenchmarkComparison | null;
+  touchscreenResult?: TouchscreenTestResult | null;
+  batteryDischargeResult?: BatteryDischargeResult | null;
+  networkReport?: NetworkDiagnosticsReport | null;
   onResumeSession: () => void;
   onDiscardSession: () => void;
   onRunAutoChecks: () => void;
@@ -55,6 +63,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   allStepsDone,
   savedSession,
   crashAlert,
+  userbenchmarkComparison,
+  touchscreenResult,
+  batteryDischargeResult,
+  networkReport,
   onResumeSession,
   onDiscardSession,
   onRunAutoChecks,
@@ -151,6 +163,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const nextStepNum = String(Math.min(unlockedIndex + 1, stepOrder.length)).padStart(2, "0");
+  const perfStageNum = String(Math.max(1, stepOrder.indexOf("performance") + 1)).padStart(2, "0");
+  const hasAdvancedChips = Boolean(
+    userbenchmarkComparison || touchscreenResult || batteryDischargeResult || networkReport
+  );
 
   return (
     <div className="space-y-4">
@@ -289,12 +305,96 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </div>
         </div>
+
+        {/* v2.3.0 Advanced Reliability & UserBenchmark Summary Chips */}
+        {hasAdvancedChips && (
+          <div className="px-4 py-2.5 border-t border-zinc-200 bg-white grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+            {userbenchmarkComparison && (
+              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
+                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
+                  <span>UserBenchmark Standing</span>
+                  <span className="px-1.5 py-0.5 rounded-[2px] bg-blue-600 text-white">
+                    {userbenchmarkComparison.overallVehicleTier}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
+                  Desk {userbenchmarkComparison.desktopPct.toFixed(0)}% • Game {userbenchmarkComparison.gamingPct.toFixed(0)}% • Work {userbenchmarkComparison.workstationPct.toFixed(0)}%
+                </div>
+                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={userbenchmarkComparison.headlineSummary}>
+                  {userbenchmarkComparison.headlineSummary}
+                </div>
+              </div>
+            )}
+
+            {batteryDischargeResult && (
+              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
+                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
+                  <span>Battery Discharge</span>
+                  <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white">
+                    {batteryDischargeResult.verdict}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
+                  Sag {batteryDischargeResult.voltageSagMv.toFixed(0)} mV • CV {batteryDischargeResult.powerCvPct.toFixed(1)}%
+                </div>
+                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={batteryDischargeResult.plainSummary}>
+                  {batteryDischargeResult.plainSummary}
+                </div>
+              </div>
+            )}
+
+            {touchscreenResult && (
+              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
+                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
+                  <span>Touchscreen Panel</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-[2px] text-white ${
+                      touchscreenResult.verdict === "PASS"
+                        ? "bg-blue-600"
+                        : touchscreenResult.verdict === "FAIL"
+                        ? "bg-black"
+                        : "bg-zinc-700"
+                    }`}
+                  >
+                    {touchscreenResult.verdict}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
+                  {touchscreenResult.touchCapable
+                    ? `${touchscreenResult.coveragePct.toFixed(0)}% Grid • ${touchscreenResult.maxSimultaneousTouches}-Pt • ${touchscreenResult.pollingHz} Hz`
+                    : "Non-Touch Laptop"}
+                </div>
+                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={touchscreenResult.plainSummary}>
+                  {touchscreenResult.plainSummary}
+                </div>
+              </div>
+            )}
+
+            {networkReport && (
+              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2">
+                <div className="flex items-center justify-between font-mono text-[10px] font-bold uppercase text-zinc-500">
+                  <span>Network Reliability</span>
+                  <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white">
+                    {networkReport.verdict}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-xs font-bold text-black tabular-nums">
+                  {networkReport.linkSpeedMbps != null ? `${networkReport.linkSpeedMbps.toFixed(0)} Mbps` : "Link Check"}
+                  {networkReport.gatewayPingMs != null ? ` • ${networkReport.gatewayPingMs.toFixed(1)} ms` : ""}
+                </div>
+                <div className="mt-0.5 text-[11px] text-zinc-600 truncate" title={networkReport.plainSummary}>
+                  {networkReport.plainSummary}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Dense Architectural 13-Step Inspection Manifest Ledger */}
+      {/* Dense Architectural Sequential Inspection Manifest Ledger */}
       <div className="rounded-[2px] border border-zinc-300 bg-white overflow-hidden">
         <div className="px-4 py-2 border-b border-zinc-300 bg-[#F8FAFC] flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600">
-          <span>13-Stage Sequential Diagnostic Ledger</span>
+          <span>{stepOrder.length}-Stage Sequential Diagnostic Ledger</span>
           <span>Strict Step-by-Step • Explicit Skip Allowed Per Stage</span>
         </div>
 
@@ -495,24 +595,52 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             )}
 
-            {burnInRes && !burnInRunning && (
-              <div className="rounded-[2px] bg-black text-white p-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-blue-400">
-                    MARATHON FINAL VERDICT
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-[2px] bg-blue-600 text-white font-mono text-xs font-black">
-                    GRADE {burnInRes.durabilityGrade}
-                  </span>
-                </div>
-                <div className="font-mono text-xs text-zinc-200">{burnInRes.summary}</div>
-                {burnInRes.tortureResult?.batteryDrainWhilePlugged && (
-                  <div className="text-xs text-blue-300 font-bold flex items-center gap-1.5 pt-1">
-                    <ShieldAlert className="w-4 h-4" /> AC Charger Drain Detected Under Combined Load!
+            {burnInRes && !burnInRunning && (() => {
+              const displayGrade =
+                burnInRes.status === "fail" || burnInRes.durabilityGrade === "FAIL"
+                  ? "FAIL"
+                  : burnInRes.cancelled
+                  ? "INCOMPLETE"
+                  : burnInRes.durabilityGrade;
+              const isMonochromeBadge =
+                displayGrade === "FAIL" ||
+                displayGrade === "INCOMPLETE" ||
+                displayGrade === "CANCELLED" ||
+                burnInRes.status === "warn";
+              return (
+                <div className="rounded-[2px] bg-black text-white p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`font-mono text-[10px] font-bold uppercase tracking-widest ${
+                        isMonochromeBadge ? "text-zinc-400" : "text-blue-400"
+                      }`}
+                    >
+                      MARATHON FINAL VERDICT
+                    </span>
+                    <span
+                      data-testid="burnin-verdict-badge"
+                      className={`px-2.5 py-0.5 rounded-[2px] font-mono text-xs font-black ${
+                        isMonochromeBadge
+                          ? "bg-zinc-900 border border-zinc-600 text-white"
+                          : "bg-blue-600 text-white"
+                      }`}
+                    >
+                      {displayGrade === "FAIL" ||
+                      displayGrade === "INCOMPLETE" ||
+                      displayGrade === "CANCELLED"
+                        ? displayGrade
+                        : `GRADE ${displayGrade}`}
+                    </span>
                   </div>
-                )}
-              </div>
-            )}
+                  <div className="font-mono text-xs text-zinc-200">{burnInRes.summary}</div>
+                  {burnInRes.tortureResult?.batteryDrainWhilePlugged && (
+                    <div className="text-xs text-zinc-200 font-bold flex items-center gap-1.5 pt-1">
+                      <ShieldAlert className="w-4 h-4" /> AC Charger Drain Detected Under Combined Load!
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -563,7 +691,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="overflow-y-auto flex-1 border border-zinc-300 rounded-[2px]">
               {historyList.length === 0 ? (
                 <div className="p-8 text-center font-mono text-xs text-zinc-500">
-                  NO MODEL RECORDS YET — COMPLETE STAGE 11 TO AUTO-CALIBRATE YOUR FIRST LAPTOP MODEL.
+                  NO MODEL RECORDS YET — COMPLETE STAGE {perfStageNum} TO AUTO-CALIBRATE YOUR FIRST LAPTOP MODEL.
                 </div>
               ) : (
                 <table className="w-full text-left text-xs border-collapse">
