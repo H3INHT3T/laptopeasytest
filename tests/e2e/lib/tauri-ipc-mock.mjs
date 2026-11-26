@@ -447,6 +447,46 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         const pct = Math.max(0, Math.min(100, Number(args?.percent ?? 75)));
         return pct;
       },
+      run_cpu_stress: async (args) =>
+        runLongCommand(
+          "cpu_stress",
+          "cpu_stress:progress",
+          fixture.cpuStress || {
+            status: "pass",
+            dataSet: (args && args.dataSet) || "medium",
+            loadType: (args && args.loadType) || "steady",
+            threadsUsed: 8,
+            simdIsa: "x86_64 AVX2 + FMA",
+            durationSecs: (args && args.durationSecs) || 60,
+            elapsedSecs: 60.0,
+            calcErrors: 0,
+            wheaErrors: 0,
+            totalErrors: 0,
+            iterationsCompleted: 240,
+            avgClockMhz: 3400,
+            minClockMhz: 3200,
+            maxClockMhz: 3800,
+            throttleDropPct: 4.5,
+            peakTempC: 79.0,
+            cooldownEndTempC: 61.0,
+            cooldownDropC: 18.0,
+            cooldownVerdict: "EXCELLENT",
+            thermalCutoffTriggered: false,
+            effectiveCutoffC: (args && args.thermalCutoffC) || 92.0,
+            stoppedOnError: false,
+            cancelled: false,
+            summary: "0 errors over 60s (8 threads, avg 3400 MHz, throttle 4.5%, cool-down: EXCELLENT).",
+            plainSummary: "CPU remained 100% error-free under sustained load with fast heatsink recovery.",
+          },
+          {
+            cancelled: true,
+            summary: "Stopped early — 0 errors.",
+          }
+        ),
+      cancel_cpu_stress: async () => {
+        cancelledFlags.cpu_stress = true;
+        return null;
+      },
     };
 
     async function invoke(cmd, args = {}, _options = {}) {

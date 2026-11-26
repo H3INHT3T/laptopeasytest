@@ -6,6 +6,7 @@ import type {
   BatteryHealthReport,
   BatterySagResult,
   BiometricsHardwareReport,
+  CpuStressResult,
   ErrorLogsReport,
   GpuStressResult,
   LiveTelemetrySnapshot,
@@ -157,6 +158,7 @@ export const App: React.FC = () => {
   const [ramResult, setRamResult] = useState<RamTestResult | null>(null);
   const [bioHwReport, setBioHwReport] = useState<BiometricsHardwareReport | null>(null);
   const [perfResult, setPerfResult] = useState<PerfBenchResult | null>(null);
+  const [cpuStressResult, setCpuStressResult] = useState<CpuStressResult | null>(null);
   const [gpuResult, setGpuResult] = useState<GpuStressResult | null>(null);
   const [vramResult, setVramResult] = useState<VramTestResult | null>(null);
   const [tortureResult, setTortureResult] = useState<PowerTortureResult | null>(null);
@@ -635,6 +637,7 @@ export const App: React.FC = () => {
       fetchSmart(),
       fetchBiometricsHw(),
       runNetworkDiagnostics(),
+      invoke("get_hardware_controls_status").catch(() => null),
     ]);
     setAutoRunning(false);
   }, [fetchSpecs, fetchSecurity, fetchBattery, fetchErrorLogs, fetchSmart, fetchBiometricsHw, runNetworkDiagnostics]);
@@ -951,6 +954,7 @@ export const App: React.FC = () => {
     touchscreenResult,
     ramResult,
     perfResult,
+    cpuStressResult,
     gpuResult,
     vramResult,
     tortureResult,
@@ -1010,13 +1014,9 @@ export const App: React.FC = () => {
                   <StressHubView
                     specs={specs}
                     telemetry={liveTelemetry}
+                    lastCpuStress={cpuStressResult}
                     onRunningChange={(r, lbl) => updateStressActive(r ? lbl : null)}
-                    onCpuComplete={(res) => {
-                      setPerfResult(res);
-                      perfRef.current = res;
-                      updateModule("performance", res.status, res.summary);
-                      refreshUserbenchmarkComparison({ perf: res }).catch(() => {});
-                    }}
+                    onCpuStressComplete={(res) => setCpuStressResult(res)}
                     onGpuComplete={(res) => {
                       setGpuResult(res);
                       gpuRef.current = res;

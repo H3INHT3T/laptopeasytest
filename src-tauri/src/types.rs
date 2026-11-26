@@ -1083,6 +1083,58 @@ pub struct ExportReportPayload {
     pub touchscreen: Option<TouchscreenTestResult>,
     #[serde(default, alias = "networkDiagnostics")]
     pub network_report: Option<NetworkDiagnosticsReport>,
+    #[serde(default, alias = "cpuStressResult")]
+    pub cpu_stress: Option<CpuStressResult>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CpuStressProgress {
+    pub running: bool,
+    pub phase: String,
+    pub percent: f64,
+    pub elapsed_secs: f64,
+    pub duration_secs: u64,
+    pub cpu_usage_pct: f64,
+    pub cpu_clock_mhz: u64,
+    pub cpu_temp_c: Option<f32>,
+    pub cpu_power_w: Option<f32>,
+    pub calc_errors: u64,
+    pub whea_errors: u64,
+    pub iterations_completed: u64,
+    pub in_cooldown: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CpuStressResult {
+    pub status: TestStatus,
+    pub data_set: String,
+    pub load_type: String,
+    pub threads_used: usize,
+    pub simd_isa: String,
+    pub duration_secs: u64,
+    pub elapsed_secs: f64,
+    pub calc_errors: u64,
+    pub whea_errors: u64,
+    pub total_errors: u64,
+    pub iterations_completed: u64,
+    pub avg_clock_mhz: u64,
+    pub min_clock_mhz: u64,
+    pub max_clock_mhz: u64,
+    pub throttle_drop_pct: f64,
+    pub peak_temp_c: Option<f32>,
+    pub cooldown_end_temp_c: Option<f32>,
+    pub cooldown_drop_c: Option<f32>,
+    pub cooldown_verdict: String,
+    pub thermal_cutoff_triggered: bool,
+    pub effective_cutoff_c: f32,
+    pub stopped_on_error: bool,
+    pub cancelled: bool,
+    pub summary: String,
+    pub plain_summary: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

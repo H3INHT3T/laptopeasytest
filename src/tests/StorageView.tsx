@@ -16,6 +16,7 @@ import {
 } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
 import { LiveChart } from "../components/LiveChart";
 import { BaselineCard } from "../components/BaselineCard";
 import { EnvironmentGuard } from "../components/EnvironmentGuard";
@@ -522,6 +523,18 @@ export const StorageView: React.FC<StorageViewProps> = ({
                 </span>
               </div>
             )}
+
+            <NovabenchScoreBar
+              scoreLabel="STORAGE"
+              scoreValue={`${benchResult.seqReadMbS.toFixed(0)} MB/s`}
+              title={`SSD Direct-IO Score (${benchResult.baseline.grade})`}
+              takeaway={benchResult.plainSummary || benchResult.summary}
+              percent={benchResult.baseline.percentOfNormal}
+              medianLabel={benchResult.baseline.expectedNormal}
+              medianPercent={80}
+              badge={`${benchResult.integrityErrors} Errors`}
+              monochrome={benchResult.status !== "pass"}
+            />
 
             <BaselineCard baseline={benchResult.baseline} />
 

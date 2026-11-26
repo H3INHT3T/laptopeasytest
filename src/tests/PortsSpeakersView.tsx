@@ -5,6 +5,7 @@ import { AlertTriangle, Bluetooth, CheckCircle2, Headphones, Plane, PlugZap, Ref
 import type { HardwareControlsReport, NetworkDiagnosticsReport, PortsSpeakerSignoff, TestStatus, UsbDeviceInfo, UsbHotplugEvent } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface PortsSpeakersViewProps {
   status: TestStatus;
@@ -830,13 +831,13 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
         </div>
       </div>
 
-      {/* Plain-Language Reliability Summary */}
-      <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
-          What This Means for Long-Term Use
-        </div>
+      {/* Plain-Language Reliability Summary (Collapsible Technical Details) */}
+      <TechnicalDetailsDrawer
+        title="Technical Details — Port, USB & Audio Reliability Notes"
+        subtitle={`${checkedPorts.size}/${PORT_ITEMS.length} port groups • ${faultyUsb.length} USB faults`}
+      >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px]">
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
+          <div className="rounded-[2px] border border-zinc-200 bg-white p-2.5">
             <div className="font-mono text-[10px] font-bold uppercase text-black">USB Controller &amp; Port Health</div>
             <div className="text-zinc-600 mt-0.5">
               {faultyUsb.length > 0
@@ -844,13 +845,13 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
                 : `${usb4Count + usb32Count + usb30Count} high-speed USB4/3.x and ${usb20Count} USB 2.0 entries detected with 0 controller error codes.`}
             </div>
           </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
+          <div className="rounded-[2px] border border-zinc-200 bg-white p-2.5">
             <div className="font-mono text-[10px] font-bold uppercase text-black">Speaker &amp; Port Signoff</div>
             <div className="text-zinc-600 mt-0.5">
               {checkedPorts.size}/{PORT_ITEMS.length} physical I/O groups checked; {testedSpeakerModes.size} speaker band/channel diagnostic(s) triggered.
             </div>
           </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
+          <div className="rounded-[2px] border border-zinc-200 bg-white p-2.5">
             <div className="font-mono text-[10px] font-bold uppercase text-black">Network Readiness</div>
             <div className="text-zinc-600 mt-0.5">
               {networkReport
@@ -859,7 +860,7 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
             </div>
           </div>
         </div>
-      </div>
+      </TechnicalDetailsDrawer>
 
       {/* Verdict */}
       <div className="rounded-[2px] border border-zinc-300 bg-white p-4 flex flex-wrap items-center justify-between gap-3">

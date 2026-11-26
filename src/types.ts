@@ -1046,6 +1046,51 @@ export interface ExportReportPayload {
   batteryDischarge?: BatteryDischargeResult | null;
   touchscreen?: TouchscreenTestResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
+  cpuStress?: CpuStressResult | null;
+}
+
+export interface CpuStressProgress {
+  running: boolean;
+  phase: string;
+  percent: number;
+  elapsedSecs: number;
+  durationSecs: number;
+  cpuUsagePct: number;
+  cpuClockMhz: number;
+  cpuTempC: number | null;
+  cpuPowerW: number | null;
+  calcErrors: number;
+  wheaErrors: number;
+  iterationsCompleted: number;
+  inCooldown: boolean;
+}
+
+export interface CpuStressResult {
+  status: TestStatus;
+  dataSet: string;
+  loadType: string;
+  threadsUsed: number;
+  simdIsa: string;
+  durationSecs: number;
+  elapsedSecs: number;
+  calcErrors: number;
+  wheaErrors: number;
+  totalErrors: number;
+  iterationsCompleted: number;
+  avgClockMhz: number;
+  minClockMhz: number;
+  maxClockMhz: number;
+  throttleDropPct: number;
+  peakTempC: number | null;
+  cooldownEndTempC: number | null;
+  cooldownDropC: number | null;
+  cooldownVerdict: string;
+  thermalCutoffTriggered: boolean;
+  effectiveCutoffC: number;
+  stoppedOnError: boolean;
+  cancelled: boolean;
+  summary: string;
+  plainSummary: string;
 }
 
 export interface ExportedReportPaths {

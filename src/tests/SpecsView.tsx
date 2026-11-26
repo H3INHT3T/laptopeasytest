@@ -16,6 +16,7 @@ import {
 import type { NetworkDiagnosticsReport, SystemSpecs, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface SpecsViewProps {
   specs: SystemSpecs | null;
@@ -529,7 +530,11 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
             )}
           </div>
 
-          {/* Network & Peripherals */}
+          {/* Network & Peripherals (Collapsible Technical Details) */}
+          <TechnicalDetailsDrawer
+            title="Network Adapters & Peripheral Controllers"
+            subtitle={`${specs.networkAdapters.length} adapter(s) • ${specs.peripherals.length} device(s)`}
+          >
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
@@ -598,6 +603,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
               </div>
             </div>
           </div>
+          </TechnicalDetailsDrawer>
         </div>
       )}
 

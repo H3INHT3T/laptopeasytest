@@ -1,10 +1,16 @@
-# LaptopBench QC v2.4.0
+# LaptopBench QC v2.5.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.4.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict **Swiss Precision Light** (`#FFFFFF`, `#09090B`, `#2563EB` / `#1D4ED8`) sequential step-by-step interface.
+**LaptopBench QC v2.5.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a clean Novabench/OCCT-inspired **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) sequential step-by-step interface.
 
-## What's New in v2.4.0 — BIOS Lock Status, Live Brightness/Radios/Headphone Checks & macOS First-Launch Guide
+## What's New in v2.5.0 — True OCCT CPU Stress Engine, Dual Graphs & Summary-First Inner Screens
+
+- **Native Rust OCCT-Style Continuous CPU Stress Engine (`cpu_stress.rs`)** — Selectable `Small / Medium / Large` data set, `Steady` vs `Variable Spikes` load mode, `All Cores` vs `Physical Only`, deterministic per-thread mathematical checksum error detection, live Windows **WHEA-Logger Event ID 19** hardware error counter, optional **Stop on First Error**, hard thermal cutoff (`85–95 °C`), and **15–30s Post-Load Cool-Down Recovery Check** (`Δ°C` drop rate to catch clogged fans or dried thermal paste).
+- **Dual Live Oscilloscope Graphs in Stress Lab** — Live Performance (Clock/FPS/GB/s) + Thermal Curve graphs side by side, with Stress Lab results exported straight into the PDF / HTML / JSON QC Certificate.
+- **Novabench Summary-First Inner Stages** — Added reusable `NovabenchScoreBar` & collapsible `TechnicalDetailsDrawer` across `SpecsView`, `PerformanceView`, `StorageView`, `BatteryView`, and `PortsSpeakersView` to eliminate dense text clutter.
+
+## Highlights from v2.4.0 — BIOS Lock Status, Live Brightness/Radios/Headphone Checks & macOS First-Launch Guide
 
 - **BIOS / Firmware Lock Status (`LOCKED` / `UNLOCKED` / `VERIFY`)** — Stage 02 now queries OEM BIOS Supervisor/Admin Password status (Dell `DCIM_BIOSPassword`, Lenovo `Lenovo_BiosPasswordSettings`, HP `HP_BIOSSetting`, macOS `firmwarepasswd` & Apple Silicon Recovery/Activation Lock) and surfaces a clear `BIOS: LOCKED / UNLOCKED / VERIFY` indicator.
 - **Live Display Brightness, Keyboard Backlight, Wi-Fi, Bluetooth, Airplane Mode & 3.5mm Headphone Jack Checks** — Native Rust probes (`hardware_controls.rs`) with live Display Brightness control & `20% → 100%` sweep in Stage 06, Keyboard Backlight verification in Stage 08, and full live hardware radio/headphone/brightness verification matrix in Stage 14.
@@ -78,6 +84,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.4.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v2.5.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

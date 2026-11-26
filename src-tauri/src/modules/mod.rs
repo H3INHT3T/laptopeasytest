@@ -1,6 +1,7 @@
 pub mod baselines;
 pub mod battery;
 pub mod biometrics;
+pub mod cpu_stress;
 pub mod error_logs;
 pub mod gpu_stress;
 pub mod hardware_controls;

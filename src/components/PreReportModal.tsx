@@ -16,6 +16,7 @@ import type {
   BatteryDischargeResult,
   BatteryHealthReport,
   BatterySagResult,
+  CpuStressResult,
   ErrorLogsReport,
   ExportReportPayload,
   ExportedReportPaths,
@@ -57,6 +58,7 @@ interface PreReportModalProps {
   touchscreenResult?: TouchscreenTestResult | null;
   ramResult?: RamTestResult | null;
   perfResult?: PerfBenchResult | null;
+  cpuStressResult?: CpuStressResult | null;
   gpuResult?: GpuStressResult | null;
   vramResult?: VramTestResult | null;
   tortureResult?: PowerTortureResult | null;
@@ -83,6 +85,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   touchscreenResult,
   ramResult,
   perfResult,
+  cpuStressResult,
   gpuResult,
   vramResult,
   tortureResult,
@@ -279,6 +282,36 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         0
       )}%) • ${touchscreenResult.maxSimultaneousTouches}-pt • ${touchscreenResult.pollingHz}Hz`,
       statusLabel: touchscreenResult.verdict,
+    });
+  }
+  if (cpuStressResult) {
+    const csFail =
+      cpuStressResult.totalErrors > 0 ||
+      cpuStressResult.thermalCutoffTriggered ||
+      cpuStressResult.status === "fail";
+    const csCancelled = !csFail && Boolean(cpuStressResult.cancelled);
+    const csWarn = !csFail && !csCancelled && cpuStressResult.status === "warn";
+    const cdTag =
+      cpuStressResult.cooldownDropC != null
+        ? ` • Cool-Down -${cpuStressResult.cooldownDropC.toFixed(1)}°C`
+        : "";
+    subsystemScores.push({
+      label: "OCCT CPU Stress & Cool-Down",
+      scorePct: csFail
+        ? 15
+        : csCancelled
+        ? 50
+        : csWarn
+        ? 70
+        : Math.max(60, Math.min(100, Math.round(100 - cpuStressResult.throttleDropPct))),
+      metricText: `${cpuStressResult.totalErrors} err • ${cpuStressResult.avgClockMhz} MHz • Throttle ${cpuStressResult.throttleDropPct.toFixed(1)}%${cdTag}`,
+      statusLabel: csFail
+        ? "FAIL"
+        : csCancelled
+        ? "CANCELLED"
+        : csWarn
+        ? "WARN"
+        : "0 ERR PASS",
     });
   }
   if (ramResult) {
@@ -620,6 +653,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         batteryDischarge: batteryDischargeResult ?? null,
         touchscreen: touchscreenResult ?? null,
         networkReport: networkReport ?? null,
+        cpuStress: cpuStressResult ?? null,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);

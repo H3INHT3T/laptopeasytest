@@ -3,9 +3,10 @@ mod modules;
 mod types;
 
 use modules::{
-    baselines, battery, biometrics, error_logs, gpu_stress, hardware_controls, keyboard_hook,
-    network, perf_bench, power_torture, ram_test, raytracer, report, security_audit, session,
-    shop_history, simd_kernels, specs, storage, telemetry, usb_ports, userbenchmark, vram_test,
+    baselines, battery, biometrics, cpu_stress, error_logs, gpu_stress, hardware_controls,
+    keyboard_hook, network, perf_bench, power_torture, ram_test, raytracer, report,
+    security_audit, session, shop_history, simd_kernels, specs, storage, telemetry, usb_ports,
+    userbenchmark, vram_test,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -14,7 +15,7 @@ use std::sync::{
 use tauri::{AppHandle, State};
 use types::{
     BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample, BatterySagResult,
-    BiometricAuthResult, BiometricsHardwareReport, BurnInResult, ErrorLogsReport,
+    BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
     HardwareControlsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
     PowerTortureResult, RamTestResult, SavedSessionPayload, SecurityAuditReport,
@@ -35,6 +36,7 @@ pub struct CancelRegistry {
     pub storage_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub ram_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub perf_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub cpu_stress_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub gpu_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub vram_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub torture_cancel: Mutex<Option<Arc<AtomicBool>>>,
@@ -52,6 +54,7 @@ impl Default for CancelRegistry {
             storage_cancel: Mutex::new(None),
             ram_cancel: Mutex::new(None),
             perf_cancel: Mutex::new(None),
+            cpu_stress_cancel: Mutex::new(None),
             gpu_cancel: Mutex::new(None),
             vram_cancel: Mutex::new(None),
             torture_cancel: Mutex::new(None),
@@ -510,6 +513,38 @@ async fn set_display_brightness(percent: u8) -> Result<u8, String> {
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn run_cpu_stress(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    data_set: Option<String>,
+    load_type: Option<String>,
+    threads_mode: Option<String>,
+    duration_secs: Option<u64>,
+    thermal_cutoff_c: Option<f32>,
+    stop_on_error: Option<bool>,
+    cooldown_secs: Option<u64>,
+) -> Result<CpuStressResult, String> {
+    let cancel = replace_flag(&state.cpu_stress_cancel);
+    let ds = data_set.unwrap_or_else(|| "medium".to_string());
+    let lt = load_type.unwrap_or_else(|| "steady".to_string());
+    let tm = threads_mode.unwrap_or_else(|| "all".to_string());
+    let dur = duration_secs.unwrap_or(60).clamp(15, 1800);
+    let cutoff = clamp_torture_thermal_cutoff_cmd(thermal_cutoff_c);
+    let stop_err = stop_on_error.unwrap_or(true);
+    let cd = cooldown_secs.unwrap_or(15).min(30);
+    tauri::async_runtime::spawn_blocking(move || {
+        cpu_stress::run_cpu_stress_test(&app, &ds, &lt, &tm, dur, cutoff, stop_err, cd, cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_cpu_stress(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.cpu_stress_cancel);
+}
+
 struct SelfTestTempDirGuard(std::path::PathBuf);
 impl Drop for SelfTestTempDirGuard {
     fn drop(&mut self) {
@@ -518,7 +553,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.4.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.5.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -815,6 +850,7 @@ pub fn run_self_test() -> Result<(), String> {
             true,
             0.0,
         )),
+        cpu_stress: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -823,8 +859,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.4.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.4.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.5.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.5.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -891,13 +927,22 @@ pub fn run_self_test() -> Result<(), String> {
     let hw_ctrl = hardware_controls::get_hardware_controls_status();
     println!("[PASS] Hardware Controls ({}): {}", hw_ctrl.platform, hw_ctrl.summary);
 
+    let mut cpu_buf = vec![0u64; 1024];
+    let cd1 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
+    let cd2 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
+    let (_, cd_verdict, _) = cpu_stress::classify_cooldown_recovery(Some(85.0), Some(66.0));
+    if cd1 != cd2 || cd_verdict != "EXCELLENT" {
+        return Err("OCCT CPU Stress kernel or cool-down classifier failed".into());
+    }
+    println!("[PASS] OCCT CPU Stress Engine (deterministic checksum=0x{:016X}, cooldown={})", cd1, cd_verdict);
+
     let gpus = gpu_stress::list_gpu_adapters();
     println!("[PASS] wgpu GPU Adapters detected: {}", gpus.len());
     for g in &gpus {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.4.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.5.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -956,6 +1001,8 @@ pub fn run() {
             compare_userbenchmark,
             get_hardware_controls_status,
             set_display_brightness,
+            run_cpu_stress,
+            cancel_cpu_stress,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

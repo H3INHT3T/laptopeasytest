@@ -32,6 +32,8 @@ import {
 } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 import { LiveChart } from "../components/LiveChart";
 import { BaselineCard } from "../components/BaselineCard";
 import { EnvironmentGuard } from "../components/EnvironmentGuard";
@@ -745,6 +747,22 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
             </div>
           </div>
 
+          <NovabenchScoreBar
+            scoreLabel="COMPOSITE"
+            scoreValue={result.compositeScore.toLocaleString()}
+            title={`${specs?.cpuBrand || "Processor"} — ${result.tier}`}
+            takeaway={result.plainSummary || result.summary}
+            percent={result.baseline.percentOfNormal}
+            medianLabel={result.baseline.expectedNormal}
+            medianPercent={85}
+            badge={`Grade ${result.durabilityGrade} • Throttle ${result.throttleDropPct.toFixed(1)}%`}
+            monochrome={result.status !== "pass"}
+          />
+
+          <TechnicalDetailsDrawer
+            title="Technical Details — Threshold Audit & Shop History"
+            subtitle={`Throttle ${result.throttleDropPct.toFixed(1)}% • Latency ${result.memoryLatencyNs.toFixed(1)} ns`}
+          >
           <ThresholdAuditTable
             rows={auditRows}
             plainSummary="Verifies thermal safety, sustained cooling headroom, DRAM responsiveness, and factory parity."
@@ -793,6 +811,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               </div>
             </div>
           )}
+          </TechnicalDetailsDrawer>
 
           {/* 14-Subtest Architectural Bar Ledger */}
           <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2">
