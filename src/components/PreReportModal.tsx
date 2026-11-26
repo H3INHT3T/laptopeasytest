@@ -21,6 +21,7 @@ import type {
   BatterySagResult,
   CosmeticInspection,
   CpuStressResult,
+  DisplayProResult,
   ErrorLogsReport,
   ExportReportPayload,
   ExportedReportPaths,
@@ -61,6 +62,7 @@ interface PreReportModalProps {
   errorLogsReport?: ErrorLogsReport | null;
   smartReport?: StorageSmartReport | null;
   storageBench?: StorageBenchResult | null;
+  displayProResult?: DisplayProResult | null;
   touchscreenResult?: TouchscreenTestResult | null;
   ramResult?: RamTestResult | null;
   perfResult?: PerfBenchResult | null;
@@ -90,6 +92,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   errorLogsReport,
   smartReport,
   storageBench,
+  displayProResult,
   touchscreenResult,
   ramResult,
   perfResult,
@@ -616,10 +619,24 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         out.push(["PnP Faults", `${hardwareFaults.criticalFaultCount} critical / ${hardwareFaults.warningFaultCount} warn`]);
         out.push(["PCIe Lanes", hardwareFaults.pcieDowngradeCount > 0 ? `${hardwareFaults.pcieDowngradeCount} downgrade(s)` : `Full width (${hardwareFaults.pcieLinks.length} links)`]);
       }
-    } else if (id === "display" && hardwareFaults?.panels?.[0]) {
-      const p = hardwareFaults.panels[0];
-      out.push(["Panel EDID", `${p.manufacturerName} (${p.panelModel})`]);
-      if (p.mfgYear) out.push(["Panel Mfg", `${p.mfgYear}${p.mfgWeek ? ` Wk ${p.mfgWeek}` : ""}${p.replacementSuspected ? " (INFO: Replacement)" : ""}`]);
+    } else if (id === "display") {
+      if (hardwareFaults?.panels?.[0]) {
+        const p = hardwareFaults.panels[0];
+        out.push(["Panel EDID", `${p.manufacturerName} (${p.panelModel})`]);
+        if (p.mfgYear) out.push(["Panel Mfg", `${p.mfgYear}${p.mfgWeek ? ` Wk ${p.mfgWeek}` : ""}${p.replacementSuspected ? " (INFO: Replacement)" : ""}`]);
+      }
+      if (displayProResult) {
+        out.push(["Refresh Rate", `${displayProResult.activeHz || displayProResult.measuredHz} Hz / ${displayProResult.nativeMaxHz || displayProResult.measuredHz} Hz Max`]);
+        out.push(["Frame Jitter", `${displayProResult.frameJitterMs.toFixed(1)} ms (${displayProResult.droppedFrames} drops)`]);
+        const px = displayProResult.deadPixels + displayProResult.stuckPixels;
+        out.push(["Pixel Defects", px === 0 ? "0 Clean" : `${displayProResult.deadPixels} dead / ${displayProResult.stuckPixels} stuck`]);
+        if (displayProResult.bleedSeverity !== "none") {
+          out.push(["Backlight Bleed", `${displayProResult.bleedSeverity.toUpperCase()}${displayProResult.bleedCorners.length ? ` (${displayProResult.bleedCorners.join(",")})` : ""}`]);
+        }
+        if (displayProResult.hingeFlex) {
+          out.push(["eDP Hinge-Flex", displayProResult.hingeFlex.verdict]);
+        }
+      }
     } else if (id === "security" && securityReport) {
       out.push(["MDM", securityReport.mdmEnrolled === true ? "ENROLLED" : "Clean"]);
       if (securityReport.activationLocked != null) {
@@ -781,6 +798,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         cpuStress: cpuStressResult ?? null,
         cosmetic,
         hardwareFaults: hardwareFaults ?? null,
+        displayPro: displayProResult ?? null,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);

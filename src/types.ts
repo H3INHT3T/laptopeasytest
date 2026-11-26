@@ -554,6 +554,64 @@ export interface RawKeyEvent {
   pressed: boolean;
 }
 
+export interface DisplayCapabilitiesReport {
+  status: TestStatus;
+  verdict: "NATIVE_HZ_OK" | "MAX_HZ_MISMATCH" | "UNAVAILABLE" | string;
+  platform: string;
+  activeWidth: number;
+  activeHeight: number;
+  activeHz: number;
+  nativeMaxHz: number;
+  supportedHzList: number[];
+  colorDepthBpp: number | null;
+  monitorCount: number;
+  maxHzMismatch: boolean;
+  plainSummary: string;
+}
+
+export interface EdpHingeFlexProgress {
+  running: boolean;
+  elapsedSecs: number;
+  durationSecs: number;
+  samplesTaken: number;
+  disconnectEvents: number;
+  modeGlitchEvents: number;
+  driverResetEvents: number;
+  note: string;
+}
+
+export interface EdpHingeFlexResult {
+  status: TestStatus;
+  verdict: "STABLE" | "EDP_DROP_DETECTED" | "CANCELLED" | string;
+  durationSecs: number;
+  samplesTaken: number;
+  disconnectEvents: number;
+  modeGlitchEvents: number;
+  driverResetEvents: number;
+  plainSummary: string;
+  summary: string;
+}
+
+export interface DisplayProResult {
+  measuredHz: number;
+  activeHz: number;
+  nativeMaxHz: number;
+  maxHzMismatch: boolean;
+  avgFrameTimeMs: number;
+  frameJitterMs: number;
+  droppedFrames: number;
+  deadPixels: number;
+  stuckPixels: number;
+  bleedSeverity: "none" | "minor" | "severe";
+  bleedCorners: string[];
+  pressureSpots: boolean;
+  flickerOrGhosting: boolean;
+  hingeFlex: EdpHingeFlexResult | null;
+  patternsViewed: number;
+  totalPatterns: number;
+  plainSummary: string;
+}
+
 export interface TouchscreenTestResult {
   touchCapable: boolean;
   maxTouchPointsReported: number;
@@ -1112,6 +1170,7 @@ export interface ExportReportPayload {
   cpuStress?: CpuStressResult | null;
   cosmetic?: CosmeticInspection | null;
   hardwareFaults?: HardwareFaultsReport | null;
+  displayPro?: DisplayProResult | null;
 }
 
 export interface DeviceManagerFault {

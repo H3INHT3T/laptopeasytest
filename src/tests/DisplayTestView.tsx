@@ -1,11 +1,32 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CheckCircle2, Maximize2, Monitor, RefreshCw, Sparkles, Sun, XCircle } from "lucide-react";
-import type { HardwareControlsReport, HardwareFaultsReport, TestStatus } from "../types";
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Maximize2,
+  Monitor,
+  Play,
+  RefreshCw,
+  Square,
+  Sun,
+  XCircle,
+} from "lucide-react";
+import type {
+  DisplayCapabilitiesReport,
+  DisplayProResult,
+  EdpHingeFlexProgress,
+  EdpHingeFlexResult,
+  HardwareControlsReport,
+  HardwareFaultsReport,
+  TestStatus,
+} from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface DisplayTestViewProps {
   status: TestStatus;
@@ -13,7 +34,9 @@ interface DisplayTestViewProps {
   stepNumber: number;
   totalSteps: number;
   hardwareFaults?: HardwareFaultsReport | null;
-  onVerdict: (status: TestStatus, summary: string, notes: string) => void;
+  displayProResult?: DisplayProResult | null;
+  onDisplayProUpdate?: (res: DisplayProResult) => void;
+  onVerdict: (status: TestStatus, summary: string, notes: string, pro?: DisplayProResult) => void;
   onNext: () => void;
   onSkip: () => void;
 }
@@ -34,11 +57,12 @@ interface PatternDef {
     | "power_zoom"
     | "readability"
     | "grid"
-    | "motion";
+    | "motion"
+    | "frameskip";
   color?: string;
 }
 
-// 23 PassMark MonitorTest 4.0-inspired full-screen display patterns
+// 24 PassMark MonitorTest + BlurBusters Pro full-screen display patterns
 const PATTERNS: PatternDef[] = [
   { id: "black", name: "Pure Black (0,0,0)", desc: "Check bright stuck pixels & edge backlight bleed", kind: "solid", color: "#000000" },
   { id: "white", name: "Pure White (255,255,255)", desc: "Check dark dead pixels, yellowing & pressure spots", kind: "solid", color: "#ffffff" },
@@ -92,7 +116,8 @@ const PATTERNS: PatternDef[] = [
     desc: "Dynamic 10%↔95% white frame load to expose backlight PSU flicker or coil whine",
     kind: "power_zoom",
   },
-  { id: "motion", name: "Motion Clarity, Ghosting & Live Hz", desc: "Verify refresh rate, frame pacing & overdrive ghosting", kind: "motion" },
+  { id: "motion", name: "UFO Motion Clarity, Live Hz & Jitter", desc: "Delta-time UFO pursuit lanes with panel-Hz-aware frame-drop & jitter audit", kind: "motion" },
+  { id: "frameskip", name: "Frame-Skip Camera Grid (120–240Hz)", desc: "Sequential 1-square-per-VSync grid — snap a 1/10s phone photo to prove zero skipped frames", kind: "frameskip" },
 ];
 
 export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
@@ -101,6 +126,8 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   stepNumber,
   totalSteps,
   hardwareFaults = null,
+  displayProResult = null,
+  onDisplayProUpdate,
   onVerdict,
   onNext,
   onSkip,
@@ -111,8 +138,10 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   const [hudPinned, setHudPinned] = useState(false);
   const [hudHover, setHudHover] = useState(false);
   const [cursorHidden, setCursorHidden] = useState(false);
-  const [measuredHz, setMeasuredHz] = useState<number>(60);
-  const [droppedFrames, setDroppedFrames] = useState<number>(0);
+  const [measuredHz, setMeasuredHz] = useState<number>(displayProResult?.measuredHz ?? 60);
+  const [avgFrameMs, setAvgFrameMs] = useState<number>(displayProResult?.avgFrameTimeMs ?? 16.7);
+  const [frameJitterMs, setFrameJitterMs] = useState<number>(displayProResult?.frameJitterMs ?? 0);
+  const [droppedFrames, setDroppedFrames] = useState<number>(displayProResult?.droppedFrames ?? 0);
   const [persistenceSecs, setPersistenceSecs] = useState<number>(0);
   const [powerZoomPct, setPowerZoomPct] = useState<number>(50);
   const [notes, setNotes] = useState(initialNotes);
@@ -121,6 +150,65 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   const [brightnessDetail, setBrightnessDetail] = useState<string>("Probing display backlight controller...");
   const [brightnessBusy, setBrightnessBusy] = useState<boolean>(false);
   const [brightnessVerified, setBrightnessVerified] = useState<boolean>(false);
+
+  // Display Pro capabilities, eDP Hinge-Flex monitor & structured defect state (v2.11.0)
+  const [displayCaps, setDisplayCaps] = useState<DisplayCapabilitiesReport | null>(null);
+  const [hingeRunning, setHingeRunning] = useState<boolean>(false);
+  const [hingeProg, setHingeProg] = useState<EdpHingeFlexProgress | null>(null);
+  const [hingeResult, setHingeResult] = useState<EdpHingeFlexResult | null>(displayProResult?.hingeFlex ?? null);
+  const [hingeError, setHingeError] = useState<string | null>(null);
+  const [deadPixels, setDeadPixels] = useState<number>(displayProResult?.deadPixels ?? 0);
+  const [stuckPixels, setStuckPixels] = useState<number>(displayProResult?.stuckPixels ?? 0);
+  const [bleedSeverity, setBleedSeverity] = useState<"none" | "minor" | "severe">(displayProResult?.bleedSeverity ?? "none");
+  const [bleedCorners, setBleedCorners] = useState<string[]>(displayProResult?.bleedCorners ?? []);
+  const [pressureSpots, setPressureSpots] = useState<boolean>(displayProResult?.pressureSpots ?? false);
+  const [flickerOrGhosting, setFlickerOrGhosting] = useState<boolean>(displayProResult?.flickerOrGhosting ?? false);
+
+  const loadCapabilities = async () => {
+    try {
+      const caps = await invoke<DisplayCapabilitiesReport>("probe_display_capabilities");
+      setDisplayCaps(caps);
+      if (caps.activeHz > 0 && !displayProResult) {
+        setMeasuredHz(caps.activeHz);
+        setAvgFrameMs(Number((1000 / caps.activeHz).toFixed(2)));
+      }
+    } catch {
+      // Ignore outside Tauri
+    }
+  };
+
+  useEffect(() => {
+    loadCapabilities();
+    let unlistenHinge: (() => void) | null = null;
+    listen<EdpHingeFlexProgress>("display:hinge", (ev) => {
+      setHingeProg(ev.payload);
+    }).then((fn) => {
+      unlistenHinge = fn;
+    });
+    return () => {
+      if (unlistenHinge) unlistenHinge();
+    };
+  }, []);
+
+  const startHingeFlexTest = async () => {
+    setHingeError(null);
+    setHingeRunning(true);
+    setHingeProg(null);
+    try {
+      const res = await invoke<EdpHingeFlexResult>("run_edp_hinge_flex_test", { durationSecs: 15 });
+      setHingeResult(res);
+    } catch (e) {
+      setHingeError(String(e));
+    } finally {
+      setHingeRunning(false);
+    }
+  };
+
+  const toggleBleedCorner = (corner: string) => {
+    setBleedCorners((prev) =>
+      prev.includes(corner) ? prev.filter((c) => c !== corner) : [...prev, corner]
+    );
+  };
 
   const loadBrightness = async () => {
     setBrightnessBusy(true);
@@ -175,6 +263,7 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
   };
 
   const motionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameSkipCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const powerZoomBoxRef = useRef<HTMLDivElement | null>(null);
   const idleTimerRef = useRef<number | null>(null);
   const activeRef = useRef<boolean>(false);
@@ -306,70 +395,167 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
     return () => cancelAnimationFrame(raf);
   }, [active, idx]);
 
-  // Motion & live Hz + dropped-frame loop
+  // Delta-time UFO Motion Clarity + Panel-Hz-Aware Frame-Drop & Jitter loop (v2.11.0)
   useEffect(() => {
-    if (!active || PATTERNS[idx].kind !== "motion") return;
+    const kind = PATTERNS[idx]?.kind;
+    if (!active || (kind !== "motion" && kind !== "frameskip")) return;
     let raf = 0;
     let frames = 0;
+    let totalFrameIdx = 0;
     let lastTs = performance.now();
     let prevFrame = lastTs;
     let drops = 0;
-    let x = 0;
+    const dtSamples: number[] = [];
+    const expectedMsRef = { val: displayCaps?.activeHz && displayCaps.activeHz >= 30 ? 1000 / displayCaps.activeHz : 16.67 };
+    const lanePos = [0, 0, 0];
 
     const tick = (now: number) => {
       frames++;
-      const dt = now - prevFrame;
+      totalFrameIdx++;
+      const dt = Math.min(250, Math.max(0.5, now - prevFrame));
       prevFrame = now;
-      if (dt > 34) drops++;
+
+      if (totalFrameIdx > 5) {
+        dtSamples.push(dt);
+        if (dtSamples.length > 180) dtSamples.shift();
+        const dropThreshold = Math.max(10.5, expectedMsRef.val * 1.65);
+        if (dt > dropThreshold) drops++;
+      }
 
       if (now - lastTs >= 500) {
-        setMeasuredHz(Math.round((frames * 1000) / (now - lastTs)));
+        const hz = Math.round((frames * 1000) / (now - lastTs));
+        if (hz >= 24 && hz <= 480) {
+          expectedMsRef.val = 1000 / hz;
+          setMeasuredHz(hz);
+        }
+        if (dtSamples.length >= 4) {
+          const avg = dtSamples.reduce((a, b) => a + b, 0) / dtSamples.length;
+          const variance =
+            dtSamples.reduce((acc, v) => acc + Math.pow(v - avg, 2), 0) / dtSamples.length;
+          setAvgFrameMs(Number(avg.toFixed(2)));
+          setFrameJitterMs(Number(Math.sqrt(variance).toFixed(2)));
+        }
         setDroppedFrames(drops);
         frames = 0;
         lastTs = now;
       }
 
-      const canvas = motionCanvasRef.current;
-      if (canvas) {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        if (canvas.width !== w || canvas.height !== h) {
-          canvas.width = w;
-          canvas.height = h;
-        }
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.fillStyle = "#000000";
-          ctx.fillRect(0, 0, w, h);
-
-          ctx.strokeStyle = "rgba(255,255,255,0.16)";
-          for (let gx = 0; gx < w; gx += 80) {
-            ctx.beginPath();
-            ctx.moveTo(gx, 0);
-            ctx.lineTo(gx, h);
-            ctx.stroke();
+      if (kind === "motion") {
+        const canvas = motionCanvasRef.current;
+        if (canvas) {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
           }
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            const bandH = h / 3;
+            // 3 contrast backgrounds (Dark, Mid-Gray, Light) to catch dark-smear VA & IPS overdrive ghosting
+            const bands = [
+              { bg: "#09090b", speed: 480, color: "#ffffff", label: "480 PX/S (DARK)", textCol: "#09090b" },
+              { bg: "#27272a", speed: 960, color: "#2563eb", label: "960 PX/S (MID)", textCol: "#ffffff" },
+              { bg: "#e4e4e7", speed: 1440, color: "#09090b", label: "1440 PX/S (LIGHT)", textCol: "#ffffff" },
+            ];
+            for (let i = 0; i < bands.length; i++) {
+              const b = bands[i];
+              const y0 = i * bandH;
+              ctx.fillStyle = b.bg;
+              ctx.fillRect(0, y0, w, bandH);
 
-          x = (x + 14) % (w + 180);
-          const lanes = [
-            { y: h * 0.25, pos: (x * 0.6) % w, color: "#ffffff", label: "480 PX/S" },
-            { y: h * 0.5, pos: x % w, color: "#2563eb", label: "960 PX/S" },
-            { y: h * 0.75, pos: (x * 1.6) % w, color: "#60a5fa", label: "1536 PX/S" },
-          ];
-          for (const lane of lanes) {
-            ctx.fillStyle = lane.color;
-            ctx.fillRect(lane.pos - 50, lane.y - 28, 100, 56);
-            ctx.fillStyle = lane.color === "#2563eb" ? "#ffffff" : "#000000";
-            ctx.font = "bold 13px monospace";
-            ctx.fillText(lane.label, lane.pos - 36, lane.y + 5);
+              // Subtle vertical reference ruler lines
+              ctx.strokeStyle = i === 2 ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.12)";
+              for (let gx = 0; gx < w; gx += 80) {
+                ctx.beginPath();
+                ctx.moveTo(gx, y0);
+                ctx.lineTo(gx, y0 + bandH);
+                ctx.stroke();
+              }
+
+              lanePos[i] = (lanePos[i] + b.speed * (dt / 1000)) % (w + 160);
+              const px = lanePos[i] - 80;
+              const cy = y0 + bandH * 0.5;
+
+              // Draw crisp UFO saucer + alignment bars (BlurBusters pursuit style)
+              ctx.fillStyle = b.color;
+              ctx.fillRect(px - 60, cy - 26, 120, 52);
+              ctx.fillStyle = i === 1 ? "#93c5fd" : "#2563eb";
+              ctx.fillRect(px - 44, cy - 16, 14, 32);
+              ctx.fillRect(px + 30, cy - 16, 14, 32);
+              ctx.fillStyle = b.textCol;
+              ctx.font = "bold 11px monospace";
+              ctx.fillText(b.label, px - 24, cy + 4);
+            }
+
+            // Live Hz / Frame-time readout badge (top-left, unobtrusive)
+            ctx.fillStyle = "rgba(9,9,11,0.85)";
+            ctx.fillRect(16, 16, 390, 34);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 12px monospace";
+            ctx.fillText(
+              `LIVE ${Math.round(1000 / expectedMsRef.val)} Hz | ${expectedMsRef.val.toFixed(1)} ms | Drops: ${drops}`,
+              28,
+              37
+            );
+          }
+        }
+      } else if (kind === "frameskip") {
+        const canvas = frameSkipCanvasRef.current;
+        if (canvas) {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+          }
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, w, h);
+
+            const cols = 8;
+            const rows = 4;
+            const totalCells = cols * rows;
+            const activeCell = totalFrameIdx % totalCells;
+            const padX = Math.max(40, w * 0.1);
+            const padY = Math.max(70, h * 0.16);
+            const cellW = (w - padX * 2) / cols;
+            const cellH = (h - padY * 2) / rows;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 14px monospace";
+            ctx.fillText(
+              `FRAME-SKIP TEST GRID (1 SQUARE PER VSYNC) • ~${Math.round(1000 / expectedMsRef.val)} Hz • TAKE 1/10s PHOTO: ALL LIT SQUARES MUST BE CONTIGUOUS`,
+              padX,
+              padY - 22
+            );
+
+            for (let r = 0; r < rows; r++) {
+              for (let c = 0; c < cols; c++) {
+                const cellNum = r * cols + c;
+                const x0 = padX + c * cellW;
+                const y0 = padY + r * cellH;
+                const isLit = cellNum === activeCell;
+                ctx.fillStyle = isLit ? "#ffffff" : "#09090b";
+                ctx.fillRect(x0 + 4, y0 + 4, cellW - 8, cellH - 8);
+                ctx.strokeStyle = isLit ? "#2563eb" : "rgba(255,255,255,0.22)";
+                ctx.lineWidth = isLit ? 3 : 1;
+                ctx.strokeRect(x0 + 4, y0 + 4, cellW - 8, cellH - 8);
+                ctx.fillStyle = isLit ? "#000000" : "rgba(255,255,255,0.35)";
+                ctx.font = "bold 18px monospace";
+                ctx.fillText(String(cellNum + 1).padStart(2, "0"), x0 + cellW * 0.5 - 12, y0 + cellH * 0.5 + 6);
+              }
+            }
           }
         }
       }
+
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [active, idx]);
+  }, [active, idx, displayCaps?.activeHz]);
 
   const pattern = PATTERNS[idx];
   const hudVisible = hudPinned || hudHover;
@@ -684,6 +870,10 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             <canvas ref={motionCanvasRef} className="w-full h-full block" />
           )}
 
+          {pattern.kind === "frameskip" && (
+            <canvas ref={frameSkipCanvasRef} className="w-full h-full block" />
+          )}
+
           {/* Hover-only floating controls (completely hidden unless hovering bottom edge or pressing H) */}
           <div
             onClick={(e) => e.stopPropagation()}
@@ -696,7 +886,9 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             <div>
               <div className="font-bold">
                 [{idx + 1}/{PATTERNS.length}] {pattern.name}
-                {pattern.kind === "motion" ? ` • ~${measuredHz} Hz (${droppedFrames} drops)` : ""}
+                {pattern.kind === "motion" || pattern.kind === "frameskip"
+                  ? ` • ~${measuredHz} Hz (${avgFrameMs.toFixed(1)}ms, ±${frameJitterMs.toFixed(1)}ms, ${droppedFrames} drops)`
+                  : ""}
                 {pattern.kind === "persistence" ? ` • Hold ${persistenceSecs}s` : ""}
                 {pattern.kind === "power_zoom" ? ` • Load ${powerZoomPct}%` : ""}
               </div>
@@ -734,78 +926,274 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
 
   const primaryPanel = hardwareFaults?.panels?.[0] ?? null;
 
+  // Smart Shop Standard Auto-Suggested Verdict (always overridable by technician)
+  const totalPixelDefects = deadPixels + stuckPixels;
+  const edpDropDetected = hingeResult?.verdict === "EDP_DROP_DETECTED";
+  const maxHzMismatch = Boolean(displayCaps?.maxHzMismatch);
+
+  const suggestedVerdict: { status: TestStatus; reason: string } = (() => {
+    if (edpDropDetected || totalPixelDefects >= 3 || bleedSeverity === "severe" || flickerOrGhosting) {
+      const reasons: string[] = [];
+      if (edpDropDetected) reasons.push("eDP hinge cable drop detected");
+      if (totalPixelDefects >= 3) reasons.push(`${totalPixelDefects} dead/stuck pixels`);
+      if (bleedSeverity === "severe") reasons.push("severe backlight bleed");
+      if (flickerOrGhosting) reasons.push("flicker or severe ghosting");
+      return { status: "fail", reason: `Suggested FAIL: ${reasons.join(", ")}.` };
+    }
+    if (totalPixelDefects > 0 || bleedSeverity === "minor" || pressureSpots || maxHzMismatch) {
+      const reasons: string[] = [];
+      if (totalPixelDefects > 0) reasons.push(`${totalPixelDefects} minor pixel defect(s)`);
+      if (bleedSeverity === "minor") {
+        reasons.push(`minor backlight bleed${bleedCorners.length ? ` (${bleedCorners.join("/")})` : ""}`);
+      }
+      if (pressureSpots) reasons.push("white pressure spot");
+      if (maxHzMismatch && displayCaps) {
+        reasons.push(`running at ${displayCaps.activeHz}Hz vs ${displayCaps.nativeMaxHz}Hz native max`);
+      }
+      return { status: "warn", reason: `Suggested WARN: ${reasons.join(", ")}.` };
+    }
+    return {
+      status: "pass",
+      reason: `Suggested PASS: 0 pixel defects, uniform backlight, ${displayCaps?.activeHz || measuredHz}Hz verified.`,
+    };
+  })();
+
+  const buildDisplayProPayload = (chosenStatus: TestStatus): { pro: DisplayProResult; summary: string } => {
+    const activeHz = displayCaps?.activeHz ?? measuredHz;
+    const maxHz = displayCaps?.nativeMaxHz ?? measuredHz;
+    const hingeTxt = hingeResult ? `, eDP Hinge ${hingeResult.verdict}` : "";
+    const pxTxt = totalPixelDefects === 0 ? "0 dead pixels" : `${deadPixels} dead / ${stuckPixels} stuck px`;
+    const bleedTxt =
+      bleedSeverity === "none"
+        ? "no bleed"
+        : `${bleedSeverity} bleed${bleedCorners.length ? ` (${bleedCorners.join("/")})` : ""}`;
+    const summary =
+      chosenStatus === "pass"
+        ? `Display Pro verified (${viewedSet.size}/${PATTERNS.length} patterns, ${activeHz}Hz / ${maxHz}Hz max, ±${frameJitterMs.toFixed(1)}ms jitter, ${pxTxt}, ${bleedTxt}${hingeTxt}).`
+        : chosenStatus === "warn"
+        ? `Display advisory: ${pxTxt}, ${bleedTxt}${pressureSpots ? ", pressure spot" : ""}${maxHzMismatch ? `, stuck at ${activeHz}Hz/${maxHz}Hz max` : ""}${hingeTxt}.`
+        : `Display defect: ${edpDropDetected ? "eDP hinge drop, " : ""}${pxTxt}, ${bleedTxt}${flickerOrGhosting ? ", flicker/ghosting" : ""}${hingeTxt}.`;
+    const pro: DisplayProResult = {
+      measuredHz,
+      activeHz,
+      nativeMaxHz: maxHz,
+      maxHzMismatch,
+      avgFrameTimeMs: avgFrameMs,
+      frameJitterMs,
+      droppedFrames,
+      deadPixels,
+      stuckPixels,
+      bleedSeverity,
+      bleedCorners,
+      pressureSpots,
+      flickerOrGhosting,
+      hingeFlex: hingeResult,
+      patternsViewed: viewedSet.size,
+      totalPatterns: PATTERNS.length,
+      plainSummary: summary,
+    };
+    return { pro, summary };
+  };
+
+  const commitVerdict = (chosenStatus: TestStatus) => {
+    const { pro, summary } = buildDisplayProPayload(chosenStatus);
+    onDisplayProUpdate?.(pro);
+    onVerdict(chosenStatus, summary, notes, pro);
+  };
+
   return (
     <div className="space-y-5">
       {fullscreenOverlay}
-
-      {primaryPanel && (
-        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 text-xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Monitor className="w-4 h-4 text-blue-600 shrink-0" />
-            <span className="font-bold text-black">
-              Panel EDID: {primaryPanel.manufacturerName}
-            </span>
-            <span className="font-mono text-zinc-600">{primaryPanel.panelModel}</span>
-            {primaryPanel.diagonalInches && (
-              <span className="px-1.5 py-0.5 rounded bg-[#F8FAFC] border border-zinc-200 font-mono text-[10.5px] text-black">
-                {primaryPanel.diagonalInches.toFixed(1)}&quot;
-              </span>
-            )}
-            {primaryPanel.mfgYear && (
-              <span className="px-1.5 py-0.5 rounded bg-[#F8FAFC] border border-zinc-200 font-mono text-[10.5px] text-black">
-                Mfg {primaryPanel.mfgYear}{primaryPanel.mfgWeek ? ` Wk ${primaryPanel.mfgWeek}` : ""}
-              </span>
-            )}
-          </div>
-          {primaryPanel.replacementSuspected ? (
-            <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono text-[10px] font-bold">
-              INFO: LIKELY REPLACEMENT SCREEN ({primaryPanel.mfgYear} vs {primaryPanel.biosYear} BIOS)
-            </span>
-          ) : (
-            <span className="font-mono text-[10.5px] text-blue-700 font-semibold">
-              Original-Era Panel Verified
-            </span>
-          )}
-        </div>
-      )}
 
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-2xl font-bold text-black tracking-tight">
               Display Check
-              <span className="sr-only"> (MonitorTest 23-Pattern Suite)</span>
+              <span className="sr-only"> (MonitorTest 23-Pattern Suite — Display Pro 24-Pattern Suite)</span>
             </h1>
             <StatusBadge status={status} />
           </div>
           <div className="text-xs text-zinc-500">
-            Step {stepNumber} of {totalSteps} • {PATTERNS.length}-pattern fullscreen suite ({viewedSet.size}/{PATTERNS.length} inspected)
+            Step {stepNumber} of {totalSteps} • {PATTERNS.length}-pattern Pro suite ({viewedSet.size}/{PATTERNS.length} inspected)
+            {primaryPanel ? ` • ${primaryPanel.manufacturerName} ${primaryPanel.panelModel}` : ""}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => enterFullscreen(0)}
-          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs inline-flex items-center gap-2 cursor-pointer"
-        >
-          <Maximize2 className="w-4 h-4" />
-          Launch True Fullscreen Test
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => enterFullscreen(PATTERNS.findIndex((p) => p.id === "frameskip"))}
+            className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:border-black text-black font-semibold text-xs inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <Activity className="w-3.5 h-3.5 text-blue-600" />
+            Frame-Skip Grid
+          </button>
+          <button
+            type="button"
+            onClick={() => enterFullscreen(0)}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs inline-flex items-center gap-2 cursor-pointer"
+          >
+            <Maximize2 className="w-4 h-4" />
+            Launch True Fullscreen Test
+          </button>
+        </div>
       </div>
 
-      {/* Live Display Backlight Brightness Check */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2.5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
+      {/* Block 1: Live Refresh-Rate / Max-Hz Audit + Panel EDID + Backlight Strip */}
+      <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
+        <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-zinc-200 font-mono tabular-nums">
+          <div className="p-3.5">
+            <div className="text-[10px] uppercase text-zinc-500 font-semibold">Active / Native Max Hz</div>
+            <div className={`text-xl font-bold mt-0.5 ${maxHzMismatch ? "text-black" : "text-blue-700"}`}>
+              {displayCaps?.activeHz ? `${displayCaps.activeHz} Hz` : `${measuredHz} Hz`}
+              <span className="text-xs font-normal text-zinc-500">
+                {" "}/ {displayCaps?.nativeMaxHz || measuredHz} Hz
+              </span>
+            </div>
+            <div className="text-[11px] text-zinc-500">
+              {displayCaps?.activeWidth
+                ? `${displayCaps.activeWidth}×${displayCaps.activeHeight}${displayCaps.colorDepthBpp ? ` • ${displayCaps.colorDepthBpp}-bit` : ""}`
+                : "OS mode probe"}
+            </div>
+          </div>
+
+          <div className="p-3.5">
+            <div className="text-[10px] uppercase text-zinc-500 font-semibold">VSync Jitter / Drops</div>
+            <div className="text-xl font-bold mt-0.5 text-black">
+              ±{frameJitterMs.toFixed(1)} ms
+            </div>
+            <div className="text-[11px] text-zinc-500">
+              {avgFrameMs.toFixed(1)} ms avg • {droppedFrames} drop(s)
+            </div>
+          </div>
+
+          <div className="p-3.5">
+            <div className="text-[10px] uppercase text-zinc-500 font-semibold">Panel EDID Identity</div>
+            <div className="text-sm font-bold mt-1 text-black truncate">
+              {primaryPanel ? `${primaryPanel.manufacturerName} (${primaryPanel.panelModel})` : "Standard Panel"}
+            </div>
+            <div className="text-[11px] text-zinc-500 truncate">
+              {primaryPanel?.replacementSuspected
+                ? `INFO: Replacement (${primaryPanel.mfgYear} vs ${primaryPanel.biosYear})`
+                : primaryPanel?.mfgYear
+                ? `Original-Era (${primaryPanel.mfgYear}${primaryPanel.mfgWeek ? ` Wk ${primaryPanel.mfgWeek}` : ""})`
+                : "EDID OK"}
+            </div>
+          </div>
+
+          <div className="p-3.5">
+            <div className="text-[10px] uppercase text-zinc-500 font-semibold">eDP Hinge-Flex Cable</div>
+            <div className="text-sm font-bold mt-1 text-black">
+              {hingeResult ? hingeResult.verdict.replace(/_/g, " ") : "Not Tested Yet"}
+            </div>
+            <div className="text-[11px] text-zinc-500">
+              {hingeResult
+                ? `${hingeResult.disconnectEvents + hingeResult.modeGlitchEvents + hingeResult.driverResetEvents} drop(s) in ${hingeResult.durationSecs.toFixed(0)}s`
+                : "Run 15s tilt check below"}
+            </div>
+          </div>
+        </div>
+
+        {maxHzMismatch && displayCaps && (
+          <div className="border-t border-zinc-200 bg-black text-white px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap text-xs">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
+              <span>
+                <strong>Max-Hz Mismatch:</strong> {displayCaps.plainSummary}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={loadCapabilities}
+              className="px-2.5 py-1 rounded-lg bg-white text-black font-semibold text-[11px] cursor-pointer"
+            >
+              Re-check Hz
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Block 2: 15-Second eDP Hinge-Flex Drop Monitor + Live Backlight Control */}
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-black flex items-center gap-1.5">
+              <Monitor className="w-4 h-4 text-blue-600" />
+              15-Second eDP Hinge-Flex Drop Monitor
+            </h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Start the monitor and smoothly tilt the screen lid between 30° and 135° three times to catch worn eDP ribbon cables or display drops.
+            </p>
+          </div>
+          {hingeRunning ? (
+            <button
+              type="button"
+              onClick={() => invoke("cancel_edp_hinge_flex_test").catch(() => {})}
+              className="px-4 py-2 rounded-xl bg-black hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Square className="w-3.5 h-3.5" /> Stop Monitor
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={startHingeFlexTest}
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5" /> Start 15s Hinge-Flex Check
+            </button>
+          )}
+        </div>
+
+        {hingeError && (
+          <div className="rounded-xl bg-black text-white px-3.5 py-2 font-mono text-xs">{hingeError}</div>
+        )}
+
+        {hingeRunning && hingeProg && (
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3.5 space-y-2 font-mono text-xs tabular-nums">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="font-bold text-blue-700">
+                Flexing eDP Ribbon ({hingeProg.elapsedSecs.toFixed(0)}s / {hingeProg.durationSecs}s)
+              </span>
+              <span className="text-black font-bold">
+                Polls: {hingeProg.samplesTaken} • Drops: {hingeProg.disconnectEvents} • Glitches: {hingeProg.modeGlitchEvents} • TDR: {hingeProg.driverResetEvents}
+              </span>
+            </div>
+            <div className="h-1.5 bg-zinc-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-600 transition-all"
+                style={{ width: `${Math.min(100, (hingeProg.elapsedSecs / Math.max(hingeProg.durationSecs, 1)) * 100)}%` }}
+              />
+            </div>
+            <div className="font-sans text-xs text-zinc-700">{hingeProg.note}</div>
+          </div>
+        )}
+
+        {hingeResult && !hingeRunning && (
+          <div
+            className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-3 flex-wrap text-xs ${
+              hingeResult.status === "fail"
+                ? "border-black bg-black text-white"
+                : hingeResult.status === "pass"
+                ? "border-blue-600 bg-[#F8FAFC] text-black"
+                : "border-zinc-300 bg-[#F8FAFC] text-black"
+            }`}
+          >
+            <span>{hingeResult.plainSummary}</span>
+            <StatusBadge status={hingeResult.status} darkSurface={hingeResult.status === "fail"} compact />
+          </div>
+        )}
+
+        {/* Compact Live Backlight Brightness Control */}
+        <div className="pt-3 border-t border-zinc-200 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2 text-xs">
             <Sun className="w-4 h-4 text-blue-600 shrink-0" />
-            <span className="font-mono text-xs font-black uppercase text-black">
-              Display Backlight Brightness Check
-            </span>
-            <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-white font-mono text-[10.5px] font-bold text-black tabular-nums">
+            <span className="font-semibold text-black">Backlight:</span>
+            <span className="font-mono font-bold text-black">
               {brightnessPct != null ? `${brightnessPct}%` : "Manual Fn"}
             </span>
             {brightnessVerified && (
-              <span className="px-2 py-0.5 rounded-[2px] bg-blue-600 text-white font-mono text-[10px] font-bold uppercase">
-                Verified Live
+              <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white font-mono text-[10px] font-semibold">
+                Verified
               </span>
             )}
           </div>
@@ -816,10 +1204,10 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
                 type="button"
                 disabled={brightnessBusy || !brightnessSupported}
                 onClick={() => applyBrightness(lvl)}
-                className={`px-2 py-1 rounded-[2px] border font-mono text-[10.5px] font-bold cursor-pointer disabled:opacity-40 ${
+                className={`px-2.5 py-1 rounded-lg border font-mono text-xs font-semibold cursor-pointer disabled:opacity-40 ${
                   brightnessPct === lvl
                     ? "bg-blue-600 border-blue-600 text-white"
-                    : "bg-white border-zinc-300 text-black hover:border-black"
+                    : "bg-white border-zinc-200 text-black hover:border-black"
                 }`}
               >
                 {lvl}%
@@ -829,150 +1217,209 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
               type="button"
               disabled={brightnessBusy || !brightnessSupported}
               onClick={runBrightnessSweep}
-              className="px-2.5 py-1 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-[10.5px] font-bold uppercase cursor-pointer disabled:opacity-40"
+              className="px-3 py-1 rounded-lg bg-black hover:bg-zinc-800 text-white text-xs font-semibold cursor-pointer disabled:opacity-40"
             >
-              Auto Sweep 20%→100%
+              Sweep 20%→100%
             </button>
             <button
               type="button"
               disabled={brightnessBusy}
               onClick={loadBrightness}
-              className="px-2 py-1 rounded-[2px] border border-zinc-300 bg-white hover:border-black text-black font-mono text-[10.5px] font-bold flex items-center gap-1 cursor-pointer"
+              aria-label="Refresh backlight status"
+              className="px-2 py-1 rounded-lg border border-zinc-200 bg-white hover:border-black text-black cursor-pointer"
             >
-              <RefreshCw className={`w-3 h-3 ${brightnessBusy ? "animate-spin text-blue-600" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${brightnessBusy ? "animate-spin text-blue-600" : ""}`} />
             </button>
           </div>
         </div>
         {brightnessSupported && (
-          <div className="flex items-center gap-3">
-            <input
-              type="range"
-              min={5}
-              max={100}
-              step={5}
-              value={brightnessPct ?? 50}
-              disabled={brightnessBusy}
-              onChange={(e) => applyBrightness(Number(e.target.value))}
-              className="flex-1 accent-blue-600 cursor-pointer"
-            />
-          </div>
+          <input
+            type="range"
+            min={5}
+            max={100}
+            step={5}
+            value={brightnessPct ?? 50}
+            disabled={brightnessBusy}
+            onChange={(e) => applyBrightness(Number(e.target.value))}
+            aria-label="Display brightness slider"
+            className="w-full accent-blue-600 cursor-pointer"
+          />
         )}
-        <div className="text-[11px] text-zinc-600">{brightnessDetail}</div>
+        <div className="text-[11px] text-zinc-500">{brightnessDetail}</div>
       </div>
 
-      {/* Pattern Tiles */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
-        {PATTERNS.map((p, i) => {
-          const seen = viewedSet.has(i);
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => enterFullscreen(i)}
-              className={`rounded-[2px] border p-2.5 text-left transition cursor-pointer ${
-                seen
-                  ? "border-blue-600 bg-blue-50/40"
-                  : "border-zinc-300 hover:border-black bg-white"
-              }`}
-            >
-              <div
-                className="h-9 rounded-lg border border-zinc-300 mb-2 flex items-center justify-center text-[10px] font-mono font-bold"
-                style={{
-                  background:
-                    p.kind === "solid"
-                      ? p.color
-                      : p.kind === "gradient"
-                      ? "linear-gradient(90deg, #000, #2563eb, #fff)"
-                      : "#09090b",
-                  color: p.color === "#ffffff" || p.color === "#ffff00" || p.color === "#00ffff" ? "#000" : "#fff",
-                }}
-              >
-                {p.kind !== "solid" && p.kind.replace("_", " ").toUpperCase()}
-              </div>
-              <div className="text-[11px] font-bold text-black truncate">{p.name}</div>
-              <div className="text-[10px] text-zinc-500 font-mono">
-                {seen ? "Inspected" : `Pattern #${i + 1}`}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Plain-Language Diagnostic Guide */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2">
-        <div className="flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-wider text-blue-700">
-          <Sparkles className="w-3.5 h-3.5" />
-          What This Means for Long-Term Use
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] text-zinc-600">
-          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
-            <strong className="text-black">Pixels, Bleed &amp; Retention:</strong> Pure Black/White/RGB checks catch dead pixels and edge IPS bleed; Persistence Hold followed by Mid Gray 50% exposes OLED burn-in or failing panel retention.
-          </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
-            <strong className="text-black">Moiré &amp; PSU Stability:</strong> Dot/Line Moiré catches scaling artifacts or eDP cable crosstalk; Power Supply Zooming stresses backlight power rails to reveal flicker or inverter coil whine.
-          </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
-            <strong className="text-black">Gamma, Bit-Depth &amp; Motion:</strong> 256-step gradients + 0–32 shadow ramp detect 6-bit FRC banding, Gamma 2.2 checks tonal accuracy, and Motion Clarity measures live Hz pacing.
-          </div>
-        </div>
-      </div>
-
-      {/* Verdict Panel */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+      {/* Block 3: Structured Display Defect Recorder & Smart Shop Verdict */}
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-black">
-            <Monitor className="w-4 h-4 text-blue-600" />
-            Technician Visual Verdict
-          </div>
-          <span className="text-xs font-mono text-zinc-600">
-            Patterns inspected: <strong className="text-blue-700">{viewedSet.size}</strong> / {PATTERNS.length}
+          <div className="text-sm font-bold text-black">Display Defect Log &amp; Verdict</div>
+          <span
+            className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-semibold ${
+              suggestedVerdict.status === "fail"
+                ? "bg-black text-white"
+                : suggestedVerdict.status === "warn"
+                ? "border border-blue-600 bg-blue-50 text-blue-900"
+                : "bg-blue-600 text-white"
+            }`}
+          >
+            {suggestedVerdict.reason}
           </span>
         </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          {/* Dead & Stuck Pixel Counters */}
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3 space-y-2">
+            <div className="font-semibold text-black">Pixel Defects</div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-600">Dead (dark)</span>
+              <div className="flex items-center gap-1.5 font-mono">
+                <button
+                  type="button"
+                  onClick={() => setDeadPixels((v) => Math.max(0, v - 1))}
+                  className="w-6 h-6 rounded-md border border-zinc-300 bg-white hover:border-black font-bold cursor-pointer"
+                >
+                  -
+                </button>
+                <span className="w-6 text-center font-bold text-black">{deadPixels}</span>
+                <button
+                  type="button"
+                  onClick={() => setDeadPixels((v) => v + 1)}
+                  className="w-6 h-6 rounded-md border border-zinc-300 bg-white hover:border-black font-bold cursor-pointer"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-600">Stuck (bright)</span>
+              <div className="flex items-center gap-1.5 font-mono">
+                <button
+                  type="button"
+                  onClick={() => setStuckPixels((v) => Math.max(0, v - 1))}
+                  className="w-6 h-6 rounded-md border border-zinc-300 bg-white hover:border-black font-bold cursor-pointer"
+                >
+                  -
+                </button>
+                <span className="w-6 text-center font-bold text-black">{stuckPixels}</span>
+                <button
+                  type="button"
+                  onClick={() => setStuckPixels((v) => v + 1)}
+                  className="w-6 h-6 rounded-md border border-zinc-300 bg-white hover:border-black font-bold cursor-pointer"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Backlight Bleed Severity & Corners */}
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3 space-y-2">
+            <div className="font-semibold text-black">Backlight Bleed / IPS Glow</div>
+            <div className="flex gap-1.5">
+              {(["none", "minor", "severe"] as const).map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => {
+                    setBleedSeverity(lvl);
+                    if (lvl === "none") setBleedCorners([]);
+                  }}
+                  className={`flex-1 py-1 rounded-lg border text-[11px] font-semibold capitalize cursor-pointer ${
+                    bleedSeverity === lvl
+                      ? lvl === "severe"
+                        ? "bg-black border-black text-white"
+                        : "bg-blue-600 border-blue-600 text-white"
+                      : "bg-white border-zinc-200 text-zinc-700 hover:border-black"
+                  }`}
+                >
+                  {lvl}
+                </button>
+              ))}
+            </div>
+            {bleedSeverity !== "none" && (
+              <div className="flex items-center gap-1 pt-0.5">
+                <span className="text-[10.5px] text-zinc-500 mr-1">Corners:</span>
+                {["TL", "TR", "BL", "BR"].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => toggleBleedCorner(c)}
+                    className={`px-2 py-0.5 rounded-md border font-mono text-[10.5px] font-bold cursor-pointer ${
+                      bleedCorners.includes(c)
+                        ? "bg-blue-600 border-blue-600 text-white"
+                        : "bg-white border-zinc-300 text-zinc-700"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Other Visual Fault Toggles */}
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3 space-y-2">
+            <div className="font-semibold text-black">Uniformity &amp; Motion</div>
+            <label className="flex items-center gap-2 cursor-pointer text-zinc-700">
+              <input
+                type="checkbox"
+                checked={pressureSpots}
+                onChange={(e) => setPressureSpots(e.target.checked)}
+                className="accent-blue-600 w-3.5 h-3.5"
+              />
+              White pressure spot / yellowing
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-zinc-700">
+              <input
+                type="checkbox"
+                checked={flickerOrGhosting}
+                onChange={(e) => setFlickerOrGhosting(e.target.checked)}
+                className="accent-blue-600 w-3.5 h-3.5"
+              />
+              Panel flicker / lines / severe ghosting
+            </label>
+          </div>
+        </div>
+
         <input
           type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Optional panel notes (e.g. 0 dead pixels, clean uniformity, 144Hz smooth, no burn-in)"
-          className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
+          className="w-full bg-white border border-zinc-200 rounded-xl px-3.5 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
         />
+
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() =>
-              onVerdict(
-                "pass",
-                `Display verified (${viewedSet.size}/${PATTERNS.length} patterns checked, ~${measuredHz} Hz, 0 dead pixels).`,
-                notes
-              )
-            }
-            className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+            onClick={() => commitVerdict("pass")}
+            className={`px-4 py-2 rounded-xl font-semibold text-xs flex items-center gap-1.5 cursor-pointer ${
+              suggestedVerdict.status === "pass"
+                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                : "border border-zinc-200 bg-white hover:border-black text-black"
+            }`}
           >
             <CheckCircle2 className="w-4 h-4" />
             Pass Display Check
           </button>
           <button
             type="button"
-            onClick={() =>
-              onVerdict(
-                "warn",
-                "Minor panel imperfection noted (slight backlight bleed or bright spot).",
-                notes
-              )
-            }
-            className="px-4 py-2 rounded-[2px] border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xs cursor-pointer"
+            onClick={() => commitVerdict("warn")}
+            className={`px-4 py-2 rounded-xl font-semibold text-xs cursor-pointer ${
+              suggestedVerdict.status === "warn"
+                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                : "border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900"
+            }`}
           >
             Mark Minor Issue (WARN)
           </button>
           <button
             type="button"
-            onClick={() =>
-              onVerdict(
-                "fail",
-                "Display defect found (dead pixels, lines, flicker, burn-in, or severe bleed).",
-                notes
-              )
-            }
-            className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+            onClick={() => commitVerdict("fail")}
+            className={`px-4 py-2 rounded-xl font-semibold text-xs flex items-center gap-1.5 cursor-pointer ${
+              suggestedVerdict.status === "fail"
+                ? "bg-black hover:bg-zinc-800 text-white ring-2 ring-blue-600"
+                : "bg-black hover:bg-zinc-800 text-white"
+            }`}
           >
             <XCircle className="w-4 h-4" />
             Fail Display Check
@@ -980,12 +1427,55 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
         </div>
       </div>
 
+      {/* Collapsed Details: All 24 Fullscreen Pattern Tiles */}
+      <TechnicalDetailsDrawer
+        title="Jump to Specific Fullscreen Pattern (24 Patterns)"
+        summary={`${viewedSet.size}/${PATTERNS.length} inspected • Dead pixels, OLED bleed, Gamma 2.2, UFO Motion & Frame-Skip Grid`}
+      >
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+          {PATTERNS.map((p, i) => {
+            const seen = viewedSet.has(i);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => enterFullscreen(i)}
+                className={`rounded-xl border p-2.5 text-left transition cursor-pointer ${
+                  seen
+                    ? "border-blue-600 bg-blue-50/40"
+                    : "border-zinc-200 hover:border-black bg-white"
+                }`}
+              >
+                <div
+                  className="h-8 rounded-lg border border-zinc-200 mb-1.5 flex items-center justify-center text-[9.5px] font-mono font-bold"
+                  style={{
+                    background:
+                      p.kind === "solid"
+                        ? p.color
+                        : p.kind === "gradient"
+                        ? "linear-gradient(90deg, #000, #2563eb, #fff)"
+                        : "#09090b",
+                    color: p.color === "#ffffff" || p.color === "#ffff00" || p.color === "#00ffff" ? "#000" : "#fff",
+                  }}
+                >
+                  {p.kind !== "solid" && p.kind.replace("_", " ").toUpperCase()}
+                </div>
+                <div className="text-[11px] font-semibold text-black truncate">{p.name}</div>
+                <div className="text-[10px] text-zinc-500 font-mono">
+                  {seen ? "Inspected" : `#${i + 1}`}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </TechnicalDetailsDrawer>
+
       <StepActionBar
         stepNumber={stepNumber}
         totalSteps={totalSteps}
         status={status}
         canProceed={false}
-        requirementHint="Launch fullscreen patterns and record Pass / Warn / Fail verdict to unlock the next step."
+        requirementHint="Launch fullscreen patterns or run the hinge-flex check, then record Pass / Warn / Fail to unlock the next step."
         onNext={onNext}
         onSkip={onSkip}
       />

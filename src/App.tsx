@@ -8,6 +8,7 @@ import type {
   BatterySagResult,
   BiometricsHardwareReport,
   CpuStressResult,
+  DisplayProResult,
   ErrorLogsReport,
   GpuStressResult,
   HardwareFaultsReport,
@@ -158,6 +159,7 @@ export const App: React.FC = () => {
   const [errorLogsReport, setErrorLogsReport] = useState<ErrorLogsReport | null>(null);
   const [smartReport, setSmartReport] = useState<StorageSmartReport | null>(null);
   const [storageBench, setStorageBench] = useState<StorageBenchResult | null>(null);
+  const [displayProResult, setDisplayProResult] = useState<DisplayProResult | null>(null);
   const [touchscreenResult, setTouchscreenResult] = useState<TouchscreenTestResult | null>(null);
   const [ramResult, setRamResult] = useState<RamTestResult | null>(null);
   const [bioHwReport, setBioHwReport] = useState<BiometricsHardwareReport | null>(null);
@@ -1126,6 +1128,7 @@ export const App: React.FC = () => {
     errorLogsReport,
     smartReport,
     storageBench,
+    displayProResult,
     touchscreenResult,
     ramResult,
     perfResult,
@@ -1248,7 +1251,12 @@ export const App: React.FC = () => {
                 stepNumber={stepNumberOf("display")}
                 totalSteps={totalSteps}
                 hardwareFaults={hardwareFaults}
-                onVerdict={(st, sum, notes) => updateModule("display", st, sum, notes)}
+                displayProResult={displayProResult}
+                onDisplayProUpdate={(res) => setDisplayProResult(res)}
+                onVerdict={(st, sum, notes, pro) => {
+                  if (pro) setDisplayProResult(pro);
+                  updateModule("display", st, sum, notes);
+                }}
                 onNext={() => advanceFrom("display")}
                 onSkip={() => skipStep("display")}
               />

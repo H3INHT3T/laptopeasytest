@@ -3,7 +3,7 @@ mod modules;
 mod types;
 
 use modules::{
-    baselines, battery, biometrics, cpu_stress, error_logs, gpu_stress, hardware_controls,
+    baselines, battery, biometrics, cpu_stress, display_pro, error_logs, gpu_stress, hardware_controls,
     hardware_faults, keyboard_hook, network, perf_bench, port_diagnostics, power_torture, qc_archive, ram_test,
     raytracer, report, security_audit, session, shop_history, simd_kernels, specs, storage,
     telemetry, usb_ports, userbenchmark, vram_test,
@@ -16,7 +16,8 @@ use tauri::{AppHandle, State};
 use types::{
     BatteryChargeResult, BatteryDischargeResult, BatteryHealthReport, BatteryLiveSample,
     BatterySagResult,
-    BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult, ErrorLogsReport,
+    BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult,
+    DisplayCapabilitiesReport, EdpHingeFlexResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
     HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
     PortDiagnosticsReport, PowerTortureResult, QcArchiveRecord, RamTestResult, SavedSessionPayload, SecurityAuditReport,
@@ -34,6 +35,7 @@ pub struct CancelRegistry {
     pub battery_sag_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub battery_discharge_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub battery_charge_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub display_hinge_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub usb_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub keyboard_stop: Mutex<Option<Arc<AtomicBool>>>,
     pub storage_cancel: Mutex<Option<Arc<AtomicBool>>>,
@@ -53,6 +55,7 @@ impl Default for CancelRegistry {
             battery_sag_cancel: Mutex::new(None),
             battery_discharge_cancel: Mutex::new(None),
             battery_charge_cancel: Mutex::new(None),
+            display_hinge_cancel: Mutex::new(None),
             usb_stop: Mutex::new(None),
             keyboard_stop: Mutex::new(None),
             storage_cancel: Mutex::new(None),
@@ -588,6 +591,32 @@ async fn scan_port_diagnostics() -> Result<PortDiagnosticsReport, String> {
 }
 
 #[tauri::command]
+async fn probe_display_capabilities() -> Result<DisplayCapabilitiesReport, String> {
+    tauri::async_runtime::spawn_blocking(display_pro::probe_display_capabilities)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn run_edp_hinge_flex_test(
+    app: AppHandle,
+    state: State<'_, CancelRegistry>,
+    duration_secs: Option<u64>,
+) -> Result<EdpHingeFlexResult, String> {
+    let cancel = replace_flag(&state.display_hinge_cancel);
+    tauri::async_runtime::spawn_blocking(move || {
+        display_pro::run_edp_hinge_flex_test(duration_secs, &app, &cancel)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn cancel_edp_hinge_flex_test(state: State<'_, CancelRegistry>) {
+    signal_stop(&state.display_hinge_cancel);
+}
+
+#[tauri::command]
 fn check_warranty_return_diff(
     app: AppHandle,
     serial: String,
@@ -631,7 +660,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.10.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.11.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -941,6 +970,7 @@ pub fn run_self_test() -> Result<(), String> {
         cpu_stress: None,
         cosmetic: None,
         hardware_faults: None,
+        display_pro: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -949,8 +979,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.10.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.10.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.11.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.11.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -1010,7 +1040,7 @@ pub fn run_self_test() -> Result<(), String> {
         bat.ac_plugged
     );
 
-    // 11b. v2.10.0 Smart-Bench Charging IC + Conservation Mode + Smart Cool-Down Verification
+    // 11b. v2.11.0 Smart-Bench Charging IC + Conservation Mode + Smart Cool-Down Verification
     let chg_ok = battery::classify_battery_charge_test(
         &[
             BatteryLiveSample { timestamp_ms: 0, charge_percent: 55.0, ac_plugged: true, is_charging: true, voltage_mv: Some(12_300), rate_mw: Some(32_000), watts: Some(32.0) },
@@ -1043,10 +1073,10 @@ pub fn run_self_test() -> Result<(), String> {
         || cd_cool != "COOL_LOAD"
         || cd_poor != "POOR_COOLING"
     {
-        return Err("v2.10.0 Charging IC or Smart Cool-Down classifier check failed".into());
+        return Err("v2.11.0 Charging IC or Smart Cool-Down classifier check failed".into());
     }
     println!(
-        "[PASS] v2.10.0 Charging IC & Smart Cool-Down (ok={}, cons={}, dead={}, cool={}, poor={})",
+        "[PASS] v2.11.0 Charging IC & Smart Cool-Down (ok={}, cons={}, dead={}, cool={}, poor={})",
         chg_ok.verdict, chg_cons.verdict, chg_dead.verdict, cd_cool, cd_poor
     );
 
@@ -1071,6 +1101,36 @@ pub fn run_self_test() -> Result<(), String> {
     let port_diag = port_diagnostics::scan_port_diagnostics();
     println!("[PASS] Live Port Diagnostics ({}): {}", port_diag.platform, port_diag.summary);
 
+    let disp_caps = display_pro::probe_display_capabilities();
+    let disp_mismatch = display_pro::evaluate_display_capabilities(
+        1920,
+        1080,
+        60,
+        144,
+        vec![60, 144],
+        Some(32),
+        1,
+        "SelfTest",
+    );
+    let hinge_ok = display_pro::classify_hinge_flex_result(15.0, 60, 0, 0, 0, false);
+    let hinge_fail = display_pro::classify_hinge_flex_result(6.0, 24, 1, 0, 0, false);
+    let (smart_warn, _) =
+        display_pro::classify_display_pro_smart_verdict(1, 0, "none", false, false, false, false);
+    let (smart_fail, _) =
+        display_pro::classify_display_pro_smart_verdict(0, 0, "none", false, false, false, true);
+    if !disp_mismatch.max_hz_mismatch
+        || hinge_ok.verdict != "STABLE"
+        || hinge_fail.verdict != "EDP_DROP_DETECTED"
+        || smart_warn != TestStatus::Warn
+        || smart_fail != TestStatus::Fail
+    {
+        return Err("v2.11.0 Display Pro capability/hinge/verdict check failed".into());
+    }
+    println!(
+        "[PASS] v2.11.0 Display Pro ({}x{} @ {}Hz / max {}Hz | mismatch_guard=ok | hinge=STABLE/DROP)",
+        disp_caps.active_width, disp_caps.active_height, disp_caps.active_hz, disp_caps.native_max_hz
+    );
+
     let mut cpu_buf = vec![0u64; 1024];
     let cd1 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
     let cd2 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
@@ -1086,7 +1146,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.10.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.11.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -1156,6 +1216,9 @@ pub fn run() {
             import_qc_archive,
             scan_hardware_faults,
             scan_port_diagnostics,
+            probe_display_capabilities,
+            run_edp_hinge_flex_test,
+            cancel_edp_hinge_flex_test,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

@@ -299,6 +299,42 @@ pub(crate) fn build_long_term_meaning(payload: &ExportReportPayload) -> (String,
         }
     }
 
+    if let Some(dp) = &payload.display_pro {
+        let hinge_part = dp
+            .hinge_flex
+            .as_ref()
+            .map(|h| format!(", eDP Hinge: {}", h.verdict))
+            .unwrap_or_default();
+        let px_total = dp.dead_pixels.saturating_add(dp.stuck_pixels);
+        let line = format!(
+            "Display Pro Audit: {} [Active {} Hz / Max {} Hz, Measured {} Hz, Jitter {:.1}ms, {} Drops, {} Pixel Defect(s), Bleed: {}{}]",
+            dp.plain_summary,
+            dp.active_hz,
+            dp.native_max_hz,
+            dp.measured_hz,
+            dp.frame_jitter_ms,
+            dp.dropped_frames,
+            px_total,
+            dp.bleed_severity,
+            hinge_part
+        );
+        let has_issue = dp.max_hz_mismatch
+            || px_total > 0
+            || dp.bleed_severity != "none"
+            || dp.pressure_spots
+            || dp.flicker_or_ghosting
+            || dp
+                .hinge_flex
+                .as_ref()
+                .map(|h| h.verdict == "EDP_DROP_DETECTED")
+                .unwrap_or(false);
+        if has_issue {
+            critical_bullets.push(line);
+        } else {
+            standard_bullets.push(line);
+        }
+    }
+
     if let Some(ts) = &payload.touchscreen {
         let line = format!(
             "Touchscreen Display ({}): {} [{}x{} grid {:.0}% covered, {}-pt max touch, RMS {:.1}px, {:.0}Hz]",
@@ -730,6 +766,62 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
                 reasons_html
             ));
         }
+        if let Some(dp) = &payload.display_pro {
+            let px_total = dp.dead_pixels.saturating_add(dp.stuck_pixels);
+            let hinge_drop = dp
+                .hinge_flex
+                .as_ref()
+                .map(|h| h.verdict == "EDP_DROP_DETECTED")
+                .unwrap_or(false);
+            let cls = if hinge_drop || px_total >= 3 || dp.bleed_severity == "severe" || dp.flicker_or_ghosting {
+                "st-fail"
+            } else if dp.max_hz_mismatch || px_total > 0 || dp.bleed_severity == "minor" || dp.pressure_spots {
+                "st-warn"
+            } else {
+                "st-pass"
+            };
+            let badge_txt = if cls == "st-fail" {
+                "DEFECT"
+            } else if cls == "st-warn" {
+                "ADVISORY"
+            } else {
+                "VERIFIED"
+            };
+            let hinge_txt = dp
+                .hinge_flex
+                .as_ref()
+                .map(|h| h.verdict.as_str())
+                .unwrap_or("Not Run");
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">DISPLAY PRO &amp; eDP HINGE-FLEX</strong>
+                    <span class="badge {cls}">{badge}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    <span>Active / Max: <strong>{ahz} / {mhz} Hz</strong></span>
+                    <span>Measured: <strong>{meas} Hz</strong></span>
+                    <span>Jitter: <strong>{jit:.1} ms ({drops} drops)</strong></span>
+                    <span>Pixels: <strong>{px} defect(s)</strong></span>
+                    <span>Bleed: <strong>{bleed}</strong></span>
+                    <span>eDP Hinge: <strong>{hinge}</strong></span>
+                  </div>
+                  <p class="rel-summary">{summary}</p>
+                </div>"#,
+                cls = cls,
+                badge = badge_txt,
+                ahz = dp.active_hz,
+                mhz = dp.native_max_hz,
+                meas = dp.measured_hz,
+                jit = dp.frame_jitter_ms,
+                drops = dp.dropped_frames,
+                px = px_total,
+                bleed = html_escape(&dp.bleed_severity),
+                hinge = html_escape(hinge_txt),
+                summary = html_escape(&dp.plain_summary),
+            ));
+        }
+
         if let Some(ts) = &payload.touchscreen {
             let cls = match ts.verdict.as_str() {
                 "PASS" => "st-pass",
@@ -1010,7 +1102,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </section>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v2.10.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v2.11.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Tamper-Check ID: {cert_id}</span>
   </footer>
 </div>
@@ -1024,7 +1116,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </table>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v2.10.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v2.11.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Cert ID: {cert_id}</span>
   </footer>
 </div>
@@ -1112,7 +1204,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         spk_ok = if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         spk_notes = html_escape(&payload.signoff.speakers_notes),
         notes_esc = if payload.technician_notes.trim().is_empty() {
-            format!("Unit inspected per {}-stage LaptopBench QC v2.10.0 protocol.", stage_count)
+            format!("Unit inspected per {}-stage LaptopBench QC v2.11.0 protocol.", stage_count)
         } else {
             html_escape(payload.technician_notes.trim())
         },
@@ -1173,7 +1265,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
     let json_val = serde_json::json!({
         "certificateId": cert_id,
         "generatedAt": generated_at,
-        "version": "2.10.0",
+        "version": "2.11.0",
         "report": payload
     });
     let json_str = serde_json::to_string_pretty(&json_val).map_err(|e| e.to_string())?;
@@ -1355,6 +1447,7 @@ mod tests {
             battery_charge: None,
             cosmetic: None,
             hardware_faults: None,
+            display_pro: None,
             tests: (1..=14)
                 .map(|i| ReportTestEntry {
                     id: format!("stage_{}", i),
@@ -1381,7 +1474,7 @@ mod tests {
         let payload = sample_v230_payload(None, "ABNORMAL");
         let html = render_qc_html(&payload, "2026-11-26 10:00:00");
 
-        assert!(html.contains("LaptopBench QC v2.10.0"));
+        assert!(html.contains("LaptopBench QC v2.11.0"));
         assert!(html.contains("Created by Hein Htet Zaw"));
         assert!(html.contains("@ich8g92"));
         assert!(html.contains("14-STAGE TECHNICAL DIAGNOSTIC AUDIT LEDGER"));
@@ -1421,9 +1514,9 @@ mod tests {
 
         assert!(pdf_bytes.starts_with(b"%PDF-1.4"));
         assert!(pdf_bytes.ends_with(b"%%EOF\n"));
-        assert!(html_text.contains("LaptopBench QC v2.10.0"));
+        assert!(html_text.contains("LaptopBench QC v2.11.0"));
         let parsed: serde_json::Value = serde_json::from_str(&json_text).expect("valid JSON");
-        assert_eq!(parsed["version"], "2.10.0");
+        assert_eq!(parsed["version"], "2.11.0");
         assert_eq!(parsed["report"]["userBenchmark"]["overallVehicleTier"], "Aircraft Carrier");
         assert_eq!(parsed["report"]["batteryDischarge"]["verdict"], "NORMAL");
         assert_eq!(parsed["report"]["touchscreen"]["coveredCells"], 160);

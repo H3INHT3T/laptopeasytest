@@ -1100,6 +1100,76 @@ pub struct ReportTestEntry {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
+pub struct DisplayCapabilitiesReport {
+    pub status: TestStatus,
+    pub verdict: String, // "NATIVE_HZ_OK" | "MAX_HZ_MISMATCH" | "UNAVAILABLE"
+    pub platform: String,
+    pub active_width: u32,
+    pub active_height: u32,
+    pub active_hz: u32,
+    pub native_max_hz: u32,
+    pub supported_hz_list: Vec<u32>,
+    pub color_depth_bpp: Option<u32>,
+    pub monitor_count: u32,
+    pub max_hz_mismatch: bool,
+    pub plain_summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct EdpHingeFlexProgress {
+    pub running: bool,
+    pub elapsed_secs: f64,
+    pub duration_secs: u64,
+    pub samples_taken: u32,
+    pub disconnect_events: u32,
+    pub mode_glitch_events: u32,
+    pub driver_reset_events: u32,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct EdpHingeFlexResult {
+    pub status: TestStatus,
+    pub verdict: String, // "STABLE" | "EDP_DROP_DETECTED" | "CANCELLED"
+    pub duration_secs: f64,
+    pub samples_taken: u32,
+    pub disconnect_events: u32,
+    pub mode_glitch_events: u32,
+    pub driver_reset_events: u32,
+    pub plain_summary: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct DisplayProResult {
+    pub measured_hz: u32,
+    pub active_hz: u32,
+    pub native_max_hz: u32,
+    pub max_hz_mismatch: bool,
+    pub avg_frame_time_ms: f64,
+    pub frame_jitter_ms: f64,
+    pub dropped_frames: u32,
+    pub dead_pixels: u32,
+    pub stuck_pixels: u32,
+    pub bleed_severity: String, // "none" | "minor" | "severe"
+    pub bleed_corners: Vec<String>,
+    pub pressure_spots: bool,
+    pub flicker_or_ghosting: bool,
+    pub hinge_flex: Option<EdpHingeFlexResult>,
+    pub patterns_viewed: u32,
+    pub total_patterns: u32,
+    pub plain_summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct TouchscreenTestResult {
     pub touch_capable: bool,
     pub max_touch_points_reported: u32,
@@ -1171,6 +1241,8 @@ pub struct ExportReportPayload {
     pub cosmetic: Option<CosmeticInspection>,
     #[serde(default)]
     pub hardware_faults: Option<HardwareFaultsReport>,
+    #[serde(default, alias = "displayProResult")]
+    pub display_pro: Option<DisplayProResult>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

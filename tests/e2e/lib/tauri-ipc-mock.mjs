@@ -269,6 +269,47 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         cancelledFlags.battery_charge = true;
         return null;
       },
+      probe_display_capabilities: async () =>
+        fixture.displayCapabilities || {
+          status: "pass",
+          verdict: "NATIVE_HZ_OK",
+          platform: "Windows",
+          activeWidth: 1920,
+          activeHeight: 1080,
+          activeHz: 60,
+          nativeMaxHz: 60,
+          supportedHzList: [60],
+          colorDepthBpp: 32,
+          monitorCount: 1,
+          maxHzMismatch: false,
+          plainSummary: "Native refresh rate verified: 1920x1080 @ 60 Hz (max 60 Hz, 32-bit).",
+        },
+      run_edp_hinge_flex_test: async () =>
+        runLongCommand(
+          "display_hinge",
+          "display:hinge",
+          fixture.edpHingeFlex || {
+            status: "pass",
+            verdict: "STABLE",
+            durationSecs: 15.0,
+            samplesTaken: 60,
+            disconnectEvents: 0,
+            modeGlitchEvents: 0,
+            driverResetEvents: 0,
+            plainSummary: "PASS: Rock-solid eDP link across 15.0s lid-flex check.",
+            summary: "PASS: 0 eDP drops (15s flex test).",
+          },
+          {
+            status: "warn",
+            verdict: "CANCELLED",
+            plainSummary: "Hinge-flex monitor stopped early.",
+            summary: "CANCELLED: Stopped early.",
+          }
+        ),
+      cancel_edp_hinge_flex_test: async () => {
+        cancelledFlags.display_hinge = true;
+        return null;
+      },
       list_usb_devices: async () => fixture.usbDevices || [],
       start_usb_monitor: async () => {
         if (usbMonitorTimer) clearTimeout(usbMonitorTimer);

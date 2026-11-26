@@ -1,10 +1,17 @@
-# LaptopBench QC v2.10.0
+# LaptopBench QC v2.11.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.10.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
+**LaptopBench QC v2.11.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
 
-## What's New in v2.10.0 — Battery Cycle XML Fallback, Active Charging IC Check & 12s CPU/GPU Cool-Down Recovery
+## What's New in v2.11.0 — Display Pro Suite (Native Max-Hz Audit, UFO Motion + Frame-Skip Grid, 15s eDP Hinge-Flex Monitor & Defect Logger)
+
+- **Native Max-Hz Mismatch Audit (`display_pro.rs`):** Queries every OS-supported display mode natively (`EnumDisplaySettingsW` on Windows, `system_profiler SPDisplaysDataType` on macOS) and flags `MAX_HZ_MISMATCH` (`WARN`) whenever a 120Hz/144Hz/165Hz/240Hz panel is stuck running at 60Hz.
+- **True Delta-Time UFO Motion Clarity & Frame-Skip Camera Grid (24 Fullscreen Patterns):** Upgrades Motion Clarity with delta-time `px/s` pursuit lanes across dark/mid/light contrast bands, panel-Hz-aware dropped-frame & jitter measurement, plus a BlurBusters-style sequential 8×4 Frame-Skip Grid for 1/10s phone camera verification.
+- **Live 15-Second eDP Hinge-Flex Drop Monitor:** Polls active monitor continuity, resolution/Hz mode stability, and Display TDR reset events while tilting the lid 3× between 30° and 135°, immediately flagging frayed hinge ribbon cables (`EDP_DROP_DETECTED`).
+- **Structured Display Defect Recorder & Smart Shop Auto-Verdict:** Records Dead/Stuck pixel counts, Backlight Bleed severity + corner map (`TL/TR/BL/BR`), pressure spots, and flicker directly into HTML, PDF, and JSON certificates with Smart Shop auto-suggested verdicts.
+
+## Highlights from v2.10.0 — Battery Cycle XML Fallback, Active Charging IC Check & 12s CPU/GPU Cool-Down Recovery
 
 - **Real Battery Cycle Count & Wear History (`powercfg` XML Fallback):** Unlocks real OEM battery cycle counts on Dell, HP, Lenovo, and ASUS laptops where WMI `BatteryCycleCount` returns `0`, plus extracts historical capacity checkpoints into Stage 03's collapsed `Details` drawer.
 - **Active AC Charging IC & Conservation-Mode Check (12s):** Verifies real AC charging wattage and SoC response in Stage 03, automatically distinguishing OEM 80%/90% Battery Conservation Mode (`WARN`) from genuine "plugged in, not charging" charging IC / DC-IN MOSFET faults (`FAIL` when `<75%` and `<= 0W` on AC).
@@ -117,6 +124,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.10.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v2.11.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle
