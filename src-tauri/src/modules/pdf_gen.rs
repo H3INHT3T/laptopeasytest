@@ -284,7 +284,7 @@ impl PageBuilder {
             // Hairline footer rule
             self.line(MARGIN, 34.0, MARGIN + content_w, 34.0, 0.6, COL_RULE);
             let footer = format!(
-                "LaptopBench QC v3.0.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
+                "LaptopBench QC v3.1.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
                 self.cert_id, page_num
             );
             let _ = writeln!(
@@ -930,16 +930,225 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         pb.y -= 10.0;
     }
 
-    // 5. Battery Discharge Normality, Touchscreen & Network Reliability
-    if payload.battery_discharge.is_some()
+    // 5. Deep Hardware Reliability, Display Pro, Forensics & v2.10-v3.1 Diagnostics
+    let has_v3_diag = payload.battery_discharge.is_some()
+        || payload.battery_charge.is_some()
+        || payload.battery_health.as_ref().map(|b| b.adapter_watts.is_some() || b.adapter_warning.is_some()).unwrap_or(false)
+        || payload.display_pro.is_some()
         || payload.touchscreen.is_some()
+        || payload.sleep_audit.is_some()
+        || payload.removable_drive_bench.is_some()
         || payload.network_report.is_some()
-    {
+        || payload.security_audit.as_ref().map(|s| !s.license_channel.is_empty() || s.kms_piracy_suspected || s.oem_bios_key_present.is_some()).unwrap_or(false)
+        || payload.storage_bench.as_ref().map(|s| !s.thermal_throttle_verdict.is_empty()).unwrap_or(false)
+        || payload.perf_bench.as_ref().map(|p| p.bd_prochot_suspected || !p.cooldown_verdict.is_empty()).unwrap_or(false)
+        || payload.cpu_stress.as_ref().map(|c| c.bd_prochot_suspected || !c.cooldown_verdict.is_empty()).unwrap_or(false)
+        || payload.tamper_forensics.is_some();
+
+    if has_v3_diag {
         draw_section_header(
             &mut pb,
             content_w,
-            "04 // BATTERY DISCHARGE NORMALITY, TOUCHSCREEN & NETWORK RELIABILITY",
+            "04 // DEEP HARDWARE RELIABILITY, DISPLAY PRO, POWER & FORENSIC AUDIT",
         );
+
+        let draw_diag_card = |pb: &mut PageBuilder, title: &str, badge: &str, severity: &str, body: &str| {
+            let wrapped = wrap_text(body, 84);
+            let ch = 22.0 + (wrapped.len() as f32) * 10.5;
+            pb.ensure_space(ch + 4.0);
+            let cy = pb.y - ch;
+            pb.rect_fill(MARGIN, cy, content_w, ch, COL_PAPER);
+            pb.rect_stroke(MARGIN, cy, content_w, ch, 0.5, COL_RULE);
+            pb.text("F4", 8.0, MARGIN + 8.0, pb.y - 13.0, COL_BLACK, title);
+            let (fill_c, txt_c, stroke_only) = match severity {
+                "fail" => (COL_BLACK, COL_WHITE, false),
+                "pass" => (COL_BLUE, COL_WHITE, false),
+                _ => (COL_WHITE, COL_BLUE_DARK, true),
+            };
+            pb.rect_fill(MARGIN + content_w - 118.0, pb.y - 16.0, 110.0, 12.0, fill_c);
+            if stroke_only {
+                pb.rect_stroke(MARGIN + content_w - 118.0, pb.y - 16.0, 110.0, 12.0, 0.7, txt_c);
+            }
+            let badge_clean = sanitize_single_line(badge);
+            let bf = if badge_clean.chars().count() > 20 { 6.2 } else { 7.0 };
+            pb.text("F4", bf, MARGIN + content_w - 114.0, pb.y - 12.5, txt_c, &badge_clean);
+            let mut ty = pb.y - 26.0;
+            for line in &wrapped {
+                pb.text("F1", 7.8, MARGIN + 8.0, ty, COL_INK_MUTED, line);
+                ty -= 10.5;
+            }
+            pb.y = cy - 4.0;
+        };
+
+        if let Some(sec) = &payload.security_audit {
+            if !sec.license_channel.is_empty() || sec.kms_piracy_suspected || sec.oem_bios_key_present.is_some() {
+                let oa3_txt = match (sec.oem_bios_key_present, sec.oem_bios_key_hint.as_deref()) {
+                    (Some(true), Some(h)) => format!("OEM BIOS Key: {}", h),
+                    (Some(true), None) => "OEM BIOS Key: Embedded".into(),
+                    (Some(false), _) => "OEM BIOS Key: None embedded".into(),
+                    _ => "OEM BIOS Key: N/A".into(),
+                };
+                let grace_txt = sec
+                    .license_grace_days
+                    .map(|d| format!(" | Expires in ~{}d", d))
+                    .unwrap_or_default();
+                let (badge, sev) = if sec.kms_piracy_suspected {
+                    ("KMS CRACK WARN", "warn")
+                } else {
+                    ("GENUINE LICENSE", "pass")
+                };
+                let body = format!(
+                    "Channel: {}{} | {} — {}",
+                    if sec.license_channel.is_empty() { "Verified" } else { &sec.license_channel },
+                    grace_txt,
+                    oa3_txt,
+                    sec.plain_summary
+                );
+                draw_diag_card(&mut pb, "WINDOWS LICENSE & OEM BIOS KEY (OA3) FORENSICS", badge, sev, &body);
+            }
+        }
+
+        if let Some(bh) = &payload.battery_health {
+            if bh.adapter_watts.is_some() || bh.adapter_warning.is_some() {
+                let w_txt = bh.adapter_watts.map(|w| format!("{}W", w)).unwrap_or_else(|| "N/A".into());
+                let src_txt = if bh.adapter_source.is_empty() { "OS Power" } else { &bh.adapter_source };
+                let (badge, sev, note) = if let Some(ref warn) = bh.adapter_warning {
+                    ("UNDERSIZED AC", "warn", warn.as_str())
+                } else {
+                    ("CHARGER OK", "pass", "Negotiated AC / USB-C PD wattage adequate for laptop class.")
+                };
+                let body = format!("Negotiated Adapter: {} ({}) | AC Online: {} — {}", w_txt, src_txt, if bh.ac_plugged { "Yes" } else { "No" }, note);
+                draw_diag_card(&mut pb, "AC / USB-C PD CHARGER WATTAGE AUDIT", badge, sev, &body);
+            }
+        }
+
+        if let Some(chg) = &payload.battery_charge {
+            let sev = match chg.status {
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+                _ => "warn",
+            };
+            let w_s = chg.avg_charge_watts.map(|w| format!("{:+.1}W", w)).unwrap_or_else(|| "N/A".into());
+            let body = format!(
+                "SoC {:.1}% -> {:.1}% ({:+.1}%) | Avg Power: {} | Duration: {:.0}s — {}",
+                chg.start_charge_pct, chg.end_charge_pct, chg.charge_gain_pct, w_s, chg.duration_secs, chg.plain_summary
+            );
+            draw_diag_card(&mut pb, "ACTIVE AC CHARGING IC & CONSERVATION AUDIT", &chg.verdict, sev, &body);
+        }
+
+        if let Some(dp) = &payload.display_pro {
+            let px = dp.dead_pixels.saturating_add(dp.stuck_pixels);
+            let hinge_drop = dp.hinge_flex.as_ref().map(|h| h.verdict == "EDP_DROP_DETECTED").unwrap_or(false);
+            let (badge, sev) = if hinge_drop || px >= 3 || dp.bleed_severity == "severe" || dp.flicker_or_ghosting {
+                ("DEFECT", "fail")
+            } else if dp.max_hz_mismatch || px > 0 || dp.bleed_severity == "minor" || dp.pressure_spots {
+                ("ADVISORY", "warn")
+            } else {
+                ("VERIFIED", "pass")
+            };
+            let hinge_s = dp.hinge_flex.as_ref().map(|h| h.verdict.as_str()).unwrap_or("Not Run");
+            let body = format!(
+                "Active {}Hz / Max {}Hz | Measured {}Hz | Jitter {:.1}ms ({} drops) | Pixels: {} | Bleed: {} | eDP Hinge: {} — {}",
+                dp.active_hz, dp.native_max_hz, dp.measured_hz, dp.frame_jitter_ms, dp.dropped_frames, px, dp.bleed_severity, hinge_s, dp.plain_summary
+            );
+            draw_diag_card(&mut pb, "DISPLAY PRO (NATIVE MAX-HZ & eDP HINGE-FLEX)", badge, sev, &body);
+        }
+
+        if let Some(slp) = &payload.sleep_audit {
+            let sev = match slp.status {
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+                _ => "warn",
+            };
+            let drain_s = slp.avg_drain_pct_per_hr.map(|d| format!("{:.1}%/hr", d)).unwrap_or_else(|| "N/A".into());
+            let body = format!(
+                "Mode: {} | Sessions: {} | Avg Drain: {} | Sleep Crashes: {} | Wake-Armed: {} — {}",
+                slp.sleep_mode, slp.sessions_analyzed, drain_s, slp.sleep_crash_count, slp.wake_armed_devices.len(), slp.plain_summary
+            );
+            draw_diag_card(&mut pb, "SLEEP & MODERN STANDBY (S0ix / S3) AUDIT", &slp.verdict, sev, &body);
+        }
+
+        if let Some(sb) = &payload.storage_bench {
+            if !sb.thermal_throttle_verdict.is_empty() {
+                let sev = if sb.thermal_throttle_verdict == "SSD_THERMAL_THROTTLE" { "warn" } else { "pass" };
+                let temp_s = match (sb.temp_start_c, sb.peak_drive_temp_c) {
+                    (Some(s), Some(p)) => format!("{}C -> {}C", s, p),
+                    (None, Some(p)) => format!("Peak {}C", p),
+                    _ => "Temp N/A".into(),
+                };
+                let body = format!(
+                    "Early Write {:.0} MB/s -> Late Write {:.0} MB/s (Collapse {:.1}%) | {} — {}",
+                    sb.seq_write_early_mb_s, sb.seq_write_late_mb_s, sb.write_collapse_pct, temp_s, sb.plain_summary
+                );
+                draw_diag_card(&mut pb, "SSD THERMAL THROTTLING & WRITE-COLLAPSE AUDIT", &sb.thermal_throttle_verdict, sev, &body);
+            }
+        }
+
+        if let Some(pb_res) = &payload.perf_bench {
+            if pb_res.bd_prochot_suspected || !pb_res.cooldown_verdict.is_empty() {
+                let (badge, sev) = if pb_res.bd_prochot_suspected {
+                    ("BD PROCHOT FAIL", "fail")
+                } else if pb_res.cooldown_verdict == "POOR_COOLING" {
+                    ("POOR COOLING", "warn")
+                } else {
+                    ("THERMAL OK", "pass")
+                };
+                let body = format!(
+                    "BD PROCHOT: {} (Min Load {} MHz, Stuck {:.1}s) | Cool-Down: {} ({}) {}",
+                    if pb_res.bd_prochot_suspected { "DETECTED" } else { "Clear" },
+                    pb_res.min_load_clock_mhz,
+                    pb_res.stuck_clock_secs,
+                    if pb_res.cooldown_verdict.is_empty() { "N/A" } else { &pb_res.cooldown_verdict },
+                    pb_res.cooldown_note,
+                    pb_res.stuck_clock_note
+                );
+                draw_diag_card(&mut pb, "CPU BD PROCHOT & HEATSINK COOL-DOWN AUDIT", badge, sev, &body);
+            }
+        } else if let Some(cs) = &payload.cpu_stress {
+            if cs.bd_prochot_suspected || !cs.cooldown_verdict.is_empty() {
+                let (badge, sev) = if cs.bd_prochot_suspected {
+                    ("BD PROCHOT FAIL", "fail")
+                } else if cs.cooldown_verdict == "POOR_COOLING" {
+                    ("POOR COOLING", "warn")
+                } else {
+                    ("THERMAL OK", "pass")
+                };
+                let body = format!(
+                    "BD PROCHOT: {} (Min Clock {} MHz, Stuck {:.1}s) | Cool-Down: {} — {}",
+                    if cs.bd_prochot_suspected { "DETECTED" } else { "Clear" },
+                    cs.min_clock_mhz,
+                    cs.stuck_clock_secs,
+                    if cs.cooldown_verdict.is_empty() { "N/A" } else { &cs.cooldown_verdict },
+                    if !cs.stuck_clock_note.is_empty() { &cs.stuck_clock_note } else { &cs.plain_summary }
+                );
+                draw_diag_card(&mut pb, "CPU BD PROCHOT & HEATSINK COOL-DOWN AUDIT", badge, sev, &body);
+            }
+        }
+
+        if let Some(rem) = &payload.removable_drive_bench {
+            let sev = match rem.status {
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+                _ => "warn",
+            };
+            let body = format!(
+                "{} ({}, {}) | Read {:.1} MB/s / Write {:.1} MB/s ({} MB test) — {}",
+                rem.label, rem.mount_path, rem.media_kind, rem.seq_read_mb_s, rem.seq_write_mb_s, rem.test_size_mb, rem.plain_summary
+            );
+            draw_diag_card(&mut pb, "USB / SD-CARD REAL 64 MB SPEED AUDIT", &rem.verdict, sev, &body);
+        }
+
+        if let Some(tf) = &payload.tamper_forensics {
+            let (badge, sev) = if tf.warn_count > 0 {
+                ("FORENSIC WARN", "warn")
+            } else if tf.info_count > 0 {
+                ("REFURB DISCLOSED", "pass")
+            } else {
+                ("CONSISTENT OEM", "pass")
+            };
+            let body = format!("{} — {}", tf.summary, tf.plain_summary);
+            draw_diag_card(&mut pb, "USED-LAPTOP TAMPER & REFURBISHER FORENSICS", badge, sev, &body);
+        }
 
         if let Some(bat) = &payload.battery_discharge {
             let metrics_line = format!(
@@ -1122,7 +1331,7 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     ));
-    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.0.0 protocol.", stage_count);
+    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.1.0 protocol.", stage_count);
     let notes_s = format!(
         "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
@@ -1343,7 +1552,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("LaptopBench QC v3.0.0"));
+        assert!(text.contains("LaptopBench QC v3.1.0"));
         assert!(text.contains("Created by Hein Htet Zaw"));
         assert!(text.contains("@ich8g92"));
         assert!(!text.contains("v2.1."));
@@ -1494,6 +1703,11 @@ mod tests {
             display_pro: None,
             sleep_audit: None,
             removable_drive_bench: None,
+            security_audit: None,
+            battery_health: None,
+            storage_bench: None,
+            perf_bench: None,
+            tamper_forensics: None,
             output_dir: None,
         };
 
@@ -1930,5 +2144,123 @@ mod tests {
                 sec02
             );
         }
+    }
+
+    #[test]
+    fn test_pdf_v310_full_diagnostic_parity() {
+        use crate::types::{
+            BatteryChargeResult, BatteryHealthReport, DisplayProResult, PerfBenchResult,
+            RemovableDriveBenchResult, SecurityAuditReport, SleepStandbyReport, StorageBenchResult,
+            TamperForensicFinding, TamperForensicsReport,
+        };
+        let payload = ExportReportPayload {
+            shop_profile: ShopProfile {
+                shop_name: "Swiss Lab".into(),
+                technician_name: "Tester".into(),
+                ..Default::default()
+            },
+            overall_verdict: "PASSED WITH WARNINGS".into(),
+            security_audit: Some(SecurityAuditReport {
+                license_channel: "Volume:GVLK".into(),
+                kms_piracy_suspected: true,
+                oem_bios_key_present: Some(true),
+                oem_bios_key_hint: Some("Core OEM:DM (ending in 9QXYZ)".into()),
+                license_grace_days: Some(180),
+                plain_summary: "KMS crack suspected.".into(),
+                ..Default::default()
+            }),
+            battery_health: Some(BatteryHealthReport {
+                present: true,
+                ac_plugged: true,
+                adapter_watts: Some(45),
+                adapter_source: "Dell DCIM WMI".into(),
+                adapter_warning: Some("Undersized AC charger (45W) detected".into()),
+                ..Default::default()
+            }),
+            battery_charge: Some(BatteryChargeResult {
+                status: TestStatus::Pass,
+                verdict: "PASS".into(),
+                duration_secs: 12.0,
+                ac_plugged: true,
+                start_charge_pct: 55.0,
+                end_charge_pct: 56.2,
+                charge_gain_pct: 1.2,
+                avg_charge_watts: Some(32.5),
+                plain_summary: "Active charging verified.".into(),
+                ..Default::default()
+            }),
+            display_pro: Some(DisplayProResult {
+                active_hz: 144,
+                native_max_hz: 144,
+                measured_hz: 144,
+                bleed_severity: "none".into(),
+                plain_summary: "144Hz verified clean.".into(),
+                ..Default::default()
+            }),
+            sleep_audit: Some(SleepStandbyReport {
+                status: TestStatus::Pass,
+                verdict: "HEALTHY".into(),
+                sleep_mode: "Modern Standby (S0ix)".into(),
+                sessions_analyzed: 3,
+                avg_drain_pct_per_hr: Some(0.8),
+                plain_summary: "Sleep healthy.".into(),
+                ..Default::default()
+            }),
+            storage_bench: Some(StorageBenchResult {
+                seq_write_early_mb_s: 2100.0,
+                seq_write_late_mb_s: 600.0,
+                write_collapse_pct: 71.4,
+                temp_start_c: Some(42),
+                peak_drive_temp_c: Some(74),
+                thermal_throttle_verdict: "SSD_THERMAL_THROTTLE".into(),
+                plain_summary: "SSD throttled under write load.".into(),
+                ..Default::default()
+            }),
+            perf_bench: Some(PerfBenchResult {
+                bd_prochot_suspected: true,
+                min_load_clock_mhz: 399,
+                stuck_clock_secs: 6.0,
+                stuck_clock_note: "BD PROCHOT stuck at 399 MHz.".into(),
+                cooldown_verdict: "EXCELLENT".into(),
+                ..Default::default()
+            }),
+            removable_drive_bench: Some(RemovableDriveBenchResult {
+                status: TestStatus::Warn,
+                verdict: "USB2_FALLBACK_WARN".into(),
+                mount_path: "E:/".into(),
+                label: "TestUSB".into(),
+                media_kind: "USB Flash Drive".into(),
+                test_size_mb: 64,
+                seq_write_mb_s: 18.0,
+                seq_read_mb_s: 32.0,
+                plain_summary: "USB 2.0 fallback detected.".into(),
+                ..Default::default()
+            }),
+            tamper_forensics: Some(TamperForensicsReport {
+                status: TestStatus::Pass,
+                info_count: 1,
+                warn_count: 0,
+                findings: vec![TamperForensicFinding {
+                    id: "ssd_swap_mismatch".into(),
+                    title: "Fresh SSD Swap Disclosed".into(),
+                    severity: "info".into(),
+                    detail: "Fresh SSD detected.".into(),
+                }],
+                summary: "1 transparent refurbishment disclosure(s) noted.".into(),
+                plain_summary: "[INFO] Fresh SSD Swap Disclosed".into(),
+            }),
+            ..Default::default()
+        };
+        let bytes = render_qc_certificate_pdf(&payload, "2026-11-26 18:00:00");
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("WINDOWS LICENSE & OEM BIOS KEY"));
+        assert!(text.contains("AC / USB-C PD CHARGER WATTAGE AUDIT"));
+        assert!(text.contains("ACTIVE AC CHARGING IC"));
+        assert!(text.contains("DISPLAY PRO"));
+        assert!(text.contains("SLEEP & MODERN STANDBY"));
+        assert!(text.contains("SSD THERMAL THROTTLING"));
+        assert!(text.contains("CPU BD PROCHOT"));
+        assert!(text.contains("USB / SD-CARD REAL 64 MB SPEED AUDIT"));
+        assert!(text.contains("USED-LAPTOP TAMPER & REFURBISHER FORENSICS"));
     }
 }

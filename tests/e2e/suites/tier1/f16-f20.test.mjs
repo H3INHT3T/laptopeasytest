@@ -773,7 +773,7 @@ export const tests = [
     title: "Version unification checks 2.3.0 across all 8 tracked manifests, UI, Rust, and README",
     tags: ["tier1", "cli", "version"],
     run: async (ctx) => {
-      const aligned = ctx.cli.checkVersionAlignment("3.0.0");
+      const aligned = ctx.cli.checkVersionAlignment("3.1.0");
       const mismatches = aligned.findings.filter((f) => !f.ok);
       ctx.assert.equal(
         aligned.ok,
@@ -825,7 +825,7 @@ export const tests = [
     run: async (ctx) => {
       const st = await ctx.cli.runSelfTest();
       ctx.assert.equal(st.ok, true, `--self-test failed: ${st.stderr || st.stdout}`);
-      ctx.assert.match(st.stdout, /v(?:2\.(?:[3-9]|1[01])|3\.0)(?:\.0)?/i, "--self-test banner must reflect v3.0.0");
+      ctx.assert.match(st.stdout, /v(?:2\.(?:[3-9]|1[01])|3\.[01])(?:\.0)?/i, "--self-test banner must reflect v3.1.0");
       ctx.assert.match(
         st.stdout,
         /UserBenchmark|Vehicle Tier/i,
@@ -866,7 +866,7 @@ export const tests = [
       ctx.assert.match(st.stdout, /Network/i, "--self-test must verify Network diagnostics");
 
       const readme = ctx.cli.readRepoFile("README.md");
-      ctx.assert.ok(readme.includes("3.0.0"), "README.md must document v3.0.0");
+      ctx.assert.ok(readme.includes("3.1.0"), "README.md must document v3.1.0");
       for (const topic of ["UserBenchmark", "Battery Discharge", "Touchscreen", "14"]) {
         ctx.assert.match(readme, new RegExp(topic, "i"), `README.md missing v2.3.0 topic "${topic}"`);
       }

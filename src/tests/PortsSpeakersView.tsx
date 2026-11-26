@@ -221,6 +221,30 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
     audioTimerRef.current = window.setTimeout(() => stopAudio(), durMs + 100);
   };
 
+  // 100 Hz -> 4 kHz Chassis Resonance & Speaker-Rattle Sweep (4s logarithmic sine sweep, v3.1.0)
+  const playRattleSweep = () => {
+    stopAudio();
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    audioCtxRef.current = ctx;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(100, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(4000, ctx.currentTime + 3.8);
+    gain.gain.setValueAtTime(0.01, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.32, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.32, ctx.currentTime + 3.6);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4.0);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 4.0);
+    setActiveAudioLabel("100 Hz → 4 kHz Sweep");
+    audioTimerRef.current = window.setTimeout(() => stopAudio(), 4100);
+  };
+
   // Automated 3-Second Mic-Verified Left/Right + 180Hz Blown-Cone Distortion (THD) Test
   const runAutoAcousticTest = async () => {
     stopAudio();
@@ -653,6 +677,14 @@ export const PortsSpeakersView: React.FC<PortsSpeakersViewProps> = ({
               className="px-3 py-1.5 rounded-lg border border-zinc-200 bg-white hover:border-black text-xs font-semibold text-black cursor-pointer"
             >
               Bass 180 Hz
+            </button>
+            <button
+              type="button"
+              onClick={playRattleSweep}
+              className="px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50/60 hover:border-blue-600 text-xs font-semibold text-blue-700 cursor-pointer"
+              title="4-second logarithmic 100 Hz to 4 kHz frequency sweep to expose loose screws or buzzing speaker cones"
+            >
+              100 Hz → 4 kHz Rattle Sweep
             </button>
             {activeAudioLabel && (
               <button

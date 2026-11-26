@@ -197,13 +197,51 @@ export const BottomSensorsDock: React.FC<BottomSensorsDockProps> = ({ telemetry 
                 <td className="py-1.5 px-2">
                   <MiniSpark values={hist.gpuUsage} maxHint={100} accent />
                 </td>
-                <td className="py-1.5 px-2 text-zinc-400">—</td>
-                <td className="py-1.5 px-4 text-zinc-400">
-                  {telemetry?.fanRpm != null && telemetry.fanRpm > 0 ? `${telemetry.fanRpm} RPM` : "—"}
+                <td className="py-1.5 px-2 text-black">
+                  {telemetry?.gpuClockMhz != null ? `${telemetry.gpuClockMhz} MHz` : "—"}
+                </td>
+                <td className="py-1.5 px-4 text-zinc-600">
+                  {telemetry?.gpuFanPct != null
+                    ? `${telemetry.gpuFanPct}% Fan`
+                    : telemetry?.fanRpm != null && telemetry.fanRpm > 0
+                    ? `${telemetry.fanRpm} RPM`
+                    : "—"}
                 </td>
               </tr>
             </tbody>
           </table>
+
+          {(telemetry?.gpuMemClockMhz != null ||
+            telemetry?.gpuSlowdownTempC != null ||
+            (telemetry?.gpuThrottleReasons && telemetry.gpuThrottleReasons.length > 0)) && (
+            <div className="px-4 py-1.5 border-t border-zinc-100 bg-[#F8FAFC] flex items-center gap-2 flex-wrap font-mono text-[10px] tabular-nums">
+              <span className="text-zinc-500 font-bold uppercase">NVML Deep:</span>
+              {telemetry.gpuMemClockMhz != null && (
+                <span className="px-1.5 py-0.5 rounded border border-zinc-200 bg-white text-black">
+                  VRAM {telemetry.gpuMemClockMhz} MHz
+                </span>
+              )}
+              {telemetry.gpuSlowdownTempC != null && (
+                <span className="px-1.5 py-0.5 rounded border border-zinc-200 bg-white text-zinc-700">
+                  Slowdown {telemetry.gpuSlowdownTempC}°C
+                </span>
+              )}
+              {telemetry.gpuThrottleReasons && telemetry.gpuThrottleReasons.length > 0 ? (
+                telemetry.gpuThrottleReasons.map((r, idx) => (
+                  <span
+                    key={idx}
+                    className="px-1.5 py-0.5 rounded border border-black bg-black text-white font-bold"
+                  >
+                    THROTTLE: {r}
+                  </span>
+                ))
+              ) : (
+                <span className="px-1.5 py-0.5 rounded border border-blue-200 bg-blue-50/70 text-blue-700 font-bold">
+                  NO HW THROTTLE
+                </span>
+              )}
+            </div>
+          )}
 
           {perCoreTemps.length > 0 && (
             <div className="px-4 py-1.5 border-t border-zinc-100 bg-[#F8FAFC] flex items-center gap-1.5 flex-wrap font-mono text-[10px] tabular-nums">

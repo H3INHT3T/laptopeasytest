@@ -1,15 +1,11 @@
+use crate::modules::portable;
 use crate::types::{ExportReportPayload, ExportedReportPaths, QcArchiveRecord, WarrantyReturnDiff};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 fn archive_file_path(app: &AppHandle) -> PathBuf {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("LaptopBenchQC"));
-    let _ = fs::create_dir_all(&dir);
-    dir.join("qc_archive.json")
+    portable::resolve_data_dir(app).join("qc_archive.json")
 }
 
 pub fn load_archive_from_path(path: &PathBuf) -> Vec<QcArchiveRecord> {

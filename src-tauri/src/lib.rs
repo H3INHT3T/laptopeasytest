@@ -4,7 +4,7 @@ mod types;
 
 use modules::{
     baselines, battery, biometrics, cpu_stress, display_pro, error_logs, gpu_stress, hardware_controls,
-    hardware_faults, keyboard_hook, network, perf_bench, port_diagnostics, power_torture, qc_archive, ram_test,
+    hardware_faults, keyboard_hook, network, perf_bench, port_diagnostics, portable, power_torture, qc_archive, ram_test,
     raytracer, report, security_audit, session, shop_history, simd_kernels, sleep_audit, specs, storage,
     telemetry, usb_ports, userbenchmark, vram_test,
 };
@@ -20,10 +20,10 @@ use types::{
     DisplayCapabilitiesReport, EdpHingeFlexResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
     HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
-    PortDiagnosticsReport, PowerTortureResult, QcArchiveRecord, RamTestResult,
+    PortDiagnosticsReport, PortableStorageInfo, PowerTortureResult, QcArchiveRecord, RamTestResult,
     RemovableDriveBenchResult, RemovableDriveInfo, SavedSessionPayload, SecurityAuditReport,
     ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, SleepStandbyReport, StorageBenchResult,
-    StorageSmartReport, SystemSpecs, TestStatus, TouchscreenTestResult, UsbDeviceInfo,
+    StorageSmartReport, SystemSpecs, TamperForensicsReport, TestStatus, TouchscreenTestResult, UsbDeviceInfo,
     UserBenchmarkComparison, UserBenchmarkInput, VramTestResult, WarrantyReturnDiff,
     BATTERY_DISCHARGE_MAX_SECS,
     BATTERY_LOW_SOC_ABORT_PCT, CPU_THERMAL_CUTOFF_DEFAULT_C, CPU_THERMAL_CUTOFF_MAX_C,
@@ -684,7 +684,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v3.0.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v3.1.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -813,6 +813,7 @@ pub fn run_self_test() -> Result<(), String> {
         notes: String::new(),
         cycle_source: "SelfTest".into(),
         capacity_history: Vec::new(),
+        ..Default::default()
     };
     let normal_samples: Vec<BatteryLiveSample> = (0..12)
         .map(|i| BatteryLiveSample {
@@ -899,6 +900,7 @@ pub fn run_self_test() -> Result<(), String> {
         temp_source: "SelfTest".into(),
         per_core_temps_c: vec![94.0, 96.0],
         pawnio_installed: false,
+        ..Default::default()
     };
     match telemetry::TelemetryReader::is_thermal_safe(&hot_snap, 95.0, 92.0) {
         telemetry::ThermalSafetyCheck::CutoffTriggered { .. } => {}
@@ -997,6 +999,11 @@ pub fn run_self_test() -> Result<(), String> {
         display_pro: None,
         sleep_audit: None,
         removable_drive_bench: None,
+        security_audit: None,
+        battery_health: None,
+        storage_bench: None,
+        perf_bench: None,
+        tamper_forensics: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -1005,8 +1012,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v3.0.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v3.0.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v3.1.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v3.1.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -1066,7 +1073,7 @@ pub fn run_self_test() -> Result<(), String> {
         bat.ac_plugged
     );
 
-    // 11b. v3.0.0 Smart-Bench Charging IC + Conservation Mode + Smart Cool-Down Verification
+    // 11b. v3.1.0 Smart-Bench Charging IC + Conservation Mode + Smart Cool-Down Verification
     let chg_ok = battery::classify_battery_charge_test(
         &[
             BatteryLiveSample { timestamp_ms: 0, charge_percent: 55.0, ac_plugged: true, is_charging: true, voltage_mv: Some(12_300), rate_mw: Some(32_000), watts: Some(32.0) },
@@ -1099,10 +1106,10 @@ pub fn run_self_test() -> Result<(), String> {
         || cd_cool != "COOL_LOAD"
         || cd_poor != "POOR_COOLING"
     {
-        return Err("v3.0.0 Charging IC or Smart Cool-Down classifier check failed".into());
+        return Err("v3.1.0 Charging IC or Smart Cool-Down classifier check failed".into());
     }
     println!(
-        "[PASS] v3.0.0 Charging IC & Smart Cool-Down (ok={}, cons={}, dead={}, cool={}, poor={})",
+        "[PASS] v3.1.0 Charging IC & Smart Cool-Down (ok={}, cons={}, dead={}, cool={}, poor={})",
         chg_ok.verdict, chg_cons.verdict, chg_dead.verdict, cd_cool, cd_poor
     );
 
@@ -1150,10 +1157,10 @@ pub fn run_self_test() -> Result<(), String> {
         || smart_warn != TestStatus::Warn
         || smart_fail != TestStatus::Fail
     {
-        return Err("v3.0.0 Display Pro capability/hinge/verdict check failed".into());
+        return Err("v3.1.0 Display Pro capability/hinge/verdict check failed".into());
     }
     println!(
-        "[PASS] v3.0.0 Display Pro ({}x{} @ {}Hz / max {}Hz | mismatch_guard=ok | hinge=STABLE/DROP)",
+        "[PASS] v3.1.0 Display Pro ({}x{} @ {}Hz / max {}Hz | mismatch_guard=ok | hinge=STABLE/DROP)",
         disp_caps.active_width, disp_caps.active_height, disp_caps.active_hz, disp_caps.native_max_hz
     );
 
@@ -1163,11 +1170,23 @@ pub fn run_self_test() -> Result<(), String> {
     let rem_slow = port_diagnostics::classify_removable_drive_speed("E:\\".into(), "USB3".into(), "USB Flash Drive".into(), 64, 20.0, 32.0, 4.0);
     let rem_list = port_diagnostics::list_removable_drives();
     if !bd_stuck || ssd_throt != "SSD_THERMAL_THROTTLE" || rem_slow.verdict != "USB2_FALLBACK_WARN" {
-        return Err("v3.0.0 BD PROCHOT / SSD Thermal Collapse / USB Speed classifier check failed".into());
+        return Err("v3.1.0 BD PROCHOT / SSD Thermal Collapse / USB Speed classifier check failed".into());
     }
     println!(
-        "[PASS] v3.0.0 Multi-Upgrade Engine (Sleep={} [{}] | BD_PROCHOT=ok | SSD_Collapse={} | RemovableDrives={})",
+        "[PASS] v3.1.0 Multi-Upgrade Engine (Sleep={} [{}] | BD_PROCHOT=ok | SSD_Collapse={} | RemovableDrives={})",
         sleep_rep.verdict, sleep_rep.sleep_mode, ssd_throt, rem_list.len()
+    );
+
+    let nv_throt = telemetry::decode_nvml_throttle_reasons(0x40 | 0x04);
+    let chg_warn = battery::evaluate_charger_adequacy(true, Some(45), true);
+    let tf_rep = hardware_faults::evaluate_tamper_forensics(Some(&sp), Some(&bat), Some(&smart), Some(&hw_faults));
+    let (port_ok, _) = portable::evaluate_portable_mode(std::path::Path::new("E:\\LaptopBench.QC_3.1.0_x64-portable.exe"), true, false);
+    if nv_throt.len() < 2 || chg_warn.is_none() || !port_ok {
+        return Err("v3.1.0 Forensics / NVML / Charger Adequacy / Portable USB check failed".into());
+    }
+    println!(
+        "[PASS] v3.1.0 Forensics & Zero-Driver Engine (NVML_Decode=ok | ChargerWarn=ok | PortableDetect=ok | TamperForensics={:?})",
+        tf_rep.status
     );
 
     let mut cpu_buf = vec![0u64; 1024];
@@ -1185,8 +1204,28 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v3.0.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v3.1.0 SELF-TESTS PASSED ===");
     Ok(())
+}
+
+#[tauri::command]
+fn get_portable_mode_info(app: AppHandle) -> PortableStorageInfo {
+    portable::get_portable_mode_info(&app)
+}
+
+#[tauri::command]
+fn evaluate_tamper_forensics(
+    specs: Option<SystemSpecs>,
+    battery: Option<BatteryHealthReport>,
+    smart: Option<StorageSmartReport>,
+    faults: Option<HardwareFaultsReport>,
+) -> TamperForensicsReport {
+    hardware_faults::evaluate_tamper_forensics(
+        specs.as_ref(),
+        battery.as_ref(),
+        smart.as_ref(),
+        faults.as_ref(),
+    )
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1261,6 +1300,8 @@ pub fn run() {
             run_sleep_standby_audit,
             list_removable_drives,
             run_removable_drive_speed_test,
+            get_portable_mode_info,
+            evaluate_tamper_forensics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

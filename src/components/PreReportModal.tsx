@@ -31,6 +31,7 @@ import type {
   NetworkDiagnosticsReport,
   PerfBenchResult,
   PortsSpeakerSignoff,
+  PortableStorageInfo,
   PowerTortureResult,
   RamTestResult,
   RemovableDriveBenchResult,
@@ -42,6 +43,7 @@ import type {
   StorageSmartReport,
   SubsystemScoreBar,
   SystemSpecs,
+  TamperForensicsReport,
   TouchscreenTestResult,
   UserBenchmarkComparison,
   VramTestResult,
@@ -76,6 +78,8 @@ interface PreReportModalProps {
   hardwareFaults?: HardwareFaultsReport | null;
   sleepAuditReport?: SleepStandbyReport | null;
   removableDriveBench?: RemovableDriveBenchResult | null;
+  tamperForensics?: TamperForensicsReport | null;
+  portableInfo?: PortableStorageInfo | null;
   userbenchmarkComparison?: UserBenchmarkComparison | null;
 }
 
@@ -108,6 +112,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   hardwareFaults,
   sleepAuditReport,
   removableDriveBench,
+  tamperForensics,
+  portableInfo,
   userbenchmarkComparison,
 }) => {
   const [profile, setProfile] = useState<ShopProfile>(shopProfile);
@@ -824,6 +830,11 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         displayPro: displayProResult ?? null,
         sleepAudit: sleepAuditReport ?? null,
         removableDriveBench: removableDriveBench ?? null,
+        securityAudit: securityReport ?? null,
+        batteryHealth: batteryReport ?? null,
+        storageBench: storageBench ?? null,
+        perfBench: perfResult ?? null,
+        tamperForensics: tamperForensics ?? null,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);
@@ -840,8 +851,13 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         {/* Top Modal Header */}
         <div className="px-5 py-3.5 bg-black text-white flex items-center justify-between border-b border-zinc-800">
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-blue-400">
-              SWISS LAB CALIBRATION CERTIFICATE GENERATOR
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-blue-400 flex items-center gap-2 flex-wrap">
+              <span>SWISS LAB CALIBRATION CERTIFICATE GENERATOR</span>
+              {portableInfo?.isPortable && (
+                <span className="px-2 py-0.5 rounded bg-blue-600 text-white text-[9.5px]">
+                  PORTABLE USB MODE • SAVES TO {portableInfo.reportsDir}
+                </span>
+              )}
             </div>
             <h2 className="text-base font-black tracking-tight mt-0.5">
               Issue Branded Hardware Certificate (PDF + HTML + Tamper-Check JSON)

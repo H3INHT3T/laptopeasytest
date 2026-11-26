@@ -92,7 +92,35 @@ pub fn get_battery_health() -> BatteryHealthReport {
             notes: "Battery query not supported on this OS.".to_string(),
             cycle_source: String::new(),
             capacity_history: Vec::new(),
+            adapter_source: String::new(),
+            adapter_warning: None,
         }
+    }
+}
+
+/// Evaluates whether the connected AC / USB-C PD adapter wattage is adequate for this laptop class (v3.1.0).
+/// Catches undersized / generic 45W-65W adapters shipped with discrete-GPU gaming or workstation laptops.
+pub fn evaluate_charger_adequacy(
+    ac_plugged: bool,
+    adapter_watts: Option<u32>,
+    has_discrete_gpu: bool,
+) -> Option<String> {
+    if !ac_plugged {
+        return None;
+    }
+    let w = adapter_watts?;
+    if has_discrete_gpu && w <= 65 {
+        Some(format!(
+            "Undersized AC charger ({}W) detected on discrete-GPU laptop — battery may drain under gaming/full load. Verify OEM 130W+ adapter.",
+            w
+        ))
+    } else if w < 30 {
+        Some(format!(
+            "Very low-wattage USB-C / AC adapter ({}W) detected — laptop may trickle-charge or lose charge during normal use.",
+            w
+        ))
+    } else {
+        None
     }
 }
 
@@ -1682,6 +1710,21 @@ $chgRate = if ($st -and $st.ChargeRate -gt 0) { [int64]$st.ChargeRate } elseif (
 $volt = if ($st -and $st.Voltage -gt 0) { [uint64]$st.Voltage } elseif ($wb.DesignVoltage -gt 0) { [uint64]$wb.DesignVoltage } else { 0 }
 $ac = if ($st) { [bool]$st.PowerOnline } else { ($wb.BatteryStatus -in @(2,6,7,8,9)) }
 $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,8,9)) }
+$hasDgpu = [bool](Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'NVIDIA|GeForce|RTX|GTX|Quadro|Radeon RX|Radeon Pro|Arc A\d' } | Select-Object -First 1)
+$adapterW = $null
+$adapterSrc = ''
+try {
+    $dellPsu = Get-CimInstance -Namespace root\dcim\sysman -ClassName DCIM_PowerSupply -ErrorAction Stop | Where-Object { $_.TotalOutputPower -gt 0 } | Select-Object -First 1
+    if ($dellPsu) {
+        $adapterW = [uint32]([math]::Round([double]$dellPsu.TotalOutputPower))
+        $adapterSrc = 'Dell DCIM WMI'
+    }
+} catch {}
+if ($null -eq $adapterW -and $ac -and $chgRate -gt 20000) {
+    $est = [uint32]([math]::Ceiling(([double]$chgRate / 1000.0) + 15.0))
+    $adapterW = $est
+    $adapterSrc = 'Measured Charge Rate'
+}
 
 @{
     present = $true
@@ -1695,6 +1738,9 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
     charging = $charging
     voltage = $volt
     rateMw = $chgRate
+    adapterWatts = $adapterW
+    adapterSrc = $adapterSrc
+    hasDgpu = $hasDgpu
 } | ConvertTo-Json -Compress
 "#;
 
@@ -1717,6 +1763,8 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
         notes: "No battery detected (desktop PC or battery disconnected).".to_string(),
         cycle_source: String::new(),
         capacity_history: Vec::new(),
+        adapter_source: String::new(),
+        adapter_warning: None,
     };
 
     if let Ok(raw) = run_powershell(ps) {
@@ -1773,6 +1821,10 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
             report.is_charging = v["charging"].as_bool().unwrap_or(false);
             report.voltage_mv = v["voltage"].as_u64().filter(|&x| x > 0);
             report.rate_mw = v["rateMw"].as_i64();
+            report.adapter_watts = v["adapterWatts"].as_u64().filter(|&w| w > 0 && w <= 500).map(|w| w as u32);
+            report.adapter_source = v["adapterSrc"].as_str().unwrap_or("").trim().to_string();
+            let has_dgpu = v["hasDgpu"].as_bool().unwrap_or(false);
+            report.adapter_warning = evaluate_charger_adequacy(report.ac_plugged, report.adapter_watts, has_dgpu);
 
             if let (Some(d), Some(f)) = (design, full) {
                 let health = ((f as f64 / d as f64) * 100.0).min(100.0);
@@ -1787,6 +1839,9 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
                 Some(_) => TestStatus::Fail,
                 None => TestStatus::Warn,
             };
+            if report.adapter_warning.is_some() && report.status == TestStatus::Pass {
+                report.status = TestStatus::Warn;
+            }
 
             report.notes = match report.health_percent {
                 Some(h) if h >= 80.0 => format!("Healthy battery ({:.1}% capacity remaining).", h),
@@ -1800,6 +1855,9 @@ $charging = if ($st) { [bool]$st.Charging } else { ($wb.BatteryStatus -in @(6,7,
                 None => "Battery detected; OEM firmware did not expose full capacity telemetry."
                     .to_string(),
             };
+            if let Some(ref aw) = report.adapter_warning {
+                report.notes = format!("{} | {}", report.notes, aw);
+            }
         }
     }
 
@@ -2137,6 +2195,8 @@ fn get_macos_battery_health() -> BatteryHealthReport {
         notes: "No internal battery detected.".to_string(),
         cycle_source: String::new(),
         capacity_history: Vec::new(),
+        adapter_source: String::new(),
+        adapter_warning: None,
     };
 
     if let Ok(out) = run_cmd_stdout("ioreg", &["-r", "-c", "AppleSmartBattery", "-d", "1"]) {
@@ -2161,6 +2221,10 @@ fn get_macos_battery_health() -> BatteryHealthReport {
         report.is_charging = parsed.is_charging;
         report.ac_plugged = parsed.ac_plugged;
         report.adapter_watts = parsed.adapter_watts;
+        if parsed.adapter_watts.is_some() {
+            report.adapter_source = "macOS IORegistry USB-C PD".to_string();
+        }
+        report.adapter_warning = evaluate_charger_adequacy(report.ac_plugged, report.adapter_watts, false);
 
         if let (Some(ma), Some(mv)) = (parsed.amperage_ma, parsed.voltage_mv) {
             report.rate_mw = Some((ma * (mv as i64)) / 1000);
@@ -2220,6 +2284,8 @@ mod tests {
             notes: String::new(),
             cycle_source: "Test".into(),
             capacity_history: Vec::new(),
+            adapter_source: String::new(),
+            adapter_warning: None,
         }
     }
 
@@ -2645,5 +2711,26 @@ mod tests {
         let res_unp = classify_battery_charge_test(&unplugged, 0.0, false);
         assert_eq!(res_unp.status, TestStatus::Warn);
         assert_eq!(res_unp.verdict, "AC_UNPLUGGED");
+    }
+
+    #[test]
+    fn test_charger_adequacy_undersized_dgpu_v310() {
+        // 45W charger on discrete-GPU gaming laptop -> WARN
+        let warn_dgpu = evaluate_charger_adequacy(true, Some(45), true);
+        assert!(warn_dgpu.is_some());
+        assert!(warn_dgpu.unwrap().contains("Undersized AC charger (45W)"));
+
+        // 130W charger on discrete-GPU laptop -> OK
+        assert!(evaluate_charger_adequacy(true, Some(130), true).is_none());
+
+        // 65W charger on ultrabook (no dGPU) -> OK
+        assert!(evaluate_charger_adequacy(true, Some(65), false).is_none());
+
+        // 18W phone charger on any laptop -> WARN
+        let phone = evaluate_charger_adequacy(true, Some(18), false);
+        assert!(phone.is_some());
+
+        // Unplugged -> None
+        assert!(evaluate_charger_adequacy(false, Some(45), true).is_none());
     }
 }

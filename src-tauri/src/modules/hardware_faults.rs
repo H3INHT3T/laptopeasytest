@@ -5,7 +5,8 @@
 //! 3. Display Panel EDID Manufacturer, Model & Manufacture Date Authenticity Audit (flags replaced screens as INFO)
 
 use crate::types::{
-    DisplayEdidInfo, DeviceManagerFault, HardwareFaultsReport, PcieLinkInfo, TestStatus,
+    BatteryHealthReport, DeviceManagerFault, DisplayEdidInfo, HardwareFaultsReport, PcieLinkInfo,
+    StorageSmartReport, SystemSpecs, TamperForensicFinding, TamperForensicsReport, TestStatus,
 };
 
 #[cfg(target_os = "windows")]
@@ -614,6 +615,241 @@ fn scan_macos_hardware_faults() -> HardwareFaultsReport {
     assemble_hardware_faults_report("macOS", Vec::new(), pcie_links, panels)
 }
 
+/// Checks whether a battery manufacturer string looks like a generic / third-party aftermarket pack.
+fn is_aftermarket_battery_vendor(raw: &str) -> bool {
+    let s = raw.trim().to_ascii_lowercase();
+    if s.is_empty() {
+        return false;
+    }
+    let genuine_hints = [
+        "apple", "dell", "lenovo", "hp", "hewlett", "asus", "acer", "msi", "razer", "samsung",
+        "lg", "lgc", "sony", "murata", "panasonic", "sanyo", "smp", "simplo", "celxpert",
+        "sunwoda", "byd", "dynapack", "coslight", "cosmx", "atl", "desay", "lishen", "scud",
+        "nv", "tp", "compal", "quanta", "microsoft", "surface", "toshiba", "fujitsu", "huawei",
+        "honor", "xiaomi", "framework", "getac",
+    ];
+    if genuine_hints.iter().any(|h| s.contains(h)) {
+        return false;
+    }
+    let generic_hints = [
+        "replacement",
+        "generic",
+        "compatible",
+        "notebook",
+        "battery",
+        "unknown",
+        "lion",
+        "li-ion",
+        "standard",
+        "china",
+        "oem",
+        "default",
+        "power",
+    ];
+    generic_hints.iter().any(|h| s.contains(h))
+}
+
+fn extract_year_from_str(s: &str) -> Option<u32> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 4 {
+        return None;
+    }
+    for i in 0..=bytes.len() - 4 {
+        if bytes[i..i + 4].iter().all(|b| b.is_ascii_digit()) {
+            if let Ok(yr) = s[i..i + 4].parse::<u32>() {
+                if (2010..=2040).contains(&yr) {
+                    return Some(yr);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Cross-stage Used-Laptop Tamper & Refurbisher Mismatch Forensics (v3.1.0).
+/// Smart Shop Calibration: honest refurbisher swaps (fresh SSD, replaced battery, replaced panel)
+/// are reported transparently as INFO disclosures (never auto-FAIL); high-mileage enterprise SSDs
+/// and outdated Intel 13th/14th-Gen HX BIOS microcode are surfaced as WARN.
+pub fn evaluate_tamper_forensics(
+    specs: Option<&SystemSpecs>,
+    battery: Option<&BatteryHealthReport>,
+    smart: Option<&StorageSmartReport>,
+    faults: Option<&HardwareFaultsReport>,
+) -> TamperForensicsReport {
+    let mut findings: Vec<TamperForensicFinding> = Vec::new();
+
+    let primary_drive = smart.and_then(|s| s.drives.first());
+    let ssd_poh = primary_drive.and_then(|d| d.power_on_hours);
+    let ssd_tbw_tb = primary_drive.and_then(|d| d.tbw_gb).map(|g| g / 1000.0);
+    let bat_cycles = battery.and_then(|b| b.cycle_count);
+    let bat_health = battery.and_then(|b| b.health_percent);
+    let bat_vendor = battery.map(|b| b.manufacturer.trim()).unwrap_or("");
+    let bios_year = specs.and_then(|s| extract_year_from_str(&s.bios_date));
+    let cpu_brand = specs.map(|s| s.cpu_brand.as_str()).unwrap_or("");
+
+    // 1. Fresh SSD swap / odometer mismatch vs worn battery
+    if let Some(poh) = ssd_poh {
+        let heavy_bat = bat_cycles.map(|c| c >= 200).unwrap_or(false)
+            || bat_health.map(|h| h < 80.0).unwrap_or(false);
+        if poh <= 30 && heavy_bat {
+            findings.push(TamperForensicFinding {
+                id: "ssd_swap_mismatch".into(),
+                title: "Fresh SSD Swap Disclosed".into(),
+                severity: "info".into(),
+                detail: format!(
+                    "Primary SSD has only {} Power-On Hours while battery shows {} ({}% health) — SSD was recently replaced or upgraded (disclose transparently; not a defect).",
+                    poh,
+                    bat_cycles.map(|c| format!("{} cycles", c)).unwrap_or_else(|| "measurable wear".into()),
+                    bat_health.map(|h| format!("{:.0}", h)).unwrap_or_else(|| "?".into()),
+                ),
+            });
+        }
+        // 2. High-mileage enterprise fleet SSD
+        if poh >= 10_000 || ssd_tbw_tb.map(|tb| tb >= 100.0).unwrap_or(false) {
+            findings.push(TamperForensicFinding {
+                id: "high_mileage_ssd".into(),
+                title: "High-Mileage Enterprise SSD".into(),
+                severity: "warn".into(),
+                detail: format!(
+                    "Primary SSD logs {} Power-On Hours{} — typical of heavy 24/7 enterprise fleet use; verify remaining SMART spare & price accordingly.",
+                    poh,
+                    ssd_tbw_tb.map(|tb| format!(" ({:.1} TB written)", tb)).unwrap_or_default()
+                ),
+            });
+        }
+    } else if let Some(tb) = ssd_tbw_tb {
+        if tb >= 100.0 {
+            findings.push(TamperForensicFinding {
+                id: "high_mileage_ssd".into(),
+                title: "High-Mileage Enterprise SSD".into(),
+                severity: "warn".into(),
+                detail: format!(
+                    "Primary SSD has {:.1} TB total data written — heavy lifetime write mileage.",
+                    tb
+                ),
+            });
+        }
+    }
+
+    // 3. Aftermarket / recently replaced battery disclosure
+    if battery.map(|b| b.present).unwrap_or(false) {
+        if is_aftermarket_battery_vendor(bat_vendor) {
+            findings.push(TamperForensicFinding {
+                id: "aftermarket_battery".into(),
+                title: "Aftermarket / Generic Battery Vendor".into(),
+                severity: "info".into(),
+                detail: format!(
+                    "Battery reports non-OEM/generic vendor string \"{}\" — likely a third-party replacement pack; run Battery Discharge & Charging IC check.",
+                    bat_vendor
+                ),
+            });
+        } else if let (Some(c), Some(by)) = (bat_cycles, bios_year) {
+            if c <= 5 && by <= 2022 && ssd_poh.map(|p| p >= 500).unwrap_or(false) {
+                findings.push(TamperForensicFinding {
+                    id: "fresh_battery_swap".into(),
+                    title: "Recently Replaced Battery Disclosed".into(),
+                    severity: "info".into(),
+                    detail: format!(
+                        "Battery reports only {} cycle(s) inside a ~{} chassis with {} SSD Power-On Hours — indicates a fresh replacement battery was installed.",
+                        c,
+                        by,
+                        ssd_poh.unwrap_or(0)
+                    ),
+                });
+            }
+        }
+    }
+
+    // 4. Replacement display panel EDID mirror
+    if let Some(hf) = faults {
+        if hf.replacement_panel_noted {
+            let note = hf
+                .panels
+                .iter()
+                .find(|p| p.replacement_suspected)
+                .map(|p| p.disclosure_note.clone())
+                .unwrap_or_else(|| "Display panel EDID manufacture year differs from chassis BIOS era.".into());
+            findings.push(TamperForensicFinding {
+                id: "replacement_panel".into(),
+                title: "Replacement Display Panel Noted".into(),
+                severity: "info".into(),
+                detail: note,
+            });
+        }
+    }
+
+    // 5. Intel 13th/14th-Gen HX pre-2024 BIOS microcode advisory
+    let cpu_up = cpu_brand.to_ascii_uppercase();
+    let is_raptor_hx = cpu_up.contains("INTEL")
+        && (cpu_up.contains("13650HX")
+            || cpu_up.contains("13700HX")
+            || cpu_up.contains("13850HX")
+            || cpu_up.contains("13900HX")
+            || cpu_up.contains("13950HX")
+            || cpu_up.contains("13980HX")
+            || cpu_up.contains("14650HX")
+            || cpu_up.contains("14700HX")
+            || cpu_up.contains("14900HX"));
+    if is_raptor_hx {
+        if let Some(by) = bios_year {
+            if by < 2024 {
+                findings.push(TamperForensicFinding {
+                    id: "intel_hx_microcode".into(),
+                    title: "Intel 13th/14th-Gen HX BIOS Microcode Update Recommended".into(),
+                    severity: "warn".into(),
+                    detail: format!(
+                        "{} is running a {} BIOS — update to the latest OEM BIOS (2024+ 0x129/0x12B microcode) to prevent high-voltage CPU instability.",
+                        cpu_brand.trim(),
+                        by
+                    ),
+                });
+            }
+        }
+    }
+
+    let warn_count = findings.iter().filter(|f| f.severity == "warn").count();
+    let info_count = findings.len().saturating_sub(warn_count);
+
+    let status = if warn_count > 0 {
+        TestStatus::Warn
+    } else {
+        TestStatus::Pass
+    };
+
+    let summary = if findings.is_empty() {
+        "Consistent factory component history (no SSD/battery odometer mismatch or firmware risks).".into()
+    } else if warn_count > 0 {
+        format!(
+            "{} forensic warning(s) & {} refurbishment disclosure(s) noted.",
+            warn_count, info_count
+        )
+    } else {
+        format!(
+            "{} transparent refurbishment disclosure(s) noted (0 tamper warnings).",
+            info_count
+        )
+    };
+
+    let plain_summary = if findings.is_empty() {
+        "SSD hours, battery history, panel EDID, and BIOS age align cleanly with no mismatch or microcode warnings.".into()
+    } else {
+        findings
+            .iter()
+            .map(|f| format!("[{}] {}", f.severity.to_ascii_uppercase(), f.title))
+            .collect::<Vec<_>>()
+            .join(" • ")
+    };
+
+    TamperForensicsReport {
+        status,
+        findings,
+        info_count,
+        warn_count,
+        summary,
+        plain_summary,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,5 +951,54 @@ mod tests {
         let rep_warn = assemble_hardware_faults_report("Windows", vec![], vec![pcie_warn], vec![]);
         assert_eq!(rep_warn.status, TestStatus::Warn);
         assert_eq!(rep_warn.pcie_downgrade_count, 1);
+    }
+
+    #[test]
+    fn test_tamper_forensics_refurbisher_mismatches_v310() {
+        use crate::types::DriveSmartInfo;
+
+        let specs = SystemSpecs {
+            cpu_brand: "Intel(R) Core(TM) i9-13900HX".into(),
+            bios_date: "2023-06-15".into(),
+            ..Default::default()
+        };
+        let bat = BatteryHealthReport {
+            present: true,
+            manufacturer: "Generic Replacement Li-Ion".into(),
+            health_percent: Some(74.0),
+            cycle_count: Some(340),
+            ..Default::default()
+        };
+        let smart = StorageSmartReport {
+            status: TestStatus::Pass,
+            drives: vec![DriveSmartInfo {
+                power_on_hours: Some(8),
+                ..Default::default()
+            }],
+            summary: String::new(),
+        };
+        let rep = evaluate_tamper_forensics(Some(&specs), Some(&bat), Some(&smart), None);
+        assert_eq!(rep.status, TestStatus::Warn); // Intel 13900HX pre-2024 BIOS -> WARN
+        assert!(rep.findings.iter().any(|f| f.id == "ssd_swap_mismatch" && f.severity == "info"));
+        assert!(rep.findings.iter().any(|f| f.id == "aftermarket_battery" && f.severity == "info"));
+        assert!(rep.findings.iter().any(|f| f.id == "intel_hx_microcode" && f.severity == "warn"));
+
+        // Honest refurbisher with only fresh SSD swap (no warnings) stays Pass (transparent INFO)
+        let specs_clean = SystemSpecs {
+            cpu_brand: "11th Gen Intel(R) Core(TM) i5-1135G7".into(),
+            bios_date: "2024-03-10".into(),
+            ..Default::default()
+        };
+        let bat_oem = BatteryHealthReport {
+            present: true,
+            manufacturer: "SMP Dell OEM".into(),
+            health_percent: Some(76.0),
+            cycle_count: Some(260),
+            ..Default::default()
+        };
+        let rep_info = evaluate_tamper_forensics(Some(&specs_clean), Some(&bat_oem), Some(&smart), None);
+        assert_eq!(rep_info.status, TestStatus::Pass);
+        assert_eq!(rep_info.info_count, 1);
+        assert_eq!(rep_info.warn_count, 0);
     }
 }

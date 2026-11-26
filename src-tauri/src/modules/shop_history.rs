@@ -1,16 +1,13 @@
+use crate::modules::portable;
 use crate::types::{ShopModelBenchmarkAvg, ShopModelComparison, ShopRecordSample};
 use chrono::Local;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Could not resolve config dir: {}", e))?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dir = portable::resolve_config_dir(app)?;
     Ok(dir.join("shop_model_history.json"))
 }
 

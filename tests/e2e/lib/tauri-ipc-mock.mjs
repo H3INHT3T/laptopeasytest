@@ -339,6 +339,22 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
           plainSummary: "PASS: TestUSB (E:/) verified at 148.6 MB/s Read / 92.4 MB/s Write.",
           summary: "USB3_VERIFIED: Read 148.6 / Write 92.4 MB/s",
         },
+      get_portable_mode_info: async () =>
+        fixture.portableInfo || {
+          isPortable: false,
+          reason: "Standard installed mode",
+          dataDir: "C:/Users/Test/AppData/Roaming/LaptopBenchQC",
+          reportsDir: "C:/Users/Test/Documents/LaptopBenchQC/Reports",
+        },
+      evaluate_tamper_forensics: async () =>
+        fixture.tamperForensics || {
+          status: "pass",
+          findings: [],
+          infoCount: 0,
+          warnCount: 0,
+          summary: "Consistent factory component history.",
+          plainSummary: "SSD hours, battery history, panel EDID, and BIOS age align cleanly.",
+        },
       list_usb_devices: async () => fixture.usbDevices || [],
       start_usb_monitor: async () => {
         if (usbMonitorTimer) clearTimeout(usbMonitorTimer);

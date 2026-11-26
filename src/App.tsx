@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -18,6 +18,7 @@ import type {
   PerfBenchProgress,
   PerfBenchResult,
   PortsSpeakerSignoff,
+  PortableStorageInfo,
   PowerTortureProgress,
   PowerTortureResult,
   RamTestResult,
@@ -31,6 +32,7 @@ import type {
   StorageBenchResult,
   StorageSmartReport,
   SystemSpecs,
+  TamperForensicsReport,
   TestModuleId,
   TestStatus,
   TouchscreenTestResult,
@@ -42,24 +44,67 @@ import type {
 import { Sidebar } from "./components/Sidebar";
 import { SystemInfoRail } from "./components/SystemInfoRail";
 import { BottomSensorsDock } from "./components/BottomSensorsDock";
-import { PreReportModal } from "./components/PreReportModal";
 import { DashboardView } from "./tests/DashboardView";
-import { StressHubView } from "./tests/StressHubView";
-import { ArchiveView } from "./tests/ArchiveView";
-import { SpecsView } from "./tests/SpecsView";
-import { SecurityAuditView } from "./tests/SecurityAuditView";
-import { BatteryView } from "./tests/BatteryView";
-import { ErrorLogsView } from "./tests/ErrorLogsView";
-import { DisplayTestView } from "./tests/DisplayTestView";
-import { TouchscreenTestView } from "./tests/TouchscreenTestView";
-import { KeyboardTestView } from "./tests/KeyboardTestView";
-import { StorageView } from "./tests/StorageView";
-import { RamTestView } from "./tests/RamTestView";
-import { BiometricsView } from "./tests/BiometricsView";
-import { MediaTestView } from "./tests/MediaTestView";
-import { PerformanceView } from "./tests/PerformanceView";
-import { GpuStressView } from "./tests/GpuStressView";
-import { PortsSpeakersView } from "./tests/PortsSpeakersView";
+import type { PreReportModal as PreReportModalType } from "./components/PreReportModal";
+import type { SpecsView as SpecsViewType } from "./tests/SpecsView";
+import type { BatteryView as BatteryViewType } from "./tests/BatteryView";
+import type { StorageView as StorageViewType } from "./tests/StorageView";
+import type { RamTestView as RamTestViewType } from "./tests/RamTestView";
+import type { PerformanceView as PerformanceViewType } from "./tests/PerformanceView";
+import type { GpuStressView as GpuStressViewType } from "./tests/GpuStressView";
+import type { PortsSpeakersView as PortsSpeakersViewType } from "./tests/PortsSpeakersView";
+
+const PreReportModal = lazy(() =>
+  import("./components/PreReportModal").then((m) => ({ default: m.PreReportModal }))
+);
+const StressHubView = lazy(() =>
+  import("./tests/StressHubView").then((m) => ({ default: m.StressHubView }))
+);
+const ArchiveView = lazy(() =>
+  import("./tests/ArchiveView").then((m) => ({ default: m.ArchiveView }))
+);
+const SpecsView = lazy(() =>
+  import("./tests/SpecsView").then((m) => ({ default: m.SpecsView }))
+);
+const SecurityAuditView = lazy(() =>
+  import("./tests/SecurityAuditView").then((m) => ({ default: m.SecurityAuditView }))
+);
+const BatteryView = lazy(() =>
+  import("./tests/BatteryView").then((m) => ({ default: m.BatteryView }))
+);
+const ErrorLogsView = lazy(() =>
+  import("./tests/ErrorLogsView").then((m) => ({ default: m.ErrorLogsView }))
+);
+const DisplayTestView = lazy(() =>
+  import("./tests/DisplayTestView").then((m) => ({ default: m.DisplayTestView }))
+);
+const TouchscreenTestView = lazy(() =>
+  import("./tests/TouchscreenTestView").then((m) => ({ default: m.TouchscreenTestView }))
+);
+const KeyboardTestView = lazy(() =>
+  import("./tests/KeyboardTestView").then((m) => ({ default: m.KeyboardTestView }))
+);
+const StorageView = lazy(() =>
+  import("./tests/StorageView").then((m) => ({ default: m.StorageView }))
+);
+const RamTestView = lazy(() =>
+  import("./tests/RamTestView").then((m) => ({ default: m.RamTestView }))
+);
+const BiometricsView = lazy(() =>
+  import("./tests/BiometricsView").then((m) => ({ default: m.BiometricsView }))
+);
+const MediaTestView = lazy(() =>
+  import("./tests/MediaTestView").then((m) => ({ default: m.MediaTestView }))
+);
+const PerformanceView = lazy(() =>
+  import("./tests/PerformanceView").then((m) => ({ default: m.PerformanceView }))
+);
+const GpuStressView = lazy(() =>
+  import("./tests/GpuStressView").then((m) => ({ default: m.GpuStressView }))
+);
+const PortsSpeakersView = lazy(() =>
+  import("./tests/PortsSpeakersView").then((m) => ({ default: m.PortsSpeakersView }))
+);
 
 const STEP_ORDER: StepModuleId[] = [
   "specs",
@@ -175,6 +220,8 @@ export const App: React.FC = () => {
   const [networkReport, setNetworkReport] = useState<NetworkDiagnosticsReport | null>(null);
   const [loadingNetwork, setLoadingNetwork] = useState(false);
   const [hardwareFaults, setHardwareFaults] = useState<HardwareFaultsReport | null>(null);
+  const [tamperForensics, setTamperForensics] = useState<TamperForensicsReport | null>(null);
+  const [portableInfo, setPortableInfo] = useState<PortableStorageInfo | null>(null);
   const [loadingFaults, setLoadingFaults] = useState(false);
   const [userbenchmarkComparison, setUserbenchmarkComparison] = useState<UserBenchmarkComparison | null>(null);
   const [warrantyDiff, setWarrantyDiff] = useState<WarrantyReturnDiff | null>(null);
@@ -210,10 +257,33 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     isMountedRef.current = true;
+    invoke<PortableStorageInfo>("get_portable_mode_info")
+      .then((info) => {
+        if (isMountedRef.current) setPortableInfo(info);
+      })
+      .catch(() => {});
     return () => {
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!specs && !batteryReport && !smartReport && !hardwareFaults) return;
+    let active = true;
+    invoke<TamperForensicsReport>("evaluate_tamper_forensics", {
+      specs: specs ?? null,
+      battery: batteryReport ?? null,
+      smart: smartReport ?? null,
+      faults: hardwareFaults ?? null,
+    })
+      .then((rep) => {
+        if (active && isMountedRef.current) setTamperForensics(rep);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [specs, batteryReport, smartReport, hardwareFaults]);
 
   const specsRef = useRef(specs);
   specsRef.current = specs;
@@ -857,9 +927,10 @@ export const App: React.FC = () => {
   const totalSteps = STEP_ORDER.length;
 
   // Typed intersection prop objects for M3.2 / M3.3 / M4 components (forward-compatible, zero `any` casts)
-  const specsViewProps: React.ComponentProps<typeof SpecsView> & {
+  const specsViewProps: React.ComponentProps<typeof SpecsViewType> & {
     networkReport?: NetworkDiagnosticsReport | null;
     loadingNetwork?: boolean;
+    tamperForensics?: TamperForensicsReport | null;
     onRunNetworkDiagnostics?: () => Promise<NetworkDiagnosticsReport | null>;
     onNetworkComplete?: (rep: NetworkDiagnosticsReport) => void;
   } = {
@@ -871,6 +942,7 @@ export const App: React.FC = () => {
     networkReport,
     loadingNetwork,
     hardwareFaults,
+    tamperForensics,
     loadingFaults,
     onRefreshFaults: fetchHardwareFaults,
     onRunNetworkDiagnostics: runNetworkDiagnostics,
@@ -889,7 +961,7 @@ export const App: React.FC = () => {
     onSkip: () => skipStep("specs"),
   };
 
-  const batteryViewProps: React.ComponentProps<typeof BatteryView> & {
+  const batteryViewProps: React.ComponentProps<typeof BatteryViewType> & {
     dischargeResult?: BatteryDischargeResult | null;
     chargeResult?: BatteryChargeResult | null;
     onDischargeComplete?: (res: BatteryDischargeResult) => void;
@@ -937,7 +1009,7 @@ export const App: React.FC = () => {
     onSkip: () => skipStep("battery"),
   };
 
-  const storageViewProps: React.ComponentProps<typeof StorageView> & {
+  const storageViewProps: React.ComponentProps<typeof StorageViewType> & {
     specs?: SystemSpecs | null;
     userbenchmarkComparison?: UserBenchmarkComparison | null;
   } = {
@@ -970,7 +1042,7 @@ export const App: React.FC = () => {
     onSkip: () => skipStep("storage"),
   };
 
-  const ramViewProps: React.ComponentProps<typeof RamTestView> & {
+  const ramViewProps: React.ComponentProps<typeof RamTestViewType> & {
     specs?: SystemSpecs | null;
     userbenchmarkComparison?: UserBenchmarkComparison | null;
   } = {
@@ -996,7 +1068,7 @@ export const App: React.FC = () => {
     onSkip: () => skipStep("ram"),
   };
 
-  const performanceViewProps: React.ComponentProps<typeof PerformanceView> & {
+  const performanceViewProps: React.ComponentProps<typeof PerformanceViewType> & {
     specs?: SystemSpecs | null;
     userbenchmarkComparison?: UserBenchmarkComparison | null;
     onUserbenchmarkUpdate?: (comp: UserBenchmarkComparison) => void;
@@ -1031,7 +1103,7 @@ export const App: React.FC = () => {
     onSkip: () => skipStep("performance"),
   };
 
-  const gpuViewProps: React.ComponentProps<typeof GpuStressView> & {
+  const gpuViewProps: React.ComponentProps<typeof GpuStressViewType> & {
     specs?: SystemSpecs | null;
     userbenchmarkComparison?: UserBenchmarkComparison | null;
     onUserbenchmarkUpdate?: (comp: UserBenchmarkComparison) => void;
@@ -1088,7 +1160,7 @@ export const App: React.FC = () => {
     onSkip: () => skipStep("gpu"),
   };
 
-  const portsSpeakersViewProps: React.ComponentProps<typeof PortsSpeakersView> & {
+  const portsSpeakersViewProps: React.ComponentProps<typeof PortsSpeakersViewType> & {
     networkReport?: NetworkDiagnosticsReport | null;
     onRunNetworkDiagnostics?: () => Promise<NetworkDiagnosticsReport | null>;
     removableDriveBench?: RemovableDriveBenchResult | null;
@@ -1111,7 +1183,7 @@ export const App: React.FC = () => {
     },
   };
 
-  const preReportModalProps: React.ComponentProps<typeof PreReportModal> & {
+  const preReportModalProps: React.ComponentProps<typeof PreReportModalType> & {
     touchscreenResult?: TouchscreenTestResult | null;
     batteryDischargeResult?: BatteryDischargeResult | null;
     networkReport?: NetworkDiagnosticsReport | null;
@@ -1148,6 +1220,8 @@ export const App: React.FC = () => {
     hardwareFaults,
     sleepAuditReport,
     removableDriveBench,
+    tamperForensics,
+    portableInfo,
     userbenchmarkComparison,
   };
 
@@ -1161,6 +1235,7 @@ export const App: React.FC = () => {
         modules={modules}
         isGamingCapable={specs?.isGamingCapable ?? false}
         allStepsDone={allStepsDone}
+        portableInfo={portableInfo}
         onOpenReportModal={() => setReportModalOpen(true)}
       />
 
@@ -1169,6 +1244,13 @@ export const App: React.FC = () => {
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
             <main className="flex-1 overflow-y-auto px-8 py-7 bg-[#F8FAFC]">
               <div className="max-w-4xl mx-auto">
+                <Suspense
+                  fallback={
+                    <div className="rounded-xl border border-zinc-200 bg-white p-10 text-center text-xs text-zinc-500">
+                      Loading diagnostic stage...
+                    </div>
+                  }
+                >
                 {activeTab === "dashboard" && (
                   <DashboardView
                     specs={specs}
@@ -1345,6 +1427,7 @@ export const App: React.FC = () => {
             {activeTab === "gpu" && <GpuStressView {...gpuViewProps} />}
 
             {activeTab === "ports_speakers" && <PortsSpeakersView {...portsSpeakersViewProps} />}
+                </Suspense>
               </div>
             </main>
             <BottomSensorsDock telemetry={liveTelemetry} />
@@ -1358,7 +1441,11 @@ export const App: React.FC = () => {
         </div>
       </div>
 
-      <PreReportModal {...preReportModalProps} />
+      {reportModalOpen && (
+        <Suspense fallback={null}>
+          <PreReportModal {...preReportModalProps} />
+        </Suspense>
+      )}
     </div>
   );
 };

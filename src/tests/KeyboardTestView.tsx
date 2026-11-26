@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Keyboard, MousePointer2, RotateCcw, Shield
 import type { HardwareControlsReport, RawKeyEvent, TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface KeyboardTestViewProps {
   osFamily: string;
@@ -25,7 +26,7 @@ interface KeyDef {
   firmwareOnly?: boolean;
 }
 
-type LayoutMode = "win_compact" | "win_full" | "mac_ansi";
+type LayoutMode = "win_compact" | "win_full" | "win_iso" | "mac_ansi" | "mac_iso";
 
 const WIN_MAIN_ROWS: KeyDef[][] = [
   [
@@ -98,6 +99,50 @@ const MAC_ROWS: KeyDef[][] = [
   ],
 ];
 
+const WIN_ISO_ROWS: KeyDef[][] = [
+  WIN_MAIN_ROWS[0],
+  WIN_MAIN_ROWS[1],
+  [
+    { code: "Tab", label: "Tab", w: 1.5 }, { code: "KeyQ", label: "Q" }, { code: "KeyW", label: "W" },
+    { code: "KeyE", label: "E" }, { code: "KeyR", label: "R" }, { code: "KeyT", label: "T" },
+    { code: "KeyY", label: "Y" }, { code: "KeyU", label: "U" }, { code: "KeyI", label: "I" },
+    { code: "KeyO", label: "O" }, { code: "KeyP", label: "P" }, { code: "BracketLeft", label: "[" },
+    { code: "BracketRight", label: "]" }, { code: "Enter", label: "ISO ↵", w: 1.5 },
+  ],
+  [
+    { code: "CapsLock", label: "Caps", w: 1.8 }, { code: "KeyA", label: "A" }, { code: "KeyS", label: "S" },
+    { code: "KeyD", label: "D" }, { code: "KeyF", label: "F" }, { code: "KeyG", label: "G" },
+    { code: "KeyH", label: "H" }, { code: "KeyJ", label: "J" }, { code: "KeyK", label: "K" },
+    { code: "KeyL", label: "L" }, { code: "Semicolon", label: ";" }, { code: "Quote", label: "'" },
+    { code: "Backslash", label: "# ~", w: 1.2 }, { code: "Enter", label: "Enter", w: 1.2 },
+  ],
+  [
+    { code: "ShiftLeft", label: "Shift", w: 1.3 }, { code: "IntlBackslash", label: "\\ |" },
+    { code: "KeyZ", label: "Z" }, { code: "KeyX", label: "X" },
+    { code: "KeyC", label: "C" }, { code: "KeyV", label: "V" }, { code: "KeyB", label: "B" },
+    { code: "KeyN", label: "N" }, { code: "KeyM", label: "M" }, { code: "Comma", label: "," },
+    { code: "Period", label: "." }, { code: "Slash", label: "/" }, { code: "ShiftRight", label: "Shift", w: 1.7 },
+    { code: "ArrowUp", label: "↑" },
+  ],
+  WIN_MAIN_ROWS[5],
+];
+
+const MAC_ISO_ROWS: KeyDef[][] = [
+  MAC_ROWS[0],
+  MAC_ROWS[1],
+  WIN_ISO_ROWS[2],
+  WIN_ISO_ROWS[3],
+  [
+    { code: "ShiftLeft", label: "Shift", w: 1.3 }, { code: "IntlBackslash", label: "§ ±" },
+    { code: "KeyZ", label: "Z" }, { code: "KeyX", label: "X" },
+    { code: "KeyC", label: "C" }, { code: "KeyV", label: "V" }, { code: "KeyB", label: "B" },
+    { code: "KeyN", label: "N" }, { code: "KeyM", label: "M" }, { code: "Comma", label: "," },
+    { code: "Period", label: "." }, { code: "Slash", label: "/" }, { code: "ShiftRight", label: "Shift", w: 1.7 },
+    { code: "ArrowUp", label: "↑" },
+  ],
+  MAC_ROWS[5],
+];
+
 export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
   osFamily,
   status,
@@ -155,11 +200,17 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
   const driftTimerRef = useRef<number | null>(null);
   const driftMoveHandlerRef = useRef<((e: MouseEvent) => void) | null>(null);
 
-  // Touchpad Dead-Zone Matrix (12x6 = 72 zones), Click & Drift state
+  // Touchpad Dead-Zone Matrix (12x6 = 72 zones), Click, Drift, Hz Polling-Rate & Gestures (v3.1.0)
   const [padCells, setPadCells] = useState<Set<number>>(new Set());
   const [leftClicks, setLeftClicks] = useState(0);
   const [rightClicks, setRightClicks] = useState(0);
   const [scrollEvents, setScrollEvents] = useState(0);
+  const [horizScrollEvents, setHorizScrollEvents] = useState(0);
+  const [pinchZoomEvents, setPinchZoomEvents] = useState(0);
+  const [padPollHz, setPadPollHz] = useState<number | null>(null);
+  const [padPeakHz, setPadPeakHz] = useState<number>(0);
+  const [padJitterMs, setPadJitterMs] = useState<number | null>(null);
+  const padMoveTimesRef = useRef<number[]>([]);
   const [driftTesting, setDriftTesting] = useState(false);
   const [driftPixels, setDriftPixels] = useState<number | null>(null);
   const driftOriginRef = useRef<{ x: number; y: number } | null>(null);
@@ -352,7 +403,14 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
     };
   }, [osHookEnabled]);
 
-  const rows = layout === "mac_ansi" ? MAC_ROWS : WIN_MAIN_ROWS;
+  const rows =
+    layout === "mac_ansi"
+      ? MAC_ROWS
+      : layout === "mac_iso"
+      ? MAC_ISO_ROWS
+      : layout === "win_iso"
+      ? WIN_ISO_ROWS
+      : WIN_MAIN_ROWS;
   const testableKeyCount = useMemo(() => {
     const mainCount = rows.reduce((a, r) => a + r.filter((k) => !k.firmwareOnly).length, 0);
     const numCount =
@@ -429,7 +487,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
             ? "OS-Intercepted Key (informational — does not block passing)"
             : k.code
         }
-        className={`relative h-11 rounded-[2px] border flex items-center justify-center text-[11px] font-bold select-none transition-all duration-75 ${
+        className={`relative h-11 rounded-lg border flex items-center justify-center text-[11px] font-bold select-none transition-all duration-75 ${
           isStuck
             ? "bg-black text-white border-2 border-black underline"
             : isDown
@@ -458,7 +516,30 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
         : verdictKind === "warn"
         ? "Minor input issue noted"
         : "Input fault reported";
-    return `${prefix}: Keyboard (${testedTestableCount}/${testableKeyCount} keys [${coveragePct}%], ${rolloverLabel}, dwell ${meanDwellMs != null ? `${meanDwellMs.toFixed(1)}ms` : "N/A"}, stuck ${stuckKeys.length}, chatter ${chatterWarnings.length}) & Touchpad (${padPct}% grid, L:${leftClicks}/R:${rightClicks}, scroll:${scrollEvents}, drift:${driftPixels ?? "N/A"}px).`;
+    return `${prefix}: Keyboard (${testedTestableCount}/${testableKeyCount} keys [${coveragePct}%], ${rolloverLabel}, dwell ${meanDwellMs != null ? `${meanDwellMs.toFixed(1)}ms` : "N/A"}, stuck ${stuckKeys.length}, chatter ${chatterWarnings.length}) & Touchpad (${padPct}% grid, L:${leftClicks}/R:${rightClicks}, scroll V:${scrollEvents}/H:${horizScrollEvents}, pinch:${pinchZoomEvents}, poll:${padPeakHz > 0 ? `${padPeakHz}Hz` : "N/A"}, drift:${driftPixels ?? "N/A"}px).`;
+  };
+
+  const handleTouchpadMove = () => {
+    const now = performance.now();
+    const arr = padMoveTimesRef.current;
+    arr.push(now);
+    while (arr.length > 60) arr.shift();
+    if (arr.length >= 6) {
+      const deltas: number[] = [];
+      for (let i = 1; i < arr.length; i++) {
+        const dt = arr[i] - arr[i - 1];
+        if (dt >= 1 && dt <= 150) deltas.push(dt);
+      }
+      if (deltas.length >= 5) {
+        const mean = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+        const hz = Math.round(1000 / mean);
+        const variance = deltas.reduce((a, d) => a + (d - mean) ** 2, 0) / deltas.length;
+        const jitter = Math.round(Math.sqrt(variance) * 10) / 10;
+        setPadPollHz(hz);
+        setPadPeakHz((prev) => Math.max(prev, hz));
+        setPadJitterMs(jitter);
+      }
+    }
   };
 
   return (
@@ -499,7 +580,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
       </div>
 
       {subTab === "touchpad" ? (
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-4">
+        <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <div className="font-mono text-xs font-black uppercase text-black">
@@ -513,7 +594,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
               <button
                 onClick={startDriftCheck}
                 disabled={driftTesting}
-                className="px-3 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-[11px] font-bold uppercase cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-[11px] font-bold uppercase cursor-pointer"
               >
                 {driftTesting ? "Keep Hands Off (3s)..." : "3s Cursor-Drift Check"}
               </button>
@@ -523,20 +604,35 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                   setLeftClicks(0);
                   setRightClicks(0);
                   setScrollEvents(0);
+                  setHorizScrollEvents(0);
+                  setPinchZoomEvents(0);
+                  setPadPollHz(null);
+                  setPadPeakHz(0);
+                  setPadJitterMs(null);
+                  padMoveTimesRef.current = [];
                   setDriftPixels(null);
                 }}
-                className="px-3 py-1.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black font-mono text-[11px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
+                className="px-3 py-1.5 rounded-lg border border-zinc-200 bg-white hover:border-black font-mono text-[11px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset Pad
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 border border-zinc-300 divide-x divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 border border-zinc-200 rounded-xl overflow-hidden divide-x divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
             <div className="p-2.5">
               <div className="text-[9.5px] uppercase text-zinc-500">Surface Coverage</div>
               <div className="text-base font-black text-blue-700">
                 {padPct}% ({padCells.size}/72)
+              </div>
+            </div>
+            <div className="p-2.5">
+              <div className="text-[9.5px] uppercase text-zinc-500">Polling / Jitter</div>
+              <div className={`text-base font-black ${padPeakHz > 0 && padPeakHz < 75 ? "text-black underline" : "text-blue-700"}`}>
+                {padPollHz != null ? `${padPollHz} Hz` : "MOVE PAD"}
+              </div>
+              <div className="text-[10px] text-zinc-500">
+                {padPeakHz > 0 ? `Peak ${padPeakHz}Hz • ±${padJitterMs ?? 0}ms` : "120-140Hz healthy"}
               </div>
             </div>
             <div className="p-2.5">
@@ -546,8 +642,11 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
               </div>
             </div>
             <div className="p-2.5">
-              <div className="text-[9.5px] uppercase text-zinc-500">2-Finger Scroll</div>
-              <div className="text-base font-black text-black">{scrollEvents} events</div>
+              <div className="text-[9.5px] uppercase text-zinc-500">Precision Gestures</div>
+              <div className="text-xs font-black text-black mt-0.5">
+                V:{scrollEvents} • H:{horizScrollEvents} • Pinch:{pinchZoomEvents}
+              </div>
+              <div className="text-[10px] text-zinc-500">2-finger scroll &amp; pinch</div>
             </div>
             <div className="p-2.5">
               <div className="text-[9.5px] uppercase text-zinc-500">Phantom Drift</div>
@@ -559,15 +658,22 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
 
           <div
             onClick={() => setLeftClicks((c) => c + 1)}
+            onMouseMove={handleTouchpadMove}
             onContextMenu={(e) => {
               e.preventDefault();
               setRightClicks((c) => c + 1);
             }}
             onWheel={(e) => {
               e.preventDefault();
-              setScrollEvents((c) => c + 1);
+              if (e.ctrlKey) {
+                setPinchZoomEvents((c) => c + 1);
+              } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 1) {
+                setHorizScrollEvents((c) => c + 1);
+              } else {
+                setScrollEvents((c) => c + 1);
+              }
             }}
-            className="grid grid-cols-12 gap-1 p-2 bg-zinc-100 border border-zinc-300 rounded-[2px] select-none cursor-crosshair"
+            className="grid grid-cols-12 gap-1 p-2 bg-zinc-100 border border-zinc-200 rounded-xl select-none cursor-crosshair"
           >
             {Array.from({ length: 72 }).map((_, idx) => {
               const hit = padCells.has(idx);
@@ -582,7 +688,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                       return next;
                     })
                   }
-                  className={`h-9 rounded-[2px] border transition-colors ${
+                  className={`h-9 rounded-lg border transition-colors ${
                     hit ? "bg-blue-600 border-blue-700" : "bg-white border-zinc-300 hover:bg-blue-100"
                   }`}
                 />
@@ -596,25 +702,27 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={startStuckKeyCheck}
-                className="px-3 py-1.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black font-mono text-[11px] font-bold uppercase text-black flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white hover:border-black font-mono text-[11px] font-bold uppercase text-black flex items-center gap-1.5 cursor-pointer"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
                 Re-Run Stuck-Key Check
               </button>
             </div>
             <div className="flex items-center justify-end gap-2 flex-wrap">
-              <div className="inline-flex rounded-[2px] bg-zinc-100 border border-zinc-300 p-0.5 text-xs font-mono">
+              <div className="inline-flex rounded-lg bg-zinc-100 border border-zinc-300 p-0.5 text-xs font-mono">
                 {(
                   [
-                    ["win_compact", "Win Compact"],
+                    ["win_compact", "Win ANSI"],
+                    ["win_iso", "Win ISO/UK"],
                     ["win_full", "Win + Numpad"],
-                    ["mac_ansi", "MacBook"],
+                    ["mac_ansi", "Mac ANSI"],
+                    ["mac_iso", "Mac ISO"],
                   ] as [LayoutMode, string][]
                 ).map(([m, lbl]) => (
                   <button
                     key={m}
                     onClick={() => setLayout(m)}
-                    className={`px-2.5 py-1 rounded-[2px] font-bold cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer ${
                       layout === m ? "bg-blue-600 text-white" : "text-zinc-600 hover:text-black"
                     }`}
                   >
@@ -625,7 +733,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
               {osFamily === "windows" && (
                 <button
                   onClick={() => setOsHookEnabled((v) => !v)}
-                  className={`px-3 py-1.5 rounded-[2px] border font-mono text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg border font-mono text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
                     osHookEnabled
                       ? "bg-blue-600 border-blue-600 text-white"
                       : "bg-white border-black text-black hover:bg-zinc-100"
@@ -637,7 +745,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
               )}
               <button
                 onClick={resetKeyboardMatrix}
-                className="px-3 py-1.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black font-mono text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white hover:border-black font-mono text-xs font-bold text-black flex items-center gap-1.5 cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset
               </button>
@@ -646,7 +754,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
 
           {/* Pre-Test Stuck-Key Check Banner */}
           <div
-            className={`rounded-[2px] border px-4 py-2 text-xs font-mono flex items-center justify-between flex-wrap gap-2 ${
+            className={`rounded-lg border px-4 py-2 text-xs font-mono flex items-center justify-between flex-wrap gap-2 ${
               stuckCheckStatus === "stuck"
                 ? "border-2 border-black bg-black text-white"
                 : stuckCheckStatus === "checking"
@@ -671,7 +779,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
             {stuckCheckStatus === "stuck" && (
               <button
                 onClick={startStuckKeyCheck}
-                className="px-2.5 py-1 rounded-[2px] bg-white text-black font-bold text-[10.5px] uppercase cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-white text-black font-bold text-[10.5px] uppercase cursor-pointer"
               >
                 Clear / Re-Check
               </button>
@@ -679,7 +787,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
           </div>
 
           {/* 6-Tile Swiss Telemetry Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border border-zinc-300 rounded-[2px] divide-x divide-y lg:divide-y-0 divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border border-zinc-300 rounded-lg divide-x divide-y lg:divide-y-0 divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
             <div className="p-2.5">
               <div className="text-[9.5px] uppercase text-zinc-500">Keys Tested</div>
               <div className="text-sm font-black text-blue-700 mt-0.5">
@@ -726,14 +834,14 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
           </div>
 
           {chatterWarnings.length > 0 && (
-            <div className="rounded-[2px] border-2 border-black bg-black text-white px-4 py-2.5 text-xs font-mono flex items-center gap-2">
+            <div className="rounded-lg border-2 border-black bg-black text-white px-4 py-2.5 text-xs font-mono flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0 text-blue-400" />
               <span>Key chatter / bounce detected (&lt;25ms): {chatterWarnings.join(", ")}</span>
             </div>
           )}
 
           {/* Visual Keyboard Deck */}
-          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-4 overflow-x-auto space-y-3">
+          <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] p-4 overflow-x-auto space-y-3">
             <div className="flex gap-3 min-w-[760px]">
               <div className="flex-1 space-y-1.5">
                 {rows.map((row, rIdx) => (
@@ -757,16 +865,16 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
             <div className="pt-2.5 border-t border-zinc-200 flex items-center justify-between flex-wrap gap-2 text-[11px]">
               <div className="flex flex-wrap items-center gap-1.5 font-mono">
                 <span className="text-[10px] font-bold uppercase text-zinc-500 mr-1">OS-Intercepted / EC Keys:</span>
-                <span className="px-1.5 py-0.5 rounded-[2px] border border-dashed border-zinc-400 bg-white text-black text-[10px]">
+                <span className="px-1.5 py-0.5 rounded-lg border border-dashed border-zinc-400 bg-white text-black text-[10px]">
                   Fn* (EC Firmware — no OS scancode)
                 </span>
-                <span className="px-1.5 py-0.5 rounded-[2px] border border-dashed border-zinc-400 bg-white text-black text-[10px]">
+                <span className="px-1.5 py-0.5 rounded-lg border border-dashed border-zinc-400 bg-white text-black text-[10px]">
                   Win / ⌘ Cmd (OS Shell)
                 </span>
-                <span className="px-1.5 py-0.5 rounded-[2px] border border-dashed border-zinc-400 bg-white text-black text-[10px]">
+                <span className="px-1.5 py-0.5 rounded-lg border border-dashed border-zinc-400 bg-white text-black text-[10px]">
                   PrtSc (OS Capture)
                 </span>
-                <span className="px-1.5 py-0.5 rounded-[2px] border border-dashed border-zinc-400 bg-white text-black text-[10px]">
+                <span className="px-1.5 py-0.5 rounded-lg border border-dashed border-zinc-400 bg-white text-black text-[10px]">
                   F11 (Fullscreen)
                 </span>
               </div>
@@ -790,7 +898,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setKbBacklightCheck("pass")}
-                  className={`px-2.5 py-1 rounded-[2px] border cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg border cursor-pointer ${
                     kbBacklightCheck === "pass"
                       ? "bg-blue-600 border-blue-600 text-white"
                       : "bg-white border-zinc-300 text-black hover:border-black"
@@ -801,7 +909,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setKbBacklightCheck("na")}
-                  className={`px-2.5 py-1 rounded-[2px] border cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg border cursor-pointer ${
                     kbBacklightCheck === "na"
                       ? "bg-black border-black text-white"
                       : "bg-white border-zinc-300 text-zinc-700 hover:border-black"
@@ -812,7 +920,7 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setKbBacklightCheck("fail")}
-                  className={`px-2.5 py-1 rounded-[2px] border cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg border cursor-pointer ${
                     kbBacklightCheck === "fail"
                       ? "bg-black border-black text-white underline"
                       : "bg-white border-zinc-300 text-black hover:border-black"
@@ -826,14 +934,14 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
         </>
       )}
 
-      {/* Plain-Language Summary Panel */}
-      <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
-          What This Means for Long-Term Use
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px]">
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-            <div className="font-mono text-[10px] font-bold uppercase text-black">Switch Health &amp; Chatter</div>
+      {/* Collapsed Technical Details Drawer */}
+      <TechnicalDetailsDrawer
+        title="Details"
+        subtitle="Switch health, NKRO rollover, key dwell latency & touchpad gesture breakdown"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3">
+            <div className="font-bold text-black">Switch Health &amp; Chatter</div>
             <div className="text-zinc-600 mt-0.5">
               {stuckKeys.length > 0
                 ? `Stuck key(s) detected (${stuckKeys.join(", ")}) — may cause phantom typing or boot interrupts.`
@@ -842,25 +950,24 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
                 : `${testedTestableCount}/${testableKeyCount} testable switches (${coveragePct}%) checked with 0 stuck keys and 0 chatter bounce.`}
             </div>
           </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-            <div className="font-mono text-[10px] font-bold uppercase text-black">Rollover &amp; Response</div>
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3">
+            <div className="font-bold text-black">Rollover &amp; Response</div>
             <div className="text-zinc-600 mt-0.5">
               Peak rollover measured at <strong>{rolloverLabel}</strong>
               {meanDwellMs != null ? ` with ${meanDwellMs.toFixed(1)} ms mean key dwell.` : " — press a multi-key chord to verify rollover."}
             </div>
           </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-            <div className="font-mono text-[10px] font-bold uppercase text-black">Touchpad Precision</div>
+          <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-3">
+            <div className="font-bold text-black">Touchpad Precision &amp; Polling</div>
             <div className="text-zinc-600 mt-0.5">
-              Grid coverage {padPct}% ({padCells.size}/72 cells), L:{leftClicks}/R:{rightClicks} clicks, {scrollEvents} scroll events, drift{" "}
-              {driftPixels == null ? "not tested" : `${driftPixels} px`}.
+              Grid {padPct}% ({padCells.size}/72), L:{leftClicks}/R:{rightClicks}, V:{scrollEvents}/H:{horizScrollEvents} scroll, Pinch:{pinchZoomEvents}, Poll:{padPeakHz > 0 ? `${padPeakHz}Hz (±${padJitterMs ?? 0}ms)` : "not measured"}, Drift:{driftPixels == null ? "not tested" : `${driftPixels}px`}.
             </div>
           </div>
         </div>
-      </div>
+      </TechnicalDetailsDrawer>
 
       {/* Verdict */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+      <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-3">
         <div className="flex items-center gap-2 font-mono text-xs font-bold uppercase text-black">
           <Keyboard className="w-4 h-4 text-blue-600" />
           Keyboard &amp; Touchpad QC Verdict
@@ -870,24 +977,24 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Optional notes (e.g. Backlight verified, touchpad corners responsive, 0px drift)"
-          className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-2 text-xs text-black"
+          className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black"
         />
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => onVerdict("pass", buildVerdictSummary("pass"), notes)}
-            className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
           >
             <CheckCircle2 className="w-3.5 h-3.5" /> Pass Input Audit
           </button>
           <button
             onClick={() => onVerdict("warn", buildVerdictSummary("warn"), notes)}
-            className="px-4 py-2 rounded-[2px] border border-blue-600 bg-white hover:bg-blue-50/40 text-blue-700 font-mono font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-lg border border-blue-600 bg-white hover:bg-blue-50/40 text-blue-700 font-mono font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
           >
             <AlertTriangle className="w-3.5 h-3.5" /> Mark Minor Issue (WARN)
           </button>
           <button
             onClick={() => onVerdict("fail", buildVerdictSummary("fail"), notes)}
-            className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
           >
             <XCircle className="w-3.5 h-3.5" /> Fail Input Audit
           </button>

@@ -542,14 +542,14 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
       </div>
 
       {/* Shared GPU Adapter & Safety Cutoff Bar */}
-      <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 flex-1 min-w-[260px]">
           <label className="font-mono text-[10.5px] font-bold uppercase text-zinc-600 shrink-0">Adapter:</label>
           <select
             value={selectedAdapter}
             disabled={running}
             onChange={(e) => setSelectedAdapter(Number(e.target.value))}
-            className="flex-1 bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+            className="flex-1 bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
           >
             {adapters.map((a) => (
               <option key={a.index} value={a.index}>
@@ -613,18 +613,18 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
               }
             }}
             aria-label="GPU Thermal Cutoff °C"
-            className="w-16 bg-white border border-zinc-300 rounded-[2px] px-2 py-1 text-xs font-bold text-blue-700"
+            className="w-16 bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-blue-700"
           />
           <span className="font-bold text-black">°C</span>
         </div>
       </div>
 
-      {error && <div className="rounded-[2px] bg-black text-white px-3.5 py-2 font-mono text-xs">{error}</div>}
+      {error && <div className="rounded-lg bg-black text-white px-3.5 py-2 font-mono text-xs">{error}</div>}
 
       {/* ===================== TAB 1: FURMARK 3D SHADER ===================== */}
       {tab === "furmark" && (
         <div className="space-y-4">
-          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+          <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div>
                 <label className="block font-mono text-[10px] font-bold uppercase text-zinc-600 mb-1">Resolution</label>
@@ -632,7 +632,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   value={resolution}
                   disabled={running}
                   onChange={(e) => setResolution(e.target.value as "720p" | "1080p" | "1440p" | "4k")}
-                  className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+                  className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                 >
                   <option value="720p">1280×720 (Balanced)</option>
                   <option value="1080p">1920×1080 (FHD Heavy)</option>
@@ -646,7 +646,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   value={preset}
                   disabled={running}
                   onChange={(e) => setPreset(e.target.value as "quick" | "standard" | "burnin" | "extended")}
-                  className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+                  className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                 >
                   <option value="quick">Shop QC (2 minutes)</option>
                   <option value="standard">Durability (5 minutes)</option>
@@ -666,7 +666,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   <button
                     disabled={running}
                     onClick={startFurmark}
-                    className="w-full py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Play className="w-3.5 h-3.5" /> Start GPU Burn-In
                   </button>
@@ -703,10 +703,10 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
               )}
               {runningMode === "furmark" && progress && (
                 <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between text-[11px] font-mono tabular-nums gap-2 flex-wrap">
-                  <span className="px-2 py-1 rounded-[2px] bg-black/85 border border-white/20 text-blue-400 font-bold">
+                  <span className="px-2 py-1 rounded-lg bg-black/85 border border-white/20 text-blue-400 font-bold">
                     {progress.fps.toFixed(1)} FPS • 1% LOW {progress.low1pctFps.toFixed(1)} • {progress.frameTimeMs.toFixed(1)}ms
                   </span>
-                  <span className="px-2 py-1 rounded-[2px] bg-black/85 border border-white/20 text-white font-bold">
+                  <span className="px-2 py-1 rounded-lg bg-black/85 border border-white/20 text-white font-bold">
                     ART: {progress.artifactErrors ?? 0} • {progress.throttleState ?? "Steady"} • {fmtTime(progress.elapsedSecs)} / {fmtTime(progress.durationSecs)} ({pctFur}%)
                   </span>
                 </div>
@@ -720,14 +720,14 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                 <Maximize2 className="w-3.5 h-3.5" /> Maximize
               </button>
               {progress?.thermalWarning && (
-                <div className="absolute bottom-11 left-2.5 right-2.5 rounded-[2px] bg-blue-600 text-white px-3 py-1.5 font-mono text-xs font-bold flex items-center gap-2">
+                <div className="absolute bottom-11 left-2.5 right-2.5 rounded-lg bg-blue-600 text-white px-3 py-1.5 font-mono text-xs font-bold flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   HIGH GPU TEMPERATURE APPROACHING CUTOFF ({cutoffC}°C)
                 </div>
               )}
             </div>
 
-            <div className="rounded-[2px] border border-zinc-300 bg-white divide-y divide-zinc-200 flex flex-col justify-between font-mono tabular-nums text-xs">
+            <div className="rounded-lg border border-zinc-300 bg-white divide-y divide-zinc-200 flex flex-col justify-between font-mono tabular-nums text-xs">
               <div className="px-3.5 py-2 bg-[#F8FAFC] text-[10px] font-bold uppercase tracking-wider text-zinc-600">
                 Live GPU &amp; FurMark-2 Telemetry
               </div>
@@ -788,7 +788,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           </div>
 
           {result?.sensorAvailable === false && runningMode !== "furmark" && (
-            <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 text-xs text-black flex items-center gap-2">
+            <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 text-xs text-black flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0" />
               <span>
                 <strong>GPU Thermal Sensor Unavailable:</strong> Bounded safe duration was enforced automatically to prevent unmonitored overheating.
@@ -864,7 +864,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
       {/* ===================== TAB 2: DEDICATED VRAM INTEGRITY ===================== */}
       {tab === "vram" && (
         <div className="space-y-4">
-          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-4">
+          <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div>
                 <label className="block font-mono text-[10px] font-bold uppercase text-zinc-600 mb-1">VRAM Pool Size</label>
@@ -872,7 +872,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   value={vramMb}
                   disabled={running}
                   onChange={(e) => setVramMb(Number(e.target.value))}
-                  className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+                  className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                 >
                   <option value={256}>256 MB (Integrated / Quick)</option>
                   <option value={512}>512 MB (Integrated / Entry dGPU)</option>
@@ -887,7 +887,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   value={vramDur}
                   disabled={running}
                   onChange={(e) => setVramDur(Number(e.target.value))}
-                  className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+                  className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                 >
                   <option value={45}>Shop QC (45 seconds)</option>
                   <option value={90}>Standard Sweep (90 seconds)</option>
@@ -899,7 +899,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                 {runningMode === "vram" ? (
                   <button
                     onClick={() => invoke("cancel_vram_test").catch(() => {})}
-                    className="w-full py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Square className="w-3.5 h-3.5" /> Abort VRAM
                   </button>
@@ -907,7 +907,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   <button
                     disabled={running}
                     onClick={startVram}
-                    className="w-full py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Play className="w-3.5 h-3.5" /> Start VRAM Sweep
                   </button>
@@ -916,7 +916,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
             </div>
 
             {vramProg?.thermalWarning && (
-              <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs font-bold flex items-center gap-2">
+              <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs font-bold flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
                 VRAM TEST APPROACHING GPU THERMAL CUTOFF ({cutoffC}°C)
               </div>
@@ -979,7 +979,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                 </div>
 
                 {vramResult?.sensorAvailable === false && runningMode !== "vram" && (
-                  <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3 py-2 text-xs text-black">
+                  <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-3 py-2 text-xs text-black">
                     <strong>Sensor Unavailable:</strong> GPU thermal sensor was unavailable during VRAM verification; bounded safe duration was enforced.
                   </div>
                 )}
@@ -1004,7 +1004,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
       {/* ===================== TAB 3: COMBINED CPU+GPU+RAM POWER TORTURE ===================== */}
       {tab === "torture" && (
         <div className="space-y-4">
-          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2.5">
+          <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2.5">
                 <label className="font-mono text-[10.5px] font-bold uppercase text-zinc-600">Duration:</label>
@@ -1012,7 +1012,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   value={tortureDur}
                   disabled={running}
                   onChange={(e) => setTortureDur(Number(e.target.value))}
-                  className="bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+                  className="bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                 >
                   <option value={60}>Quick Power Check (1 minute)</option>
                   <option value={120}>Shop QC Power &amp; Charger Torture (2 minutes)</option>
@@ -1023,7 +1023,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
               {runningMode === "torture" ? (
                 <button
                   onClick={() => invoke("cancel_power_torture").catch(() => {})}
-                  className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
                 >
                   <Square className="w-3.5 h-3.5" /> Abort Torture
                 </button>
@@ -1031,7 +1031,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                 <button
                   disabled={running}
                   onClick={startTorture}
-                  className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5" /> Launch Combined Torture
                 </button>
@@ -1043,7 +1043,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           </div>
 
           {(tortureProg?.batteryDrainWhilePlugged || tortureResult?.batteryDrainWhilePlugged) && (
-            <div className="rounded-[2px] border-2 border-black bg-black text-white p-4 flex items-center gap-3">
+            <div className="rounded-lg border-2 border-black bg-black text-white p-4 flex items-center gap-3">
               <ShieldAlert className="w-5 h-5 text-blue-400 shrink-0" />
               <div className="text-xs">
                 <div className="font-mono font-black uppercase tracking-wider text-blue-400">
@@ -1075,10 +1075,10 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
               )}
               {runningMode === "torture" && tortureProg && (
                 <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between text-[11px] font-mono tabular-nums gap-2 flex-wrap">
-                  <span className="px-2 py-1 rounded-[2px] bg-black/85 border border-white/20 text-blue-400 font-bold">
+                  <span className="px-2 py-1 rounded-lg bg-black/85 border border-white/20 text-blue-400 font-bold">
                     CPU {tortureProg.telemetry.cpuUsagePct.toFixed(0)}% ({tortureProg.simdIsa}) • GPU {tortureProg.gpuFps.toFixed(1)} FPS
                   </span>
-                  <span className="px-2 py-1 rounded-[2px] bg-black/85 border border-white/20 text-white font-bold">
+                  <span className="px-2 py-1 rounded-lg bg-black/85 border border-white/20 text-white font-bold">
                     ART: {tortureProg.artifactErrors ?? 0} • {tortureProg.throttleState ?? "Steady"} • {fmtTime(tortureProg.elapsedSecs)} / {fmtTime(tortureProg.durationSecs)}
                   </span>
                 </div>
@@ -1093,7 +1093,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
               </button>
             </div>
 
-            <div className="rounded-[2px] border border-zinc-300 bg-white divide-y divide-zinc-200 flex flex-col justify-between font-mono tabular-nums text-xs">
+            <div className="rounded-lg border border-zinc-300 bg-white divide-y divide-zinc-200 flex flex-col justify-between font-mono tabular-nums text-xs">
               <div className="px-3.5 py-2 bg-[#F8FAFC] text-[10px] font-bold uppercase tracking-wider text-zinc-600">
                 Full-Chassis Power Telemetry
               </div>
@@ -1188,7 +1188,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           </div>
 
           {tortureResult?.sensorAvailable === false && runningMode !== "torture" && (
-            <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 text-xs text-black">
+            <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 text-xs text-black">
               <strong>Sensor Unavailable:</strong> Temperature telemetry was unavailable; bounded safe duration was enforced automatically.
             </div>
           )}

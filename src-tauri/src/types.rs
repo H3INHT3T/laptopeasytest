@@ -203,6 +203,16 @@ pub struct SecurityAuditReport {
     pub plain_summary: String,
     #[serde(default)]
     pub ownership_risks: Vec<String>,
+    #[serde(default)]
+    pub license_channel: String,
+    #[serde(default)]
+    pub kms_piracy_suspected: bool,
+    #[serde(default)]
+    pub oem_bios_key_present: Option<bool>,
+    #[serde(default)]
+    pub oem_bios_key_hint: Option<String>,
+    #[serde(default)]
+    pub license_grace_days: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -308,6 +318,10 @@ pub struct BatteryHealthReport {
     pub cycle_source: String,
     #[serde(default)]
     pub capacity_history: Vec<BatteryCapacityHistoryPoint>,
+    #[serde(default)]
+    pub adapter_source: String,
+    #[serde(default)]
+    pub adapter_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -692,6 +706,17 @@ pub struct LiveTelemetrySnapshot {
     // v2.7.0 Per-Core Thermal Array & PawnIO WHQL Sensor Bridge Status
     pub per_core_temps_c: Vec<f32>,
     pub pawnio_installed: bool,
+    // v3.1.0 Deep Zero-Driver NVIDIA NVML Diagnostics
+    #[serde(default)]
+    pub gpu_clock_mhz: Option<u32>,
+    #[serde(default)]
+    pub gpu_mem_clock_mhz: Option<u32>,
+    #[serde(default)]
+    pub gpu_fan_pct: Option<u32>,
+    #[serde(default)]
+    pub gpu_slowdown_temp_c: Option<u32>,
+    #[serde(default)]
+    pub gpu_throttle_reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1267,6 +1292,48 @@ pub struct ExportReportPayload {
     pub sleep_audit: Option<SleepStandbyReport>,
     #[serde(default, alias = "removableDriveBench")]
     pub removable_drive_bench: Option<RemovableDriveBenchResult>,
+    #[serde(default, alias = "securityReport")]
+    pub security_audit: Option<SecurityAuditReport>,
+    #[serde(default, alias = "batteryReport")]
+    pub battery_health: Option<BatteryHealthReport>,
+    #[serde(default)]
+    pub storage_bench: Option<StorageBenchResult>,
+    #[serde(default, alias = "perfResult")]
+    pub perf_bench: Option<PerfBenchResult>,
+    #[serde(default)]
+    pub tamper_forensics: Option<TamperForensicsReport>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct PortableStorageInfo {
+    pub is_portable: bool,
+    pub reason: String,
+    pub data_dir: String,
+    pub reports_dir: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct TamperForensicFinding {
+    pub id: String,
+    pub title: String,
+    pub severity: String, // "info" | "warn"
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct TamperForensicsReport {
+    pub status: TestStatus,
+    pub findings: Vec<TamperForensicFinding>,
+    pub info_count: usize,
+    pub warn_count: usize,
+    pub summary: String,
+    pub plain_summary: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

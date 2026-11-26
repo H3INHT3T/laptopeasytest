@@ -46,9 +46,13 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
   const [frameStabilityPct, setFrameStabilityPct] = useState<number | null>(null);
   const [meanLuma, setMeanLuma] = useState<number | null>(null);
   const [sharpnessScore, setSharpnessScore] = useState<number | null>(null);
+  const [camFrozen, setCamFrozen] = useState<boolean>(false);
 
-  // Mic telemetry
+  // Mic telemetry + Dual-Array Stereo L/R Balance (v3.1.0)
   const [micLevel, setMicLevel] = useState(0);
+  const [micLeftDb, setMicLeftDb] = useState<number | null>(null);
+  const [micRightDb, setMicRightDb] = useState<number | null>(null);
+  const [micStereoDetected, setMicStereoDetected] = useState<boolean>(false);
   const [noiseFloorDb, setNoiseFloorDb] = useState<number | null>(null);
   const [peakSpeechDb, setPeakSpeechDb] = useState<number | null>(null);
   const [clipCount, setClipCount] = useState<number>(0);
@@ -64,6 +68,8 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
   const micStreamRef = useRef<MediaStream | null>(null);
   const waveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const prevLumasRef = useRef<Float32Array | null>(null);
+  const frozenStreakRef = useRef<number>(0);
   const rafRef = useRef<number>(0);
   const camMonitorHandleRef = useRef<number>(0);
   const camMonitorModeRef = useRef<"vfc" | "raf" | null>(null);
@@ -148,6 +154,26 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
     const edgeEnergy = edgeCount > 0 ? edgeSum / edgeCount : 0;
     setMeanLuma(Math.round(avgLuma));
     setSharpnessScore(Math.round(edgeEnergy * 10) / 10);
+
+    // Frozen-frame detector (v3.1.0): catches stuck webcam flex cables or frozen virtual shutters
+    const prev = prevLumasRef.current;
+    if (prev && prev.length === lumas.length) {
+      let diffSum = 0;
+      for (let i = 0; i < lumas.length; i++) {
+        diffSum += Math.abs(lumas[i] - prev[i]);
+      }
+      const meanDiff = diffSum / lumas.length;
+      if (meanDiff < 0.08) {
+        frozenStreakRef.current += 1;
+        if (frozenStreakRef.current >= 5) {
+          setCamFrozen(true);
+        }
+      } else {
+        frozenStreakRef.current = 0;
+        setCamFrozen(false);
+      }
+    }
+    prevLumasRef.current = lumas;
   };
 
   useEffect(() => {
@@ -178,6 +204,9 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
     camStreamRef.current?.getTracks().forEach((t) => t.stop());
     camStreamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    prevLumasRef.current = null;
+    frozenStreakRef.current = 0;
+    setCamFrozen(false);
     setCamActive(false);
     setCamInfo("Stopped");
   };
@@ -283,9 +312,14 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
     setError(null);
     stopMic();
     resetNoiseFloor();
+    setMicLeftDb(null);
+    setMicRightDb(null);
+    setMicStereoDetected(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
+        audio: selectedMic
+          ? { deviceId: { exact: selectedMic }, channelCount: { ideal: 2 } }
+          : { channelCount: { ideal: 2 } },
       });
       micStreamRef.current = stream;
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -296,11 +330,47 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
       analyser.fftSize = 2048;
       src.connect(analyser);
 
+      // Dual-Array Stereo Mic L/R Channel Balance Analyzer (v3.1.0)
+      const chCount = stream.getAudioTracks()[0]?.getSettings()?.channelCount ?? src.channelCount ?? 1;
+      let analyserL: AnalyserNode | null = null;
+      let analyserR: AnalyserNode | null = null;
+      let dataL: Uint8Array<ArrayBuffer> | null = null;
+      let dataR: Uint8Array<ArrayBuffer> | null = null;
+      if (chCount >= 2) {
+        setMicStereoDetected(true);
+        const splitter = ctx.createChannelSplitter(2);
+        analyserL = ctx.createAnalyser();
+        analyserR = ctx.createAnalyser();
+        analyserL.fftSize = 1024;
+        analyserR.fftSize = 1024;
+        src.connect(splitter);
+        splitter.connect(analyserL, 0);
+        splitter.connect(analyserR, 1);
+        dataL = new Uint8Array(analyserL.fftSize);
+        dataR = new Uint8Array(analyserR.fftSize);
+      }
+
       const data = new Uint8Array(analyser.fftSize);
       micStartTsRef.current = performance.now();
 
+      const calcRmsDb = (arr: Uint8Array) => {
+        let s = 0;
+        for (let i = 0; i < arr.length; i++) {
+          const v = (arr[i] - 128) / 128;
+          s += v * v;
+        }
+        const r = Math.sqrt(s / arr.length);
+        return Math.max(-90, Math.round(20 * Math.log10(Math.max(r, 1e-6))));
+      };
+
       const draw = () => {
         analyser.getByteTimeDomainData(data);
+        if (analyserL && analyserR && dataL && dataR) {
+          analyserL.getByteTimeDomainData(dataL);
+          analyserR.getByteTimeDomainData(dataR);
+          setMicLeftDb(calcRmsDb(dataL));
+          setMicRightDb(calcRmsDb(dataR));
+        }
         let sum = 0;
         let peakAbs = 0;
         for (let i = 0; i < data.length; i++) {
@@ -458,7 +528,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
       </div>
 
       {error && (
-        <div className="rounded-[2px] bg-black text-white px-4 py-2.5 text-xs">{error}</div>
+        <div className="rounded-lg bg-black text-white px-4 py-2.5 text-xs">{error}</div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -500,7 +570,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
           <select
             value={selectedCam}
             onChange={(e) => setSelectedCam(e.target.value)}
-            className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 text-xs text-black"
+            className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs text-black"
           >
             {cameras.length === 0 ? (
               <option value="">Default Webcam</option>
@@ -577,13 +647,20 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
           </div>
 
           {darkLens && camActive && (
-            <div className="rounded-[2px] bg-black text-white px-3 py-2 text-xs font-mono flex items-center gap-2">
+            <div className="rounded-xl bg-black text-white px-3 py-2 text-xs font-mono flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
               <span>Dark/Blocked Feed (Luma {meanLuma}) — check privacy shutter or lens cover.</span>
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 border border-zinc-300 rounded-[2px] divide-x divide-y sm:divide-y-0 divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
+          {camFrozen && camActive && !darkLens && (
+            <div className="rounded-xl bg-black text-white px-3 py-2 text-xs font-mono flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
+              <span>FAIL Alert: Frozen / Static Webcam Frame Detected — inspect webcam flex cable or virtual shutter!</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 border border-zinc-300 rounded-lg divide-x divide-y sm:divide-y-0 divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
             <div className="p-2">
               <div className="text-[9px] uppercase text-zinc-500">Resolution</div>
               <div className="font-black text-black mt-0.5">{camResText}</div>
@@ -622,7 +699,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
                 {micActive && (
                   <button
                     onClick={resetNoiseFloor}
-                    className="px-2.5 py-1.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black text-black text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:border-black text-black text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer"
                   >
                     <RotateCcw className="w-3 h-3" /> Reset Floor
                   </button>
@@ -630,14 +707,14 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
                 {micActive ? (
                   <button
                     onClick={stopMic}
-                    className="px-3 py-1.5 rounded-[2px] bg-black text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-black text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                   >
                     <Square className="w-3 h-3" /> Stop
                   </button>
                 ) : (
                   <button
                     onClick={startMic}
-                    className="px-3 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                   >
                     <Play className="w-3 h-3" /> Start Mic
                   </button>
@@ -648,7 +725,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             <select
               value={selectedMic}
               onChange={(e) => setSelectedMic(e.target.value)}
-              className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 text-xs text-black"
+              className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs text-black"
             >
               {mics.length === 0 ? (
                 <option value="">Default Microphone</option>
@@ -665,7 +742,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
               ref={waveCanvasRef}
               width={520}
               height={120}
-              className="w-full h-32 rounded-[2px] border border-zinc-300 bg-black"
+              className="w-full h-32 rounded-lg border border-zinc-300 bg-black"
             />
 
             <div className="space-y-1">
@@ -673,19 +750,62 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
                 <span>Input Signal Level ({snrLabel})</span>
                 <strong className="text-blue-700">{micLevel}%</strong>
               </div>
-              <div className="h-2 rounded-[2px] bg-zinc-200 overflow-hidden">
+              <div className="h-2 rounded-lg bg-zinc-200 overflow-hidden">
                 <div className="h-full bg-blue-600 transition-all duration-75" style={{ width: `${micLevel}%` }} />
               </div>
             </div>
 
+            {micActive && micStereoDetected && micLeftDb != null && micRightDb != null && (
+              <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-2.5 space-y-1.5 font-mono text-[11px] tabular-nums">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-black">Dual-Array Stereo Mic Balance</span>
+                  <span
+                    className={`font-bold ${
+                      Math.abs(micLeftDb - micRightDb) > 16 ? "text-black underline" : "text-blue-700"
+                    }`}
+                  >
+                    {Math.abs(micLeftDb - micRightDb) > 16
+                      ? `IMBALANCED (${Math.abs(micLeftDb - micRightDb)} dB delta)`
+                      : `Balanced (${Math.abs(micLeftDb - micRightDb)} dB delta)`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10.5px]">
+                  <div>
+                    <div className="flex justify-between text-zinc-600">
+                      <span>Left Mic</span>
+                      <strong className="text-black">{micLeftDb} dBFS</strong>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-zinc-200 overflow-hidden mt-0.5">
+                      <div
+                        className="h-full bg-blue-600 transition-all duration-75"
+                        style={{ width: `${Math.max(2, Math.min(100, ((micLeftDb + 90) / 90) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-zinc-600">
+                      <span>Right Mic</span>
+                      <strong className="text-black">{micRightDb} dBFS</strong>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-zinc-200 overflow-hidden mt-0.5">
+                      <div
+                        className="h-full bg-blue-600 transition-all duration-75"
+                        style={{ width: `${Math.max(2, Math.min(100, ((micRightDb + 90) / 90) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {micNoSignal && micActive && (
-              <div className="rounded-[2px] bg-black text-white px-3 py-2 text-xs font-mono flex items-center gap-2">
+              <div className="rounded-xl bg-black text-white px-3 py-2 text-xs font-mono flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
                 <span>No Signal / Mic Muted — check hardware mute switch or OS privacy permissions.</span>
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 border border-zinc-300 rounded-[2px] divide-x divide-y sm:divide-y-0 divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 border border-zinc-300 rounded-lg divide-x divide-y sm:divide-y-0 divide-zinc-200 bg-[#F8FAFC] font-mono tabular-nums text-xs">
               <div className="p-2">
                 <div className="text-[9px] uppercase text-zinc-500">Noise Floor</div>
                 <div className="font-black text-black mt-0.5">
@@ -717,7 +837,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             <button
               onClick={record3SecLoopback}
               disabled={recording}
-              className="px-3.5 py-2 rounded-[2px] border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 rounded-lg border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
               <Volume2 className="w-4 h-4" />
               {recording ? "Recording 3s..." : "Record 3s & Playback"}
@@ -760,7 +880,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Optional camera/mic notes (e.g. Sharp image, clear loopback audio, privacy shutter checked)"
-          className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
+          className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black focus:outline-none focus:border-blue-600"
         />
         <div className="flex flex-wrap gap-2">
           <button
@@ -771,7 +891,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
                 notes
               )
             }
-            className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" /> Pass Camera &amp; Mic
           </button>
@@ -783,7 +903,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
                 notes
               )
             }
-            className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
             <XCircle className="w-4 h-4" /> Fail Camera / Mic
           </button>

@@ -21,6 +21,7 @@ import { LiveChart } from "../components/LiveChart";
 import { BaselineCard } from "../components/BaselineCard";
 import { EnvironmentGuard } from "../components/EnvironmentGuard";
 import { EngineeringConsole, ThresholdAuditTable, type ThresholdAuditRow } from "../components/EngineeringConsole";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface StorageViewProps {
   telemetry: LiveTelemetrySnapshot | null;
@@ -242,11 +243,11 @@ export const StorageView: React.FC<StorageViewProps> = ({
       {/* SMART Table Cards */}
       <div className="space-y-3">
         {!smartReport ? (
-          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-5 text-center font-mono text-xs text-zinc-600">
+          <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] p-5 text-center font-mono text-xs text-zinc-600">
             {loadingSmart ? "READING NVME / SATA SMART TELEMETRY..." : "CLICK RE-SCAN SMART TO INSPECT DRIVES."}
           </div>
         ) : smartReport.drives.length === 0 ? (
-          <div className="rounded-[2px] border border-blue-600 bg-blue-50/40 p-4 text-xs text-black">
+          <div className="rounded-lg border border-blue-600 bg-blue-50/40 p-4 text-xs text-black">
             {smartReport.summary}
           </div>
         ) : (
@@ -258,14 +259,14 @@ export const StorageView: React.FC<StorageViewProps> = ({
               d.availableSpareThresholdPct != null &&
               d.availableSparePct <= d.availableSpareThresholdPct;
             return (
-              <div key={idx} className="rounded-[2px] border border-zinc-300 bg-white overflow-hidden">
+              <div key={idx} className="rounded-lg border border-zinc-300 bg-white overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-zinc-200 bg-[#F8FAFC] flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2.5">
                     <HardDrive className="w-4 h-4 text-blue-600 shrink-0" />
                     <div>
                       <div className="text-xs font-black text-black flex items-center gap-2 flex-wrap">
                         <span>{d.model}</span>
-                        <span className="px-1.5 py-0.5 rounded-[2px] border border-zinc-300 bg-white font-mono text-[9.5px] font-bold text-zinc-700">
+                        <span className="px-1.5 py-0.5 rounded-lg border border-zinc-300 bg-white font-mono text-[9.5px] font-bold text-zinc-700">
                           NVMe Log 0x02 / SMART
                         </span>
                       </div>
@@ -368,7 +369,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
       </div>
 
       {/* Real-Time Direct-IO Durability Benchmark */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-4">
+      <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 className="text-xs font-black uppercase tracking-wider text-black flex items-center gap-1.5">
@@ -385,7 +386,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
                 value={targetMount}
                 disabled={running}
                 onChange={(e) => setTargetMount(e.target.value)}
-                className="bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black font-bold"
+                className="bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black font-bold"
                 title="Target Drive / Volume for Multi-NVMe Laptops"
               >
                 <option value="">Auto (System Drive)</option>
@@ -403,7 +404,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
               value={preset}
               disabled={running}
               onChange={(e) => setPreset(e.target.value as StressPreset)}
-              className="bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black font-medium"
+              className="bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black font-medium"
             >
               <option value="quick">
                 Shop QC — {DEFAULT_HARDWARE_SAFETY_BOUNDS.ssdWriteBudgetQuickMb} MB Safe Write Budget (Seq + QD1/QD32 + 70/30)
@@ -418,7 +419,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
             {running ? (
               <button
                 onClick={() => invoke("cancel_storage_benchmark").catch(() => {})}
-                className="px-4 py-1.5 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" /> Abort
               </button>
@@ -426,7 +427,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
               <button
                 onClick={startBench}
                 disabled={lowSpace}
-                className="px-4 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-200 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-200 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
               >
                 <Play className="w-3.5 h-3.5" /> Run Direct-IO Audit
               </button>
@@ -436,7 +437,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
 
         {/* Safe SSD Write Budget & Free-Space Safety Guard */}
         <div
-          className={`rounded-[2px] border px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums ${
+          className={`rounded-lg border px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums ${
             lowSpace
               ? "border-2 border-black bg-black text-white"
               : "border-zinc-300 bg-[#F8FAFC] text-zinc-700"
@@ -472,13 +473,13 @@ export const StorageView: React.FC<StorageViewProps> = ({
                   <span className="text-blue-700">{progress.phase}</span>
                   <div className="flex items-center gap-2 flex-wrap">
                     {progress.driveTempC != null && (
-                      <span className="px-1.5 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] text-black flex items-center gap-1 text-[10.5px]">
+                      <span className="px-1.5 py-0.5 rounded-lg border border-zinc-300 bg-[#F8FAFC] text-black flex items-center gap-1 text-[10.5px]">
                         <Thermometer className="w-3 h-3 text-blue-600" />
                         Drive Temp: {progress.driveTempC.toFixed(0)}°C
                       </span>
                     )}
                     {progress.thermalWarning && (
-                      <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white text-[10px] font-bold">
+                      <span className="px-1.5 py-0.5 rounded-lg bg-black text-white text-[10px] font-bold">
                         THERMAL WARN &ge;75°C
                       </span>
                     )}
@@ -502,12 +503,12 @@ export const StorageView: React.FC<StorageViewProps> = ({
           </div>
         )}
 
-        {error && <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>}
+        {error && <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>}
 
         {benchResult && !running && (
           <div className="space-y-3">
             {benchResult.thermalCutoffTriggered && (
-              <div className="rounded-[2px] bg-black text-white px-4 py-2.5 text-xs font-mono flex items-center gap-2">
+              <div className="rounded-lg bg-black text-white px-4 py-2.5 text-xs font-mono flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
                 <span>
                   DRIVE THERMAL CUTOFF TRIGGERED ({benchResult.peakDriveTempC?.toFixed(0) ?? ">=82"}°C limit reached — benchmark halted safely to protect NAND controller).
@@ -515,7 +516,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
               </div>
             )}
             {!benchResult.thermalCutoffTriggered && benchResult.thermalWarning && (
-              <div className="rounded-[2px] border-2 border-black bg-[#F8FAFC] px-4 py-2.5 text-xs font-mono text-black flex items-center gap-2">
+              <div className="rounded-lg border-2 border-black bg-[#F8FAFC] px-4 py-2.5 text-xs font-mono text-black flex items-center gap-2">
                 <Thermometer className="w-4 h-4 text-blue-600 shrink-0" />
                 <span>
                   THERMAL WARNING: Drive reached {benchResult.peakDriveTempC?.toFixed(0) ?? ">=75"}°C during sustained writes. Check M.2 thermal pad contact.
@@ -538,7 +539,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
             <BaselineCard baseline={benchResult.baseline} />
 
             {ssdUbRating && (
-              <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
+              <div className="rounded-lg border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div>
                     <div className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-500 flex items-center gap-1.5">
@@ -546,24 +547,24 @@ export const StorageView: React.FC<StorageViewProps> = ({
                       UserBenchmark SSD Calibration // {ssdUbRating.detectedModel}
                     </div>
                     <div className="mt-1 flex items-center gap-2 flex-wrap">
-                      <span className="px-2 py-0.5 rounded-[2px] bg-blue-600 text-white font-mono text-xs font-black uppercase">
+                      <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white font-mono text-xs font-black uppercase">
                         {ssdUbRating.vehicleTier}
                       </span>
                       <span className="font-mono text-sm font-black text-black tabular-nums">
                         {ssdUbRating.effectiveSpeedPct.toFixed(1)}% Effective Speed
                       </span>
-                      <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] font-mono text-[10.5px] font-bold text-black">
+                      <span className="px-2 py-0.5 rounded-lg border border-zinc-300 bg-[#F8FAFC] font-mono text-[10.5px] font-bold text-black">
                         {ssdUbRating.standingLabel} ({ssdUbRating.relativeStandingPct.toFixed(1)}% vs {ssdUbRating.expectedClassPct.toFixed(0)}% class)
                       </span>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] font-mono text-[10px] text-zinc-600 uppercase">
+                  <span className="px-2 py-0.5 rounded-lg border border-zinc-300 bg-[#F8FAFC] font-mono text-[10px] text-zinc-600 uppercase">
                     {ssdUbRating.sourceMode}
                   </span>
                 </div>
 
                 {ssdUbRating.bottleneckFlag && (
-                  <div className="rounded-[2px] bg-black text-white px-3 py-1.5 font-mono text-[11px] font-bold flex items-center gap-2">
+                  <div className="rounded-lg bg-black text-white px-3 py-1.5 font-mono text-[11px] font-bold flex items-center gap-2">
                     <AlertTriangle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                     <span>{ssdUbRating.bottleneckFlag}</span>
                   </div>
@@ -574,7 +575,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
                     {ssdUbRating.subMetrics.map(([k, v]) => (
                       <span
                         key={k}
-                        className="px-2 py-0.5 rounded-[2px] border border-zinc-200 bg-[#F8FAFC] font-mono text-[10.5px] text-black tabular-nums"
+                        className="px-2 py-0.5 rounded-lg border border-zinc-200 bg-[#F8FAFC] font-mono text-[10.5px] text-black tabular-nums"
                       >
                         <span className="text-zinc-500 mr-1">{k}:</span>
                         <strong>{v}</strong>
@@ -618,7 +619,7 @@ export const StorageView: React.FC<StorageViewProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-2 md:grid-cols-6 divide-x divide-y md:divide-y-0 divide-zinc-200 border border-zinc-300 rounded-[2px] font-mono tabular-nums">
+            <div className="grid grid-cols-2 md:grid-cols-6 divide-x divide-y md:divide-y-0 divide-zinc-200 border border-zinc-300 rounded-lg font-mono tabular-nums">
               <div className="p-3 bg-white">
                 <div className="text-[9.5px] uppercase text-zinc-500">Seq Read</div>
                 <div className="text-base font-black text-blue-700 mt-0.5">
@@ -660,94 +661,104 @@ export const StorageView: React.FC<StorageViewProps> = ({
                 </div>
               </div>
             </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-5 divide-x divide-y md:divide-y-0 divide-zinc-200 border border-zinc-300 rounded-[2px] font-mono tabular-nums">
-              <div className="p-3 bg-[#F8FAFC]">
-                <div className="text-[9.5px] uppercase text-zinc-500">4K QD32 Read</div>
-                <div className="text-sm font-black text-blue-700 mt-0.5">
-                  {(benchResult.rand4kQd32ReadIops ?? 0).toLocaleString()} <span className="text-[10px]">IOPS</span>
-                </div>
-                <div className="text-[10px] text-zinc-500">{(benchResult.rand4kQd32ReadMbS ?? 0).toFixed(1)} MB/s</div>
-              </div>
-              <div className="p-3 bg-[#F8FAFC]">
-                <div className="text-[9.5px] uppercase text-zinc-500">4K QD32 Write</div>
-                <div className="text-sm font-black text-black mt-0.5">
-                  {(benchResult.rand4kQd32WriteIops ?? 0).toLocaleString()} <span className="text-[10px]">IOPS</span>
-                </div>
-                <div className="text-[10px] text-zinc-500">{(benchResult.rand4kQd32WriteMbS ?? 0).toFixed(1)} MB/s</div>
-              </div>
-              <div className="p-3 bg-[#F8FAFC]">
-                <div className="text-[9.5px] uppercase text-zinc-500">70/30 Mixed R/W</div>
-                <div className="text-sm font-black text-black mt-0.5">
-                  {(benchResult.mixedRwIops ?? 0).toLocaleString()} <span className="text-[10px]">IOPS</span>
-                </div>
-                <div className="text-[10px] text-zinc-500">{(benchResult.mixedRwMbS ?? 0).toFixed(1)} MB/s</div>
-              </div>
-              <div className="p-3 bg-[#F8FAFC]">
-                <div className="text-[9.5px] uppercase text-zinc-500">SLC Cache Stability</div>
-                <div className="text-sm font-black text-black mt-0.5">
-                  {(benchResult.slcSustainedMbS ?? benchResult.seqWriteMbS).toFixed(0)} <span className="text-[10px]">MB/s</span>
-                </div>
-                <div className="text-[10px] text-zinc-500">
-                  -{(benchResult.slcCacheDropPct ?? 0).toFixed(0)}% drop • {(benchResult.writeStabilityPct ?? 100).toFixed(0)}% stab
-                </div>
-              </div>
-              <div className="p-3 bg-[#F8FAFC]">
-                <div className="text-[9.5px] uppercase text-zinc-500">Budget &amp; Peak Temp</div>
-                <div className="text-sm font-black text-black mt-0.5">
-                  {benchResult.totalWrittenMb ?? benchResult.testSizeMb} MB
-                </div>
-                <div className="text-[10px] text-zinc-500">
-                  Peak {benchResult.peakDriveTempC != null ? `${benchResult.peakDriveTempC.toFixed(0)}°C` : "Temp N/A"}
-                </div>
-              </div>
-            </div>
-
-            <ThresholdAuditTable rows={auditRows} />
           </div>
         )}
 
-        {(benchResult || primaryDrive) && !running && (
-          <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
-              What This Means for Long-Term Use
-            </div>
-            {benchResult?.plainSummary && (
-              <div className="text-xs text-black font-medium">{benchResult.plainSummary}</div>
+        <TechnicalDetailsDrawer
+          title="Details"
+          subtitle="4K QD32/Mixed IOPS, threshold audit table, long-term endurance notes & raw console"
+        >
+          <div className="space-y-4">
+            {benchResult && !running && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 divide-x divide-y md:divide-y-0 divide-zinc-200 border border-zinc-200 rounded-xl overflow-hidden font-mono tabular-nums">
+                  <div className="p-3 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">4K QD32 Read</div>
+                    <div className="text-sm font-black text-blue-700 mt-0.5">
+                      {(benchResult.rand4kQd32ReadIops ?? 0).toLocaleString()} <span className="text-[10px]">IOPS</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">{(benchResult.rand4kQd32ReadMbS ?? 0).toFixed(1)} MB/s</div>
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">4K QD32 Write</div>
+                    <div className="text-sm font-black text-black mt-0.5">
+                      {(benchResult.rand4kQd32WriteIops ?? 0).toLocaleString()} <span className="text-[10px]">IOPS</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">{(benchResult.rand4kQd32WriteMbS ?? 0).toFixed(1)} MB/s</div>
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">70/30 Mixed R/W</div>
+                    <div className="text-sm font-black text-black mt-0.5">
+                      {(benchResult.mixedRwIops ?? 0).toLocaleString()} <span className="text-[10px]">IOPS</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">{(benchResult.mixedRwMbS ?? 0).toFixed(1)} MB/s</div>
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">SLC Cache Stability</div>
+                    <div className="text-sm font-black text-black mt-0.5">
+                      {(benchResult.slcSustainedMbS ?? benchResult.seqWriteMbS).toFixed(0)} <span className="text-[10px]">MB/s</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">
+                      -{(benchResult.slcCacheDropPct ?? 0).toFixed(0)}% drop • {(benchResult.writeStabilityPct ?? 100).toFixed(0)}% stab
+                    </div>
+                  </div>
+                  <div className="p-3 bg-[#F8FAFC]">
+                    <div className="text-[9.5px] uppercase text-zinc-500">Budget &amp; Peak Temp</div>
+                    <div className="text-sm font-black text-black mt-0.5">
+                      {benchResult.totalWrittenMb ?? benchResult.testSizeMb} MB
+                    </div>
+                    <div className="text-[10px] text-zinc-500">
+                      Peak {benchResult.peakDriveTempC != null ? `${benchResult.peakDriveTempC.toFixed(0)}°C` : "Temp N/A"}
+                    </div>
+                  </div>
+                </div>
+                <ThresholdAuditTable rows={auditRows} />
+              </div>
             )}
-            {primaryDrive?.plainSummary && (
-              <div className="text-xs text-zinc-700">{primaryDrive.plainSummary}</div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
-              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-                <div className="font-mono text-[10px] font-bold uppercase text-black">SLC Cache vs. Sustained Speed</div>
-                <div className="text-zinc-600 mt-0.5">
-                  {(benchResult?.writeStabilityPct ?? 100) >= 60
-                    ? "Sustained write speed holds steady outside burst cache — ideal for large file transfers and OS updates."
-                    : "Write speed drops after the SLC cache fills (typical of budget QLC/DRAM-less drives) during large multi-GB copies."}
-                </div>
-              </div>
-              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-                <div className="font-mono text-[10px] font-bold uppercase text-black">DriveDx Log 0x02 Wear &amp; Spare</div>
-                <div className="text-zinc-600 mt-0.5">
-                  {primaryDrive
-                    ? `Rated wear is ${primaryDrive.percentageUsedRaw ?? primaryDrive.wearPercent ?? 0}% used with ${primaryDrive.availableSparePct ?? "N/A"}% spare blocks remaining.`
-                    : "Re-scan SMART to inspect DriveDx NVMe Log 0x02 spare blocks and rated endurance."}
-                </div>
-              </div>
-              <div className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5">
-                <div className="font-mono text-[10px] font-bold uppercase text-black">P99 Latency &amp; Data Integrity</div>
-                <div className="text-zinc-600 mt-0.5">
-                  {benchResult
-                    ? `${benchResult.integrityErrors} byte verification errors and ${benchResult.p994kLatencyMs.toFixed(2)} ms 4K P99 latency (${benchResult.p994kLatencyMs <= 15 ? "snappy daily responsiveness" : "noticeable stall risk"}).`
-                    : "Run Direct-IO Audit to verify 0 byte corruption and snappy 4K P99 latency."}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
-        <EngineeringConsole lines={consoleLog} />
+            {(benchResult || primaryDrive) && !running && (
+              <div className="rounded-xl border border-zinc-200 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
+                <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700">
+                  What This Means for Long-Term Use
+                </div>
+                {benchResult?.plainSummary && (
+                  <div className="text-xs text-black font-medium">{benchResult.plainSummary}</div>
+                )}
+                {primaryDrive?.plainSummary && (
+                  <div className="text-xs text-zinc-700">{primaryDrive.plainSummary}</div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
+                  <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-2.5">
+                    <div className="font-mono text-[10px] font-bold uppercase text-black">SLC Cache vs. Sustained Speed</div>
+                    <div className="text-zinc-600 mt-0.5">
+                      {(benchResult?.writeStabilityPct ?? 100) >= 60
+                        ? "Sustained write speed holds steady outside burst cache — ideal for large file transfers and OS updates."
+                        : "Write speed drops after the SLC cache fills (typical of budget QLC/DRAM-less drives) during large multi-GB copies."}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-2.5">
+                    <div className="font-mono text-[10px] font-bold uppercase text-black">DriveDx Log 0x02 Wear &amp; Spare</div>
+                    <div className="text-zinc-600 mt-0.5">
+                      {primaryDrive
+                        ? `Rated wear is ${primaryDrive.percentageUsedRaw ?? primaryDrive.wearPercent ?? 0}% used with ${primaryDrive.availableSparePct ?? "N/A"}% spare blocks remaining.`
+                        : "Re-scan SMART to inspect DriveDx NVMe Log 0x02 spare blocks and rated endurance."}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200 bg-[#F8FAFC] p-2.5">
+                    <div className="font-mono text-[10px] font-bold uppercase text-black">P99 Latency &amp; Data Integrity</div>
+                    <div className="text-zinc-600 mt-0.5">
+                      {benchResult
+                        ? `${benchResult.integrityErrors} byte verification errors and ${benchResult.p994kLatencyMs.toFixed(2)} ms 4K P99 latency (${benchResult.p994kLatencyMs <= 15 ? "snappy daily responsiveness" : "noticeable stall risk"}).`
+                        : "Run Direct-IO Audit to verify 0 byte corruption and snappy 4K P99 latency."}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <EngineeringConsole lines={consoleLog} />
+          </div>
+        </TechnicalDetailsDrawer>
       </div>
 
       <StepActionBar

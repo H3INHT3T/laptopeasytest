@@ -254,9 +254,9 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
 
       {/* Channel Configuration / Single-Channel Bottleneck Banner */}
       {hasChannelBottleneck ? (
-        <div className="rounded-[2px] border-2 border-black bg-[#F8FAFC] p-3.5 space-y-1.5">
+        <div className="rounded-lg border-2 border-black bg-[#F8FAFC] p-3.5 space-y-1.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2 py-0.5 rounded-[2px] bg-black text-white font-mono text-[10px] font-bold uppercase flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-lg bg-black text-white font-mono text-[10px] font-bold uppercase flex items-center gap-1">
               <AlertTriangle className="w-3 h-3 text-blue-400" />
               {isSingleChannel ? "SINGLE-CHANNEL BOTTLENECK" : "RAM CONFIG WARNING"}
             </span>
@@ -273,7 +273,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
         </div>
       ) : (
         specs?.ramChannelMode && (
-          <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 flex items-center justify-between flex-wrap gap-2 text-xs">
+          <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 flex items-center justify-between flex-wrap gap-2 text-xs">
             <div className="flex items-center gap-2">
               <CheckSquare className="w-3.5 h-3.5 text-blue-600 shrink-0" />
               <span className="font-mono text-[11px] font-bold text-black uppercase">
@@ -297,7 +297,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
               value={preset}
               disabled={running}
               onChange={(e) => setPreset(e.target.value as StressPreset)}
-              className="w-full bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black font-medium"
+              className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black font-medium"
             >
               <option value="quick">Default @ serj — Shop QC (8 Kernels • 2 Min)</option>
               <option value="standard">Absolut @ anta777 — Durability (12 Kernels • 5 Min)</option>
@@ -323,14 +323,14 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
             {running ? (
               <button
                 onClick={() => invoke("cancel_ram_stress").catch(() => {})}
-                className="w-full md:w-auto px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full md:w-auto px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" /> Abort RAM Test
               </button>
             ) : (
               <button
                 onClick={startTest}
-                className="w-full md:w-auto px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full md:w-auto px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Play className="w-3.5 h-3.5" /> Start Continuous Test
               </button>
@@ -339,7 +339,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
         </div>
 
         {/* OS RAM Reserve Headroom Strip */}
-        <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-700">
+        <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-700">
           <div className="flex items-center gap-2 font-bold text-black">
             <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>
@@ -404,13 +404,13 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
                   </span>
                   <div className="flex items-center gap-2 flex-wrap">
                     {progress.cpuTempC != null && (
-                      <span className="px-1.5 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] text-black flex items-center gap-1 text-[10.5px] font-bold">
+                      <span className="px-1.5 py-0.5 rounded-lg border border-zinc-300 bg-[#F8FAFC] text-black flex items-center gap-1 text-[10.5px] font-bold">
                         <Thermometer className="w-3 h-3 text-blue-600" />
                         CPU: {progress.cpuTempC.toFixed(0)}°C
                       </span>
                     )}
                     {progress.thermalWarning && (
-                      <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white text-[10px] font-bold">
+                      <span className="px-1.5 py-0.5 rounded-lg bg-black text-white text-[10px] font-bold">
                         THERMAL WARN
                       </span>
                     )}
@@ -435,13 +435,13 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
           </div>
         )}
 
-        {error && <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>}
+        {error && <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>}
       </div>
 
       {result && !running && (
         <div className="space-y-3">
           {result.thermalCutoffTriggered && (
-            <div className="rounded-[2px] bg-black text-white px-4 py-2.5 text-xs font-mono flex items-center gap-2">
+            <div className="rounded-lg bg-black text-white px-4 py-2.5 text-xs font-mono flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
               <span>
                 CPU THERMAL CUTOFF TRIGGERED ({result.peakCpuTempC?.toFixed(0) ?? ">=92"}°C limit reached — TestMem5 halted safely).
@@ -469,7 +469,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
           <BaselineCard baseline={result.baseline} />
 
           {ramUbRating && (
-            <div className="rounded-[2px] border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
+            <div className="rounded-lg border border-zinc-300 border-l-[3px] border-l-blue-600 bg-white p-4 space-y-2.5">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <div className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-500 flex items-center gap-1.5">
@@ -477,24 +477,24 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
                     UserBenchmark RAM Calibration // {ramUbRating.detectedModel}
                   </div>
                   <div className="mt-1 flex items-center gap-2 flex-wrap">
-                    <span className="px-2 py-0.5 rounded-[2px] bg-blue-600 text-white font-mono text-xs font-black uppercase">
+                    <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white font-mono text-xs font-black uppercase">
                       {ramUbRating.vehicleTier}
                     </span>
                     <span className="font-mono text-sm font-black text-black tabular-nums">
                       {ramUbRating.effectiveSpeedPct.toFixed(1)}% Effective Speed
                     </span>
-                    <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] font-mono text-[10.5px] font-bold text-black">
+                    <span className="px-2 py-0.5 rounded-lg border border-zinc-300 bg-[#F8FAFC] font-mono text-[10.5px] font-bold text-black">
                       {ramUbRating.standingLabel} ({ramUbRating.relativeStandingPct.toFixed(1)}% vs {ramUbRating.expectedClassPct.toFixed(0)}% class)
                     </span>
                   </div>
                 </div>
-                <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] font-mono text-[10px] text-zinc-600 uppercase">
+                <span className="px-2 py-0.5 rounded-lg border border-zinc-300 bg-[#F8FAFC] font-mono text-[10px] text-zinc-600 uppercase">
                   {ramUbRating.sourceMode}
                 </span>
               </div>
 
               {ramUbRating.bottleneckFlag && (
-                <div className="rounded-[2px] bg-black text-white px-3 py-1.5 font-mono text-[11px] font-bold flex items-center gap-2">
+                <div className="rounded-lg bg-black text-white px-3 py-1.5 font-mono text-[11px] font-bold flex items-center gap-2">
                   <AlertTriangle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                   <span>{ramUbRating.bottleneckFlag}</span>
                 </div>
@@ -505,7 +505,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
                   {ramUbRating.subMetrics.map(([k, v]) => (
                     <span
                       key={k}
-                      className="px-2 py-0.5 rounded-[2px] border border-zinc-200 bg-[#F8FAFC] font-mono text-[10.5px] text-black tabular-nums"
+                      className="px-2 py-0.5 rounded-lg border border-zinc-200 bg-[#F8FAFC] font-mono text-[10.5px] text-black tabular-nums"
                     >
                       <span className="text-zinc-500 mr-1">{k}:</span>
                       <strong>{v}</strong>
@@ -518,7 +518,7 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
             </div>
           )}
 
-          <div className="rounded-[2px] border border-zinc-300 bg-white overflow-hidden">
+          <div className="rounded-lg border border-zinc-300 bg-white overflow-hidden">
             <div className="px-4 py-2 border-b border-zinc-200 bg-[#F8FAFC] flex items-center justify-between flex-wrap gap-2">
               <span className="font-mono text-[10.5px] font-bold uppercase tracking-wider text-black flex items-center gap-1.5">
                 <MemoryStick className="w-3.5 h-3.5 text-blue-600" />

@@ -21,7 +21,7 @@ import {
   ShieldCheck,
   Usb,
 } from "lucide-react";
-import type { ModuleRecord, StepModuleId, TestModuleId } from "../types";
+import type { ModuleRecord, PortableStorageInfo, StepModuleId, TestModuleId } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
 const STEP_ICONS: Record<StepModuleId, React.ComponentType<{ className?: string }>> = {
@@ -49,6 +49,7 @@ interface SidebarProps {
   modules: Record<StepModuleId, ModuleRecord>;
   isGamingCapable: boolean;
   allStepsDone: boolean;
+  portableInfo?: PortableStorageInfo | null;
   onOpenReportModal: () => void;
 }
 
@@ -60,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   modules,
   isGamingCapable,
   allStepsDone,
+  portableInfo = null,
   onOpenReportModal,
 }) => {
   const completedCount = stepOrder.filter((id) => {
@@ -139,9 +141,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Report</span>
         </button>
 
-        <div className="mt-auto text-center px-1">
+        <div className="mt-auto text-center px-1 space-y-1">
+          {portableInfo?.isPortable && (
+            <div
+              title={`Portable USB Mode (${portableInfo.reason}) — Data saved in ${portableInfo.dataDir}`}
+              className="font-mono text-[8.5px] font-bold text-white bg-blue-600 px-1.5 py-0.5 rounded"
+            >
+              USB MODE
+            </div>
+          )}
           <div className="font-mono text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
-            v3.0.0
+            v3.1.0
           </div>
         </div>
       </div>

@@ -14,6 +14,7 @@ import {
 import type { TestStatus, TouchscreenTestResult } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 interface TouchscreenTestViewProps {
   status: TestStatus;
@@ -515,7 +516,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
       className={`relative touch-none select-none overflow-hidden bg-white ${
         isPortalFullscreen
           ? "w-full h-full"
-          : "w-full h-[380px] rounded-[2px] border border-zinc-300"
+          : "w-full h-[380px] rounded-lg border border-zinc-300"
       }`}
     >
       {/* 16x10 Coverage Matrix */}
@@ -596,7 +597,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           }}
           className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border-2 border-black bg-blue-600/25 flex items-center justify-center"
         >
-          <span className="px-1 py-0.2 rounded-[2px] bg-black text-white font-mono text-[9px] font-bold">
+          <span className="px-1 py-0.2 rounded-lg bg-black text-white font-mono text-[9px] font-bold">
             P{idx + 1}
           </span>
         </div>
@@ -736,7 +737,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
 
       {/* Non-Touch Hardware Detection Banner (with 1-Click Skip Step) */}
       {reportedTouchPoints === 0 && (
-        <div className="rounded-[2px] border-2 border-black bg-[#F8FAFC] px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="rounded-lg border-2 border-black bg-[#F8FAFC] px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5">
             <div className="font-mono text-[11px] font-black uppercase tracking-wider text-black">
               No Touchscreen Detected — Click Skip Step
@@ -748,7 +749,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           <button
             type="button"
             onClick={handleOneClickSkip}
-            className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 shrink-0 cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
             <SkipForward className="w-4 h-4" />
             Skip Step
@@ -760,7 +761,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
       {simulatedEventCount > 0 && (
         <div
           data-testid="non-touch-notice"
-          className="rounded-[2px] border border-zinc-400 bg-[#F8FAFC] px-4 py-2.5 flex items-center justify-between gap-3"
+          className="rounded-lg border border-zinc-400 bg-[#F8FAFC] px-4 py-2.5 flex items-center justify-between gap-3"
         >
           <div className="text-xs text-black font-medium">
             Mouse/trackpad input ignored for touchscreen certification — use finger touch or click Skip Step.
@@ -773,7 +774,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
 
       {/* Dense Swiss Telemetry Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 font-mono tabular-nums">
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-3">
+        <div className="rounded-lg border border-zinc-300 bg-white p-3">
           <div className="text-[10px] font-bold uppercase text-zinc-500">Digitizer Hardware</div>
           <div className="mt-1 text-sm font-black text-black">
             {reportedTouchPoints > 0 ? `${reportedTouchPoints}-PT TOUCH` : "0-PT (NONE)"}
@@ -787,7 +788,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           </div>
         </div>
 
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-3">
+        <div className="rounded-lg border border-zinc-300 bg-white p-3">
           <div className="text-[10px] font-bold uppercase text-zinc-500">16×10 Grid Coverage</div>
           <div className="mt-1 text-sm font-black text-blue-600">
             {coveredCells} / {TOTAL_CELLS} ({coveragePct.toFixed(1)}%)
@@ -795,7 +796,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           <div className="text-[10px] text-zinc-600 mt-0.5">{deadZoneCells} untouched cells</div>
         </div>
 
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-3">
+        <div className="rounded-lg border border-zinc-300 bg-white p-3">
           <div className="text-[10px] font-bold uppercase text-zinc-500">Multi-Touch Peak</div>
           <div className="mt-1 text-sm font-black text-black">
             {maxSimultaneousTouches} / 10 Points
@@ -803,13 +804,13 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           <div className="text-[10px] text-zinc-600 mt-0.5">Active now: {activeContacts.length}</div>
         </div>
 
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-3">
+        <div className="rounded-lg border border-zinc-300 bg-white p-3">
           <div className="text-[10px] font-bold uppercase text-zinc-500">Swipe Linearity RMS</div>
           <div className="mt-1 text-sm font-black text-black">{swipeRmsPx.toFixed(1)} px</div>
           <div className="text-[10px] text-zinc-600 mt-0.5">Max drift: {swipeMaxPx.toFixed(1)} px</div>
         </div>
 
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-3">
+        <div className="rounded-lg border border-zinc-300 bg-white p-3">
           <div className="text-[10px] font-bold uppercase text-zinc-500">Touch Polling Rate</div>
           <div className="mt-1 text-sm font-black text-blue-700">
             {pollingHz > 0 ? `${pollingHz} Hz` : "—"}
@@ -817,7 +818,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           <div className="text-[10px] text-zinc-600 mt-0.5">Coalesced sample rate</div>
         </div>
 
-        <div className="rounded-[2px] border border-zinc-300 bg-white p-3">
+        <div className="rounded-lg border border-zinc-300 bg-white p-3">
           <div className="text-[10px] font-bold uppercase text-zinc-500">Tap Response</div>
           <div className="mt-1 text-sm font-black text-black">
             {tapLatencyMs != null ? `${tapLatencyMs.toFixed(1)} ms` : "—"}
@@ -827,7 +828,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
       </div>
 
       {/* 10-Point Multi-Touch Slot Pills + Guide Lane Badges */}
-      <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-mono text-[10px] font-bold uppercase text-zinc-600 mr-1">
             Multi-Touch Slots:
@@ -838,7 +839,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
             return (
               <span
                 key={i}
-                className={`px-1.5 py-0.5 rounded-[2px] border font-mono text-[10px] font-bold tabular-nums ${
+                className={`px-1.5 py-0.5 rounded-lg border font-mono text-[10px] font-bold tabular-nums ${
                   activeNow
                     ? "bg-blue-600 border-blue-600 text-white"
                     : reached
@@ -859,7 +860,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
             return (
               <span
                 key={lane}
-                className={`px-2 py-0.5 rounded-[2px] border uppercase font-bold ${
+                className={`px-2 py-0.5 rounded-lg border uppercase font-bold ${
                   ok
                     ? "bg-blue-600 border-blue-600 text-white"
                     : "bg-white border-zinc-300 text-zinc-500"
@@ -875,28 +876,33 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
       {/* Interactive 16x10 Surface (when not in portal fullscreen) */}
       {!fullscreen && renderInteractiveSurface(false)}
 
-      {/* Plain-Language Interpretation */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2">
-        <div className="flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-wider text-blue-700">
-          <Sparkles className="w-3.5 h-3.5" />
-          What This Means for Long-Term Use
+      {/* Collapsed Technical Interpretation Details */}
+      <TechnicalDetailsDrawer
+        title="Details"
+        subtitle="Digitizer grid guide, multi-touch standards, RMS linearity & polling thresholds"
+      >
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-blue-700">
+            <Sparkles className="w-3.5 h-3.5" />
+            What this means for long-term use
+          </div>
+          <p className="text-xs text-zinc-800 leading-relaxed">{plainSummaryText}</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-xs text-zinc-600">
+            <div className="rounded-xl border border-zinc-200 bg-[#FAFAFA] p-3">
+              <strong className="text-black">Dead Zones (Grid):</strong> Untouched stripes or corners after dragging across the entire panel indicate a damaged digitizer flex ribbon or delaminated ITO trace.
+            </div>
+            <div className="rounded-xl border border-zinc-200 bg-[#FAFAFA] p-3">
+              <strong className="text-black">Multi-Touch &amp; Ghost Touches:</strong> Healthy Windows Precision/capacitive panels register 5–10 simultaneous fingers cleanly without phantom jumps when fingers cross.
+            </div>
+            <div className="rounded-xl border border-zinc-200 bg-[#FAFAFA] p-3">
+              <strong className="text-black">Linearity &amp; Polling:</strong> Under 5 px RMS deviation and 60–240 Hz polling ensures smooth handwriting, scrolling, and pinch-to-zoom accuracy.
+            </div>
+          </div>
         </div>
-        <p className="text-xs text-zinc-800 leading-relaxed">{plainSummaryText}</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1 text-[11px] text-zinc-600">
-          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
-            <strong className="text-black">Dead Zones (Grid):</strong> Untouched stripes or corners after dragging across the entire panel indicate a damaged digitizer flex ribbon or delaminated ITO trace.
-          </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
-            <strong className="text-black">Multi-Touch &amp; Ghost Touches:</strong> Healthy Windows Precision/capacitive panels register 5–10 simultaneous fingers cleanly without phantom jumps when fingers cross.
-          </div>
-          <div className="rounded-[2px] border border-zinc-200 bg-[#FAFAFA] p-2.5">
-            <strong className="text-black">Linearity &amp; Polling:</strong> Under 5 px RMS deviation and 60–240 Hz polling ensures smooth handwriting, scrolling, and pinch-to-zoom accuracy.
-          </div>
-        </div>
-      </div>
+      </TechnicalDetailsDrawer>
 
       {/* Verdict Panel */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+      <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <span className="text-sm font-bold text-black">Technician Touch Digitizer Verdict</span>
           <span className="font-mono text-xs text-zinc-600 tabular-nums">
@@ -910,7 +916,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Optional touch notes (e.g., 10-pt responsive edge-to-edge, 0 dead strips, or USB external touch tested)"
-          className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-2 text-xs text-black"
+          className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-black"
         />
 
         <div className="flex flex-wrap gap-2">
@@ -923,7 +929,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
                 ? "Requires real finger touch input (pointerType === 'touch') before passing"
                 : undefined
             }
-            className={`px-4 py-2 rounded-[2px] font-bold text-xs flex items-center gap-1.5 ${
+            className={`px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-1.5 ${
               touchEventCount === 0
                 ? "bg-zinc-200 text-zinc-500 border border-zinc-300 cursor-not-allowed"
                 : "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
@@ -935,14 +941,14 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           <button
             type="button"
             onClick={() => handleRecordVerdict("WARN")}
-            className="px-4 py-2 rounded-[2px] border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xs cursor-pointer"
+            className="px-4 py-2 rounded-lg border border-blue-600 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xs cursor-pointer"
           >
             Mark Minor Issue (WARN)
           </button>
           <button
             type="button"
             onClick={() => handleRecordVerdict("FAIL")}
-            className="px-4 py-2 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-black hover:bg-zinc-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer"
           >
             <XCircle className="w-4 h-4" />
             Fail Touchscreen Test

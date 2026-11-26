@@ -12,7 +12,13 @@ import {
   Usb,
   Wifi,
 } from "lucide-react";
-import type { HardwareFaultsReport, NetworkDiagnosticsReport, SystemSpecs, TestStatus } from "../types";
+import type {
+  HardwareFaultsReport,
+  NetworkDiagnosticsReport,
+  SystemSpecs,
+  TamperForensicsReport,
+  TestStatus,
+} from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
 import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
@@ -26,6 +32,7 @@ interface SpecsViewProps {
   networkReport?: NetworkDiagnosticsReport | null;
   loadingNetwork?: boolean;
   hardwareFaults?: HardwareFaultsReport | null;
+  tamperForensics?: TamperForensicsReport | null;
   loadingFaults?: boolean;
   onRefreshFaults?: () => Promise<HardwareFaultsReport | null>;
   onRunNetworkDiagnostics?: () => Promise<NetworkDiagnosticsReport | null>;
@@ -56,6 +63,7 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
   networkReport = null,
   loadingNetwork = false,
   hardwareFaults = null,
+  tamperForensics = null,
   loadingFaults = false,
   onRefreshFaults,
   onRunNetworkDiagnostics,
@@ -265,6 +273,38 @@ export const SpecsView: React.FC<SpecsViewProps> = ({
                     <span>{msg}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {tamperForensics && tamperForensics.findings.length > 0 && (
+              <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-black">
+                    Used-Laptop Refurbisher &amp; Component History Forensics
+                  </span>
+                  <StatusBadge status={tamperForensics.status} compact />
+                </div>
+                <div className="space-y-1">
+                  {tamperForensics.findings.map((f) => (
+                    <div
+                      key={f.id}
+                      className="rounded-lg border border-zinc-200 bg-[#F8FAFC] px-3 py-1.5 flex items-start gap-2"
+                    >
+                      <span
+                        className={`px-1.5 py-0.5 rounded font-mono text-[9.5px] font-bold uppercase shrink-0 mt-0.5 ${
+                          f.severity === "warn"
+                            ? "bg-black text-white"
+                            : "bg-blue-50 border border-blue-200 text-blue-700"
+                        }`}
+                      >
+                        {f.severity}
+                      </span>
+                      <div className="text-zinc-700">
+                        <strong className="text-black">{f.title}:</strong> {f.detail}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

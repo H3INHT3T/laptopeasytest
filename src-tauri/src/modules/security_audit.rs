@@ -22,6 +22,7 @@ pub fn run_security_audit() -> SecurityAuditReport {
             summary: "Security audit not implemented on this platform.".to_string(),
             plain_summary: "Ownership & firmware lock audit is supported on Windows and macOS only.".to_string(),
             ownership_risks: Vec::new(),
+            ..Default::default()
         }
     }
 }
@@ -54,6 +55,131 @@ pub(crate) fn parse_dsregcmd_status(out: &str) -> (bool, bool, bool, String) {
     (azure_joined, domain_joined, workplace_joined, mdm_url)
 }
 
+/// Classifies Windows licensing authenticity: distinguishes genuine OEM BIOS Digital (`OEM:DM`)
+/// & Retail activations from pirated 180-day KMS / Volume GVLK cracks (`WARN`) and Volume MAK keys.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn classify_windows_license_authenticity(
+    lic_status: i64,
+    lic_channel: &str,
+    lic_desc: &str,
+    kms_server: &str,
+    grace_min: Option<u64>,
+    oa3_present: Option<bool>,
+    oa3_last5: &str,
+    oa3_desc: &str,
+) -> (String, TestStatus, String, String, bool, Option<u32>) {
+    let ch_up = lic_channel.to_ascii_uppercase();
+    let desc_up = lic_desc.to_ascii_uppercase();
+    let grace_days = grace_min.filter(|&m| m > 0 && m <= 265_000).map(|m| ((m + 1439) / 1440) as u32);
+    let is_kms = ch_up.contains("KMS")
+        || ch_up.contains("GVLK")
+        || desc_up.contains("VOLUME_KMS")
+        || !kms_server.is_empty();
+    let is_volume_mak = !is_kms && (ch_up.contains("VOLUME") || desc_up.contains("VOLUME_MAK"));
+    let oa3_note = match oa3_present {
+        Some(true) => {
+            let tail = if !oa3_last5.is_empty() {
+                format!(" ending in {}", oa3_last5)
+            } else {
+                String::new()
+            };
+            let ed = if !oa3_desc.is_empty() {
+                format!(" [{}]", oa3_desc)
+            } else {
+                String::new()
+            };
+            format!(" Motherboard DOES have a genuine factory OEM BIOS key{}{}.", tail, ed)
+        }
+        Some(false) => " No factory OEM BIOS (OA3) key found on motherboard.".to_string(),
+        None => String::new(),
+    };
+
+    let resolved_channel = if !lic_channel.is_empty() {
+        lic_channel.to_string()
+    } else if is_kms {
+        "Volume:GVLK (KMS)".to_string()
+    } else if is_volume_mak {
+        "Volume:MAK".to_string()
+    } else if lic_status == 1 {
+        if oa3_present == Some(true) {
+            "OEM:DM".to_string()
+        } else {
+            "Retail / Digital".to_string()
+        }
+    } else {
+        "Unactivated".to_string()
+    };
+
+    match lic_status {
+        1 if is_kms => {
+            let exp = grace_days
+                .map(|d| format!(" (expires in ~{} days)", d))
+                .unwrap_or_else(|| " (180-day expiring KMS)".to_string());
+            (
+                format!("KMS / Volume Crack Suspected{}", exp),
+                TestStatus::Warn,
+                format!(
+                    "WARN: Windows is activated via KMS / Volume GVLK{} rather than a permanent OEM or Retail license — often installed by informal cracks and may deactivate after 180 days.{}",
+                    exp, oa3_note
+                ),
+                resolved_channel,
+                true,
+                grace_days,
+            )
+        }
+        1 if is_volume_mak => (
+            "Volume MAK License (Verify)".to_string(),
+            TestStatus::Warn,
+            format!(
+                "Windows uses a corporate Volume MAK key — confirm legitimate transfer rights.{}",
+                oa3_note
+            ),
+            resolved_channel,
+            false,
+            grace_days,
+        ),
+        1 => {
+            let val = if ch_up.contains("OEM") || oa3_present == Some(true) {
+                "Activated (Genuine OEM Digital)".to_string()
+            } else if ch_up.contains("RETAIL") {
+                "Activated (Genuine Retail)".to_string()
+            } else {
+                "Activated (Licensed)".to_string()
+            };
+            (
+                val,
+                TestStatus::Pass,
+                format!("Genuine permanent Windows activation verified.{}", oa3_note),
+                resolved_channel,
+                false,
+                None,
+            )
+        }
+        2 | 3 | 6 => (
+            "Grace Period / Notification".to_string(),
+            TestStatus::Warn,
+            format!(
+                "Windows license is in grace/notification state — verify OEM digital license in BIOS.{}",
+                oa3_note
+            ),
+            resolved_channel,
+            is_kms,
+            grace_days,
+        ),
+        _ => (
+            "Not Activated".to_string(),
+            TestStatus::Warn,
+            format!(
+                "Windows is not activated — check whether an OEM license key exists or buyer must provide a license.{}",
+                oa3_note
+            ),
+            resolved_channel,
+            false,
+            None,
+        ),
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) fn evaluate_windows_security_items(
     dsreg: Option<(bool, bool, bool, String)>,
@@ -66,6 +192,11 @@ pub(crate) fn evaluate_windows_security_items(
     let mdm_enrolled;
     let mut bios_locked: Option<bool> = None;
     let mut bios_lock_status = "UNVERIFIABLE".to_string();
+    let mut license_channel = String::new();
+    let mut kms_piracy_suspected = false;
+    let mut oem_bios_key_present: Option<bool> = None;
+    let mut oem_bios_key_hint: Option<String> = None;
+    let mut license_grace_days: Option<u32> = None;
 
     if let Some((azure_joined, domain_joined, workplace_joined, mdm_url)) = dsreg {
         let enrolled = azure_joined || domain_joined || !mdm_url.is_empty();
@@ -117,37 +248,80 @@ pub(crate) fn evaluate_windows_security_items(
 
     if let Some(raw) = ps_json {
         if let Ok(v) = serde_json::from_str::<Value>(raw) {
-            // Windows License
+            // Windows License + KMS Piracy vs Genuine OEM BIOS Key (OA3) Forensics (v3.1.0)
             let lic_status = v["licStatus"].as_i64().unwrap_or(-1);
             let lic_name = v["licName"].as_str().unwrap_or("Unknown");
             let lic_key = v["licKey"].as_str().unwrap_or("");
-            let (l_val, l_st, l_note) = match lic_status {
-                1 => (
-                    "Activated (Licensed)".to_string(),
-                    TestStatus::Pass,
-                    "Genuine Windows activation present.".to_string(),
-                ),
-                2 | 3 | 6 => (
-                    "Grace Period / Notification".to_string(),
-                    TestStatus::Warn,
-                    "Windows license is in grace/notification state — verify OEM digital license in BIOS.".to_string(),
-                ),
-                _ => (
-                    "Not Activated".to_string(),
-                    TestStatus::Warn,
-                    "Windows is not activated — check whether an OEM license key exists or buyer must provide a license.".to_string(),
-                ),
+            let lic_channel = v["licChannel"].as_str().unwrap_or("").trim();
+            let lic_desc = v["licDesc"].as_str().unwrap_or("").trim();
+            let kms_server = v["kmsServer"].as_str().unwrap_or("").trim();
+            let grace_min = v["graceMin"].as_u64();
+            let oa3_present = v["oa3Present"].as_bool();
+            let oa3_last5 = v["oa3Last5"].as_str().unwrap_or("").trim();
+            let oa3_desc = v["oa3Desc"].as_str().unwrap_or("").trim();
+
+            let (
+                l_val,
+                l_st,
+                l_note,
+                resolved_channel,
+                kms_suspected,
+                grace_days_opt,
+            ) = classify_windows_license_authenticity(
+                lic_status,
+                lic_channel,
+                lic_desc,
+                kms_server,
+                grace_min,
+                oa3_present,
+                oa3_last5,
+                oa3_desc,
+            );
+            license_channel = resolved_channel;
+            kms_piracy_suspected = kms_suspected;
+            oem_bios_key_present = oa3_present;
+            oem_bios_key_hint = if oa3_present == Some(true) {
+                let tail = if !oa3_last5.is_empty() {
+                    format!("ending in {}", oa3_last5)
+                } else {
+                    "embedded in UEFI MSDM".to_string()
+                };
+                Some(if !oa3_desc.is_empty() {
+                    format!("{} ({})", oa3_desc, tail)
+                } else {
+                    format!("Genuine OEM BIOS Key ({})", tail)
+                })
+            } else {
+                None
             };
+            license_grace_days = grace_days_opt;
+
+            let mut lic_detail_parts = vec![if lic_key.is_empty() {
+                lic_name.to_string()
+            } else {
+                format!("{} (Key ends: {})", lic_name, lic_key)
+            }];
+            if !license_channel.is_empty() {
+                lic_detail_parts.push(format!("Channel: {}", license_channel));
+            }
+            if let Some(days) = license_grace_days {
+                lic_detail_parts.push(format!("Expires in: {}d", days));
+            }
+            if !kms_server.is_empty() {
+                lic_detail_parts.push(format!("KMS Host: {}", kms_server));
+            }
+            if let Some(hint) = oem_bios_key_hint.as_deref() {
+                lic_detail_parts.push(format!("BIOS OA3: {}", hint));
+            } else if oa3_present == Some(false) {
+                lic_detail_parts.push("BIOS OA3: None embedded".to_string());
+            }
+
             items.push(SecurityCheckItem {
                 id: "license".to_string(),
                 label: "Windows OEM / Activation License".to_string(),
                 value: l_val,
                 status: l_st,
-                detail: if lic_key.is_empty() {
-                    lic_name.to_string()
-                } else {
-                    format!("{} (Key ends: {})", lic_name, lic_key)
-                },
+                detail: lic_detail_parts.join(" | "),
                 buyer_note: l_note,
             });
 
@@ -377,7 +551,7 @@ pub(crate) fn evaluate_windows_security_items(
         }
     }
 
-    finalize_security_report(
+    let mut rep = finalize_security_report(
         "Windows",
         mdm_enrolled,
         None,
@@ -385,7 +559,13 @@ pub(crate) fn evaluate_windows_security_items(
         bios_lock_status,
         items,
         ownership_risks,
-    )
+    );
+    rep.license_channel = license_channel;
+    rep.kms_piracy_suspected = kms_piracy_suspected;
+    rep.oem_bios_key_present = oem_bios_key_present;
+    rep.oem_bios_key_hint = oem_bios_key_hint;
+    rep.license_grace_days = license_grace_days;
+    rep
 }
 
 #[allow(dead_code)]
@@ -468,6 +648,11 @@ pub(crate) fn finalize_security_report(
         summary,
         plain_summary,
         ownership_risks,
+        license_channel: if platform == "macOS" { "macOS Genuine".to_string() } else { String::new() },
+        kms_piracy_suspected: false,
+        oem_bios_key_present: None,
+        oem_bios_key_hint: None,
+        license_grace_days: None,
     }
 }
 
@@ -485,6 +670,15 @@ $lic = Get-CimInstance SoftwareLicensingProduct -Filter "ApplicationID='55c92734
 $licStatus = if ($lic) { $lic.LicenseStatus } else { -1 }
 $licName = if ($lic) { $lic.Name } else { 'No license key found' }
 $licKey = if ($lic) { $lic.PartialProductKey } else { '' }
+$licChannel = if ($lic -and $lic.ProductKeyChannel) { [string]$lic.ProductKeyChannel } else { '' }
+$licDesc = if ($lic -and $lic.Description) { [string]$lic.Description } else { '' }
+$kmsServer = if ($lic -and $lic.KeyManagementServiceMachine) { [string]$lic.KeyManagementServiceMachine } else { '' }
+$graceMin = if ($lic -and $null -ne $lic.GracePeriodRemaining -and [uint64]$lic.GracePeriodRemaining -gt 0) { [uint64]$lic.GracePeriodRemaining } else { $null }
+$sls = Get-CimInstance SoftwareLicensingService -ErrorAction SilentlyContinue | Select-Object -First 1
+$oa3Raw = if ($sls -and $sls.OA3xOriginalProductKey) { ([string]$sls.OA3xOriginalProductKey).Trim() } else { '' }
+$oa3Present = if ($sls) { ($oa3Raw.Length -ge 20) } else { $null }
+$oa3Last5 = if ($oa3Raw.Length -ge 5) { $oa3Raw.Substring($oa3Raw.Length - 5) } else { '' }
+$oa3Desc = if ($sls -and $sls.OA3xOriginalProductKeyDescription) { [string]$sls.OA3xOriginalProductKeyDescription } else { '' }
 
 $sb = try { Confirm-SecureBootUEFI -ErrorAction Stop } catch { 'Unsupported' }
 $tpm = try {
@@ -610,6 +804,13 @@ if (Test-Path $apPath) {
     licStatus = $licStatus
     licName = $licName
     licKey = $licKey
+    licChannel = $licChannel
+    licDesc = $licDesc
+    kmsServer = $kmsServer
+    graceMin = $graceMin
+    oa3Present = $oa3Present
+    oa3Last5 = $oa3Last5
+    oa3Desc = $oa3Desc
     secureBoot = [string]$sb
     tpm = $tpm
     bitlocker = $bl
@@ -994,5 +1195,60 @@ mod tests {
         );
         assert_eq!(rep_clean.overall_status, TestStatus::Pass);
         assert!(rep_clean.ownership_risks.is_empty());
+    }
+
+    #[test]
+    fn test_kms_piracy_and_oa3_oem_bios_key_v310() {
+        let kms_ps = r#"{
+            "licStatus": 1,
+            "licName": "Windows(R), Professional edition",
+            "licKey": "W269N",
+            "licChannel": "Volume:GVLK",
+            "licDesc": "Windows(R) Operating System, VOLUME_KMSCLIENT channel",
+            "kmsServer": "kms.fake-activator.local",
+            "graceMin": 259200,
+            "oa3Present": true,
+            "oa3Last5": "9QXYZ",
+            "oa3Desc": "[4.0] Core OEM:DM",
+            "secureBoot": "True",
+            "tpm": {"present": true, "ready": true, "enabled": true, "spec": "2.0"},
+            "bitlocker": {"status": "Off", "enc": "FullyDecrypted", "pct": 0}
+        }"#;
+        let rep = evaluate_windows_security_items(
+            Some((false, false, false, String::new())),
+            Some(kms_ps),
+        );
+        assert_eq!(rep.overall_status, TestStatus::Warn);
+        assert!(rep.kms_piracy_suspected);
+        assert_eq!(rep.oem_bios_key_present, Some(true));
+        assert!(rep.oem_bios_key_hint.as_deref().unwrap_or("").contains("9QXYZ"));
+        assert_eq!(rep.license_grace_days, Some(180));
+        let lic_item = rep.items.iter().find(|i| i.id == "license").unwrap();
+        assert_eq!(lic_item.status, TestStatus::Warn);
+        assert!(lic_item.value.contains("KMS"));
+
+        let oem_ps = r#"{
+            "licStatus": 1,
+            "licName": "Windows(R), Core edition",
+            "licKey": "9QXYZ",
+            "licChannel": "OEM:DM",
+            "licDesc": "Windows(R) Operating System, OEM_DM channel",
+            "kmsServer": "",
+            "graceMin": 0,
+            "oa3Present": true,
+            "oa3Last5": "9QXYZ",
+            "oa3Desc": "[4.0] Core OEM:DM",
+            "secureBoot": "True",
+            "tpm": {"present": true, "ready": true, "enabled": true, "spec": "2.0"},
+            "bitlocker": {"status": "Off", "enc": "FullyDecrypted", "pct": 0}
+        }"#;
+        let rep_oem = evaluate_windows_security_items(
+            Some((false, false, false, String::new())),
+            Some(oem_ps),
+        );
+        assert_eq!(rep_oem.overall_status, TestStatus::Pass);
+        assert!(!rep_oem.kms_piracy_suspected);
+        assert_eq!(rep_oem.oem_bios_key_present, Some(true));
+        assert_eq!(rep_oem.license_channel, "OEM:DM");
     }
 }

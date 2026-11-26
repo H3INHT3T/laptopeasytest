@@ -497,7 +497,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                 value={preset}
                 disabled={running}
                 onChange={(e) => setPreset(e.target.value as StressPreset)}
-                className="bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black font-medium"
+                className="bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black font-medium"
               >
                 <option value="quick">Shop QC — 14-Stage Sustained (~50–60s)</option>
                 <option value="standard">Standard Durability — 14-Stage (~2.2m)</option>
@@ -573,7 +573,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               {/* Live 3D Path-Tracer Viewport */}
-              <div className="rounded-[2px] border border-zinc-300 bg-black overflow-hidden flex flex-col justify-between">
+              <div className="rounded-lg border border-zinc-300 bg-black overflow-hidden flex flex-col justify-between">
                 <div className="px-3 py-1.5 border-b border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-300">
                   <span className="font-bold text-blue-400 flex items-center gap-1">
                     <Sparkles className="w-3 h-3" /> 3D PATH-TRACER
@@ -614,7 +614,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                     plainHint="Automatic thermal cutoff stops the suite safely before silicon limits."
                   />
                 ) : (
-                  <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-4 flex flex-col justify-center text-xs text-zinc-600">
+                  <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] p-4 flex flex-col justify-center text-xs text-zinc-600">
                     <div className="font-mono text-[10px] font-bold uppercase text-black mb-1">
                       BOUNDED SAFE TELEMETRY BRIDGE
                     </div>
@@ -648,9 +648,9 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
             <StatusBadge status={fanAcousticResult.status} darkSurface={fanAcousticResult.status === "warn"} compact />
           </div>
         )}
-        {error && <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>}
+        {error && <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>}
         {historyNotice && (
-          <div className="rounded-[2px] bg-blue-50 border border-blue-600 text-blue-900 px-3 py-2 font-mono text-xs font-semibold">
+          <div className="rounded-lg bg-blue-50 border border-blue-600 text-blue-900 px-3 py-2 font-mono text-xs font-semibold">
             {historyNotice}
           </div>
         )}
@@ -660,7 +660,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
       {result && !running && (
         <div className="space-y-3">
           {result.thermalCutoffTriggered && (
-            <div className="rounded-[2px] border-2 border-black bg-black text-white p-3.5 flex items-start gap-3">
+            <div className="rounded-lg border-2 border-black bg-black text-white p-3.5 flex items-start gap-3">
               <ShieldAlert className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
               <div className="text-xs space-y-0.5">
                 <div className="font-mono font-black uppercase tracking-wider text-blue-400">
@@ -698,7 +698,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
           )}
 
           {result.sensorUnavailable && (
-            <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2.5 flex items-center gap-2.5 text-xs text-black">
+            <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-3.5 py-2.5 flex items-center gap-2.5 text-xs text-black">
               <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0" />
               <span>
                 <strong>Temperature Sensor Unavailable:</strong> CPU core sensor was not exposed by firmware; bounded safe stage durations (&le;6.0s per stage) were enforced automatically.
@@ -715,17 +715,17 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
 
           {/* UserBenchmark Comparison & Vehicle Tiers Panel */}
           {(effectiveUb || cpuUbRating) && (
-            <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+            <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-zinc-200">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Award className="w-4 h-4 text-blue-600" />
                   <span className="font-mono text-[11px] font-black uppercase tracking-wider text-black">
                     UserBenchmark Comparison &amp; Vehicle Tiers
                   </span>
-                  <span className="px-2 py-0.5 rounded-[2px] bg-blue-600 text-white font-mono text-[11px] font-black uppercase">
+                  <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white font-mono text-[11px] font-black uppercase">
                     {effectiveUb?.overallVehicleTier ?? cpuUbRating?.vehicleTier}
                   </span>
-                  <span className="px-1.5 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] font-mono text-[10px] font-bold text-zinc-700">
+                  <span className="px-1.5 py-0.5 rounded-lg border border-zinc-300 bg-[#F8FAFC] font-mono text-[10px] font-bold text-zinc-700">
                     {(effectiveUb?.sourceMode ?? cpuUbRating?.sourceMode) === "live_verified"
                       ? "Live Verified"
                       : "Offline Calibrated"}
@@ -733,7 +733,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                 </div>
                 {cpuUbRating && (
                   <span
-                    className={`px-2 py-0.5 rounded-[2px] border font-mono text-[10.5px] font-bold ${
+                    className={`px-2 py-0.5 rounded-lg border font-mono text-[10.5px] font-bold ${
                       cpuUbRating.standingLabel === "Underperforming"
                         ? "bg-black text-white border-black"
                         : cpuUbRating.standingLabel === "Below Expectations"
@@ -776,13 +776,13 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                     .map((comp) => (
                       <div
                         key={comp.component}
-                        className="rounded-[2px] border border-zinc-200 bg-[#F8FAFC] p-2.5 space-y-1"
+                        className="rounded-lg border border-zinc-200 bg-[#F8FAFC] p-2.5 space-y-1"
                       >
                         <div className="flex items-center justify-between gap-2 font-mono text-[10.5px]">
                           <strong className="text-black uppercase">
                             {comp.component}: {comp.detectedModel}
                           </strong>
-                          <span className="px-1.5 py-0.5 rounded-[2px] bg-blue-600 text-white font-bold text-[9.5px]">
+                          <span className="px-1.5 py-0.5 rounded-lg bg-blue-600 text-white font-bold text-[9.5px]">
                             {comp.vehicleTier}
                           </span>
                         </div>
@@ -794,7 +794,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                           <span className="font-bold text-black">{comp.standingLabel}</span>
                         </div>
                         {comp.bottleneckFlag && (
-                          <div className="font-mono text-[10px] bg-black text-white px-2 py-0.5 rounded-[2px]">
+                          <div className="font-mono text-[10px] bg-black text-white px-2 py-0.5 rounded-lg">
                             BOTTLENECK: {comp.bottleneckFlag}
                           </div>
                         )}
@@ -805,7 +805,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               )}
 
               {effectiveUb?.headlineSummary && (
-                <div className="rounded-[2px] border border-zinc-200 bg-white px-3 py-2 text-xs text-black">
+                <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-black">
                   <strong className="font-mono text-[10px] uppercase text-blue-700 mr-1.5">
                     Summary:
                   </strong>
@@ -824,10 +824,10 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
           )}
 
           {/* Architectural Score Plate */}
-          <div className="rounded-[2px] border border-black bg-white overflow-hidden">
+          <div className="rounded-lg border border-black bg-white overflow-hidden">
             <div className="px-5 py-4 bg-black text-white flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-[2px] bg-blue-600 text-white flex flex-col items-center justify-center shrink-0">
+                <div className="w-14 h-14 rounded-lg bg-blue-600 text-white flex flex-col items-center justify-center shrink-0">
                   <span className="font-mono text-[8.5px] uppercase font-bold tracking-widest text-blue-100">GRADE</span>
                   <span className="text-2xl font-black font-mono leading-none mt-0.5">{result.durabilityGrade}</span>
                 </div>
@@ -859,7 +859,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                 </div>
                 <div className="flex items-center justify-end gap-2">
                   {result.throttleDropPct >= 15 && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] bg-blue-600 text-white text-[9.5px] font-bold">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-blue-600 text-white text-[9.5px] font-bold">
                       <Flame className="w-3 h-3" /> THROTTLE -{result.throttleDropPct.toFixed(0)}%
                     </span>
                   )}
@@ -901,31 +901,31 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                 PassMark 11 Memory Mark (7 Subtests)
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 font-mono tabular-nums text-[10.5px]">
-                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-[2px]">
+                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-lg">
                   <div className="text-[8.5px] text-zinc-500 uppercase">Cached Read</div>
                   <div className="font-bold text-black">{result.memoryCachedGbS.toFixed(1)} GB/s</div>
                 </div>
-                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-[2px]">
+                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-lg">
                   <div className="text-[8.5px] text-zinc-500 uppercase">Uncached &gt;LLC</div>
                   <div className="font-bold text-black">
                     {(result.memoryUncachedReadGbS ?? result.memoryBandwidthGbS).toFixed(1)} GB/s
                   </div>
                 </div>
-                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-[2px]">
+                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-lg">
                   <div className="text-[8.5px] text-zinc-500 uppercase">Threaded Copy</div>
                   <div className="font-bold text-black">
                     {(result.memoryThreadedGbS ?? result.memoryBandwidthGbS).toFixed(1)} GB/s
                   </div>
                 </div>
-                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-[2px]">
+                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-lg">
                   <div className="text-[8.5px] text-zinc-500 uppercase">Write Speed</div>
                   <div className="font-bold text-black">{result.memoryWriteGbS.toFixed(1)} GB/s</div>
                 </div>
-                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-[2px]">
+                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-lg">
                   <div className="text-[8.5px] text-zinc-500 uppercase">DRAM Latency</div>
                   <div className="font-bold text-blue-700">{result.memoryLatencyNs.toFixed(1)} ns</div>
                 </div>
-                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-[2px]">
+                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-lg">
                   <div className="text-[8.5px] text-zinc-500 uppercase">Database Ops</div>
                   <div className="font-bold text-black">
                     {result.memoryDatabaseKops != null
@@ -933,7 +933,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                       : `${result.databaseScore.toLocaleString()}`}
                   </div>
                 </div>
-                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-[2px]">
+                <div className="bg-white border border-zinc-200 px-2 py-1.5 rounded-lg">
                   <div className="text-[8.5px] text-zinc-500 uppercase">Available RAM</div>
                   <div className="font-bold text-black">
                     {result.availableRamMb != null
@@ -970,7 +970,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
 
           {/* Shop Model History Comparison Strip */}
           {result.shopComparison && (
-            <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] px-4 py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] px-4 py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
               <div className="space-y-0.5">
                 <div className="font-mono text-[10.5px] font-bold uppercase tracking-wider text-black flex items-center gap-1.5">
                   <Database className="w-3.5 h-3.5 text-blue-600" />
@@ -998,13 +998,13 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={handleExportHistory}
-                  className="px-2.5 py-1.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black font-mono text-[10px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:border-black font-mono text-[10px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
                 >
                   <Download className="w-3 h-3 text-blue-600" /> Export DB
                 </button>
                 <button
                   onClick={handleImportHistory}
-                  className="px-2.5 py-1.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black font-mono text-[10px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:border-black font-mono text-[10px] font-bold uppercase text-black flex items-center gap-1 cursor-pointer"
                 >
                   <Upload className="w-3 h-3 text-blue-600" /> Import DB
                 </button>
@@ -1014,7 +1014,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
           </TechnicalDetailsDrawer>
 
           {/* 14-Subtest Architectural Bar Ledger */}
-          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-2">
+          <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-2">
             <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500 pb-1 border-b border-zinc-200">
               14-Category Subtest Breakdown
             </div>

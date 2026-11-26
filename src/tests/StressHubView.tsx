@@ -27,6 +27,7 @@ import type {
 } from "../types";
 import { LiveChart } from "../components/LiveChart";
 import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
+import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
 
 type StressTarget = "cpu" | "gpu" | "memory" | "vram" | "power";
 type StressDuration = "quick" | "standard" | "burnin";
@@ -702,19 +703,45 @@ export const StressHubView: React.FC<StressHubViewProps> = ({
         />
       )}
 
-      {/* Cool-Down & Error Proof Strip (for CPU Stress) */}
-      {cpuResult && target === "cpu" && (
-        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-          <span>
-            Threads: <strong>{cpuResult.threadsUsed}</strong> • Avg Clock: <strong>{cpuResult.avgClockMhz} MHz</strong> • Throttle: <strong>{cpuResult.throttleDropPct.toFixed(1)}%</strong>
-          </span>
-          <span>
-            Calc Err: <strong>{cpuResult.calcErrors}</strong> • WHEA Err: <strong>{cpuResult.wheaErrors}</strong>
-            {cpuResult.cooldownDropC != null && (
-              <> • Cool-Down: <strong className="text-blue-700">-{cpuResult.cooldownDropC.toFixed(1)}°C ({cpuResult.cooldownVerdict})</strong></>
+      {/* Cool-Down, NVML & Error Proof Details Drawer */}
+      {(cpuResult || (telemetry?.gpuThrottleReasons?.length ?? 0) > 0 || perfPoints.length > 1) && (
+        <TechnicalDetailsDrawer
+          title="Details"
+          subtitle="Stress telemetry proof, cool-down delta, NVML hardware throttle flags & error counters"
+        >
+          <div className="space-y-3">
+            {cpuResult && target === "cpu" && (
+              <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                <span>
+                  Threads: <strong>{cpuResult.threadsUsed}</strong> • Avg Clock: <strong>{cpuResult.avgClockMhz} MHz</strong> • Throttle: <strong>{cpuResult.throttleDropPct.toFixed(1)}%</strong>
+                </span>
+                <span>
+                  Calc Err: <strong>{cpuResult.calcErrors}</strong> • WHEA Err: <strong>{cpuResult.wheaErrors}</strong>
+                  {cpuResult.cooldownDropC != null && (
+                    <> • Cool-Down: <strong className="text-blue-700">-{cpuResult.cooldownDropC.toFixed(1)}°C ({cpuResult.cooldownVerdict})</strong></>
+                  )}
+                </span>
+              </div>
             )}
-          </span>
-        </div>
+            {telemetry && (telemetry.gpuClockMhz != null || (telemetry.gpuThrottleReasons?.length ?? 0) > 0) && (
+              <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                <span>
+                  NVML GPU Clock: <strong>{telemetry.gpuClockMhz ?? "—"} MHz</strong> • VRAM:{" "}
+                  <strong>{telemetry.gpuMemClockMhz ?? "—"} MHz</strong> • Fan:{" "}
+                  <strong>{telemetry.gpuFanPct != null ? `${telemetry.gpuFanPct}%` : "—"}</strong>
+                </span>
+                <span>
+                  HW Throttle:{" "}
+                  <strong className={(telemetry.gpuThrottleReasons?.length ?? 0) > 0 ? "text-black underline" : "text-blue-700"}>
+                    {(telemetry.gpuThrottleReasons?.length ?? 0) > 0
+                      ? telemetry.gpuThrottleReasons!.join(", ")
+                      : "None"}
+                  </strong>
+                </span>
+              </div>
+            )}
+          </div>
+        </TechnicalDetailsDrawer>
       )}
     </div>
   );

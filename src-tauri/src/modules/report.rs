@@ -1,18 +1,15 @@
 use crate::modules::pdf_gen::{
     build_qr_payload, compute_certificate_id, render_qc_certificate_pdf, render_qr_svg,
 };
+use crate::modules::portable;
 use crate::types::{ExportReportPayload, ExportedReportPaths, ShopProfile, TestStatus};
 use chrono::Local;
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 fn profile_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Could not resolve app config dir: {}", e))?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dir = portable::resolve_config_dir(app)?;
     Ok(dir.join("shop_profile.json"))
 }
 
@@ -398,6 +395,41 @@ pub(crate) fn build_long_term_meaning(payload: &ExportReportPayload) -> (String,
         }
     }
 
+    if let Some(sec) = &payload.security_audit {
+        if sec.kms_piracy_suspected {
+            critical_bullets.push(format!(
+                "Windows License Authenticity Warning (KMS): Channel={} (Expires in ~{}d) — {}",
+                sec.license_channel,
+                sec.license_grace_days.unwrap_or(180),
+                sec.oem_bios_key_hint
+                    .as_deref()
+                    .unwrap_or("No OEM BIOS key detected")
+            ));
+        } else if let Some(hint) = sec.oem_bios_key_hint.as_deref() {
+            standard_bullets.push(format!("Genuine Windows OEM BIOS Key Verified: {}", hint));
+        }
+    }
+
+    if let Some(bh) = &payload.battery_health {
+        if let Some(warn) = bh.adapter_warning.as_deref() {
+            critical_bullets.push(format!("AC Charger Adequacy Warning: {}", warn));
+        } else if let Some(w) = bh.adapter_watts {
+            standard_bullets.push(format!(
+                "Negotiated AC / USB-C PD Adapter: {}W ({}).",
+                w,
+                if bh.adapter_source.is_empty() { "OS Power" } else { &bh.adapter_source }
+            ));
+        }
+    }
+
+    if let Some(tf) = &payload.tamper_forensics {
+        if tf.warn_count > 0 {
+            critical_bullets.push(format!("Used-Laptop Forensic Warning: {}", tf.plain_summary));
+        } else if tf.info_count > 0 {
+            standard_bullets.push(format!("Refurbishment Disclosure (Transparent): {}", tf.plain_summary));
+        }
+    }
+
     if let Some(ub) = &payload.user_benchmark {
         standard_bullets.push(format!(
             "UserBenchmark Standing ({}): Overall {} tier — Gaming {:.0}%, Desktop {:.0}%, Workstation {:.0}%. {}",
@@ -744,10 +776,166 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     };
 
     let reliability_html = if payload.battery_discharge.is_some()
+        || payload.battery_charge.is_some()
+        || payload.battery_health.as_ref().map(|b| b.adapter_watts.is_some() || b.adapter_warning.is_some()).unwrap_or(false)
+        || payload.display_pro.is_some()
         || payload.touchscreen.is_some()
+        || payload.sleep_audit.is_some()
+        || payload.removable_drive_bench.is_some()
         || payload.network_report.is_some()
+        || payload.security_audit.as_ref().map(|s| !s.license_channel.is_empty() || s.kms_piracy_suspected || s.oem_bios_key_present.is_some()).unwrap_or(false)
+        || payload.storage_bench.as_ref().map(|s| !s.thermal_throttle_verdict.is_empty()).unwrap_or(false)
+        || payload.perf_bench.as_ref().map(|p| p.bd_prochot_suspected || !p.cooldown_verdict.is_empty()).unwrap_or(false)
+        || payload.tamper_forensics.is_some()
     {
         let mut cards = String::new();
+        if let Some(sec) = &payload.security_audit {
+            if !sec.license_channel.is_empty() || sec.kms_piracy_suspected || sec.oem_bios_key_present.is_some() {
+                let (cls, badge) = if sec.kms_piracy_suspected {
+                    ("st-warn", "KMS CRACK WARN")
+                } else {
+                    ("st-pass", "GENUINE LICENSE")
+                };
+                let oa3_s = match (sec.oem_bios_key_present, sec.oem_bios_key_hint.as_deref()) {
+                    (Some(true), Some(h)) => h.to_string(),
+                    (Some(true), None) => "Embedded in UEFI MSDM".to_string(),
+                    (Some(false), _) => "None embedded".to_string(),
+                    _ => "N/A".to_string(),
+                };
+                let grace_s = sec.license_grace_days.map(|d| format!(" &bull; Expires in ~{}d", d)).unwrap_or_default();
+                cards.push_str(&format!(
+                    r#"<div class="rel-card">
+                      <div class="ub-card-head">
+                        <strong class="mono">WINDOWS LICENSE &amp; OEM BIOS KEY (OA3) FORENSICS</strong>
+                        <span class="stamp {cls}">{badge}</span>
+                      </div>
+                      <div class="rel-metrics mono">
+                        Channel: {ch}{grace} &bull; OEM BIOS Key (OA3): {oa3}
+                      </div>
+                      <div class="ub-summary">{sum}</div>
+                    </div>"#,
+                    cls = cls,
+                    badge = badge,
+                    ch = html_escape(if sec.license_channel.is_empty() { "Verified" } else { &sec.license_channel }),
+                    grace = grace_s,
+                    oa3 = html_escape(&oa3_s),
+                    sum = html_escape(&sec.plain_summary),
+                ));
+            }
+        }
+        if let Some(bh) = &payload.battery_health {
+            if bh.adapter_watts.is_some() || bh.adapter_warning.is_some() {
+                let (cls, badge, note) = if let Some(ref w) = bh.adapter_warning {
+                    ("st-warn", "UNDERSIZED AC", w.as_str())
+                } else {
+                    ("st-pass", "CHARGER OK", "Negotiated AC / USB-C PD wattage adequate for laptop class.")
+                };
+                cards.push_str(&format!(
+                    r#"<div class="rel-card">
+                      <div class="ub-card-head">
+                        <strong class="mono">AC / USB-C PD CHARGER WATTAGE AUDIT</strong>
+                        <span class="stamp {cls}">{badge}</span>
+                      </div>
+                      <div class="rel-metrics mono">
+                        Negotiated Adapter: {watts} ({src}) &bull; AC Online: {ac}
+                      </div>
+                      <div class="ub-summary">{note}</div>
+                    </div>"#,
+                    cls = cls,
+                    badge = badge,
+                    watts = bh.adapter_watts.map(|w| format!("{}W", w)).unwrap_or_else(|| "N/A".into()),
+                    src = html_escape(if bh.adapter_source.is_empty() { "OS Power" } else { &bh.adapter_source }),
+                    ac = if bh.ac_plugged { "Yes" } else { "No" },
+                    note = html_escape(note),
+                ));
+            }
+        }
+        if let Some(tf) = &payload.tamper_forensics {
+            let (cls, badge) = if tf.warn_count > 0 {
+                ("st-warn", "FORENSIC WARN")
+            } else if tf.info_count > 0 {
+                ("st-pass", "REFURB DISCLOSED")
+            } else {
+                ("st-pass", "CONSISTENT OEM")
+            };
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">USED-LAPTOP TAMPER &amp; REFURBISHER FORENSICS</strong>
+                    <span class="stamp {cls}">{badge}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    Warnings: {wc} &bull; Disclosures: {ic} &bull; {sum}
+                  </div>
+                  <div class="ub-summary">{plain}</div>
+                </div>"#,
+                cls = cls,
+                badge = badge,
+                wc = tf.warn_count,
+                ic = tf.info_count,
+                sum = html_escape(&tf.summary),
+                plain = html_escape(&tf.plain_summary),
+            ));
+        }
+        if let Some(sb) = &payload.storage_bench {
+            if !sb.thermal_throttle_verdict.is_empty() {
+                let cls = if sb.thermal_throttle_verdict == "SSD_THERMAL_THROTTLE" { "st-warn" } else { "st-pass" };
+                let temp_s = match (sb.temp_start_c, sb.peak_drive_temp_c) {
+                    (Some(s), Some(p)) => format!("{}°C &rarr; {}°C", s, p),
+                    (None, Some(p)) => format!("Peak {}°C", p),
+                    _ => "Temp N/A".into(),
+                };
+                cards.push_str(&format!(
+                    r#"<div class="rel-card">
+                      <div class="ub-card-head">
+                        <strong class="mono">SSD THERMAL THROTTLING &amp; WRITE-COLLAPSE AUDIT</strong>
+                        <span class="stamp {cls}">{v}</span>
+                      </div>
+                      <div class="rel-metrics mono">
+                        Early Write: {e:.0} MB/s &rarr; Late Write: {l:.0} MB/s (Collapse {c:.1}%) &bull; {temp}
+                      </div>
+                      <div class="ub-summary">{sum}</div>
+                    </div>"#,
+                    cls = cls,
+                    v = html_escape(&sb.thermal_throttle_verdict),
+                    e = sb.seq_write_early_mb_s,
+                    l = sb.seq_write_late_mb_s,
+                    c = sb.write_collapse_pct,
+                    temp = temp_s,
+                    sum = html_escape(&sb.plain_summary),
+                ));
+            }
+        }
+        if let Some(pb_res) = &payload.perf_bench {
+            if pb_res.bd_prochot_suspected || !pb_res.cooldown_verdict.is_empty() {
+                let (cls, badge) = if pb_res.bd_prochot_suspected {
+                    ("st-fail", "BD PROCHOT FAIL")
+                } else if pb_res.cooldown_verdict == "POOR_COOLING" {
+                    ("st-warn", "POOR COOLING")
+                } else {
+                    ("st-pass", "THERMAL OK")
+                };
+                cards.push_str(&format!(
+                    r#"<div class="rel-card">
+                      <div class="ub-card-head">
+                        <strong class="mono">CPU BD PROCHOT &amp; HEATSINK COOL-DOWN AUDIT</strong>
+                        <span class="stamp {cls}">{badge}</span>
+                      </div>
+                      <div class="rel-metrics mono">
+                        BD PROCHOT: {bd} (Min Load {min_mhz} MHz, Stuck {stuck:.1}s) &bull; Cool-Down: {cd}
+                      </div>
+                      <div class="ub-summary">{note}</div>
+                    </div>"#,
+                    cls = cls,
+                    badge = badge,
+                    bd = if pb_res.bd_prochot_suspected { "DETECTED" } else { "Clear" },
+                    min_mhz = pb_res.min_load_clock_mhz,
+                    stuck = pb_res.stuck_clock_secs,
+                    cd = html_escape(if pb_res.cooldown_verdict.is_empty() { "N/A" } else { &pb_res.cooldown_verdict }),
+                    note = html_escape(if !pb_res.stuck_clock_note.is_empty() { &pb_res.stuck_clock_note } else { &pb_res.cooldown_note }),
+                ));
+            }
+        }
         if let Some(bat) = &payload.battery_discharge {
             let cls = if bat.verdict == "ABNORMAL" {
                 "st-fail"
@@ -1190,7 +1378,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </section>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.0.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.1.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Tamper-Check ID: {cert_id}</span>
   </footer>
 </div>
@@ -1204,7 +1392,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </table>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.0.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.1.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Cert ID: {cert_id}</span>
   </footer>
 </div>
@@ -1292,7 +1480,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         spk_ok = if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         spk_notes = html_escape(&payload.signoff.speakers_notes),
         notes_esc = if payload.technician_notes.trim().is_empty() {
-            format!("Unit inspected per {}-stage LaptopBench QC v3.0.0 protocol.", stage_count)
+            format!("Unit inspected per {}-stage LaptopBench QC v3.1.0 protocol.", stage_count)
         } else {
             html_escape(payload.technician_notes.trim())
         },
@@ -1328,12 +1516,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
                 .filter(|p| !p.trim().is_empty())
                 .map(PathBuf::from)
         })
-        .unwrap_or_else(|| {
-            dirs::document_dir()
-                .unwrap_or_else(|| std::env::temp_dir())
-                .join("LaptopBenchQC")
-                .join("Reports")
-        });
+        .unwrap_or_else(portable::resolve_default_reports_dir);
 
     let report_folder = base_dir.join(format!("QC_{}_{}", serial, stamp));
     fs::create_dir_all(&report_folder)
@@ -1353,7 +1536,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
     let json_val = serde_json::json!({
         "certificateId": cert_id,
         "generatedAt": generated_at,
-        "version": "3.0.0",
+        "version": "3.1.0",
         "report": payload
     });
     let json_str = serde_json::to_string_pretty(&json_val).map_err(|e| e.to_string())?;
@@ -1539,6 +1722,11 @@ mod tests {
             display_pro: None,
             sleep_audit: None,
             removable_drive_bench: None,
+            security_audit: None,
+            battery_health: None,
+            storage_bench: None,
+            perf_bench: None,
+            tamper_forensics: None,
             tests: (1..=14)
                 .map(|i| ReportTestEntry {
                     id: format!("stage_{}", i),
@@ -1565,7 +1753,7 @@ mod tests {
         let payload = sample_v230_payload(None, "ABNORMAL");
         let html = render_qc_html(&payload, "2026-11-26 10:00:00");
 
-        assert!(html.contains("LaptopBench QC v3.0.0"));
+        assert!(html.contains("LaptopBench QC v3.1.0"));
         assert!(html.contains("Created by Hein Htet Zaw"));
         assert!(html.contains("@ich8g92"));
         assert!(html.contains("14-STAGE TECHNICAL DIAGNOSTIC AUDIT LEDGER"));
@@ -1605,9 +1793,9 @@ mod tests {
 
         assert!(pdf_bytes.starts_with(b"%PDF-1.4"));
         assert!(pdf_bytes.ends_with(b"%%EOF\n"));
-        assert!(html_text.contains("LaptopBench QC v3.0.0"));
+        assert!(html_text.contains("LaptopBench QC v3.1.0"));
         let parsed: serde_json::Value = serde_json::from_str(&json_text).expect("valid JSON");
-        assert_eq!(parsed["version"], "3.0.0");
+        assert_eq!(parsed["version"], "3.1.0");
         assert_eq!(parsed["report"]["userBenchmark"]["overallVehicleTier"], "Aircraft Carrier");
         assert_eq!(parsed["report"]["batteryDischarge"]["verdict"], "NORMAL");
         assert_eq!(parsed["report"]["touchscreen"]["coveredCells"], 160);

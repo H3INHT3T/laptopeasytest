@@ -147,6 +147,31 @@ export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
             </div>
           </div>
 
+          {report.kmsPiracySuspected && (
+            <div className="rounded-xl border border-black bg-[#F8FAFC] p-4 space-y-1">
+              <div className="text-xs font-bold text-black flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0" />
+                Windows KMS / Volume Crack Suspected ({report.licenseChannel || "Volume:GVLK"}
+                {report.licenseGraceDays != null ? ` • expires in ~${report.licenseGraceDays}d` : ""})
+              </div>
+              <div className="text-xs text-zinc-700">
+                {report.oemBiosKeyPresent
+                  ? `Genuine factory OEM BIOS key IS embedded on this motherboard (${report.oemBiosKeyHint || "UEFI MSDM"}) — reinstall the matching Windows edition to restore permanent OEM activation.`
+                  : "No factory OEM BIOS (OA3) product key found on motherboard — buyer may need a genuine Windows license after 180 days."}
+              </div>
+            </div>
+          )}
+
+          {!report.kmsPiracySuspected && report.oemBiosKeyPresent && (
+            <div className="rounded-xl border border-blue-200 bg-[#F8FAFC] px-4 py-2.5 text-xs text-black flex items-center justify-between gap-2 flex-wrap">
+              <span>
+                <strong>Genuine Windows OEM BIOS Key Verified:</strong>{" "}
+                {report.oemBiosKeyHint || "Embedded in UEFI MSDM"} ({report.licenseChannel || "OEM:DM"})
+              </span>
+              <span className="font-mono text-[11px] font-bold text-blue-700">OA3 VERIFIED</span>
+            </div>
+          )}
+
           {/* Clean Verdict Bar */}
           <div className="space-y-2 pt-2 border-t border-zinc-100">
             <div className="flex items-center justify-between gap-2 text-xs">

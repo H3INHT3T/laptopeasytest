@@ -1,8 +1,9 @@
+use crate::modules::portable;
 use crate::types::SavedSessionPayload;
 use chrono::Local;
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 fn sanitize_serial(serial: &str) -> String {
     let s: String = serial
@@ -18,11 +19,7 @@ fn sanitize_serial(serial: &str) -> String {
 }
 
 fn session_file_path(app: &AppHandle, serial: &str) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Could not resolve app config dir: {}", e))?
-        .join("sessions");
+    let dir = portable::resolve_config_dir(app)?.join("sessions");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join(format!("session_{}.json", sanitize_serial(serial))))
 }

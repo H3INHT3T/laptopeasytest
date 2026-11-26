@@ -300,14 +300,14 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
       </div>
 
       {!report ? (
-        <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-8 text-center font-mono text-xs text-zinc-600">
+        <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] p-8 text-center font-mono text-xs text-zinc-600">
           {loading ? "READING BATTERY FIRMWARE TELEMETRY..." : "CLICK REFRESH TO INSPECT BATTERY."}
         </div>
       ) : !report.present ? (
-        <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-8 text-center space-y-2.5">
+        <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] p-8 text-center space-y-2.5">
           <BatteryCharging className="w-7 h-7 text-zinc-500 mx-auto" />
           <div className="text-sm font-black text-black">No Internal Battery Detected</div>
-          <div className="inline-block px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-white font-mono text-[10.5px] font-bold text-black">
+          <div className="inline-block px-2 py-0.5 rounded-lg border border-zinc-300 bg-white font-mono text-[10.5px] font-bold text-black">
             NOT_APPLICABLE — AC-Only / Desktop Configuration
           </div>
           <div className="text-xs text-zinc-600 max-w-lg mx-auto">
@@ -377,8 +377,21 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
                 {currentAc ? (currentCharging ? "AC CHARGING" : "AC PLUGGED") : "ON BATTERY"}
                 {report.adapterWatts ? ` • ${report.adapterWatts}W` : ""}
               </div>
+              {report.adapterSource && (
+                <div className="text-[10px] text-zinc-500 truncate">{report.adapterSource}</div>
+              )}
             </div>
           </div>
+
+          {report.adapterWarning && (
+            <div className="rounded-xl border border-black bg-[#F8FAFC] px-4 py-3 text-xs text-black flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold">Undersized AC / USB-C PD Charger Warning</div>
+                <div className="text-zinc-700 mt-0.5">{report.adapterWarning}</div>
+              </div>
+            </div>
+          )}
 
           {/* Active AC Charging IC & Conservation-Mode Check (v2.10.0) */}
           <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-3">
@@ -529,7 +542,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
                   disabled={dischargeRunning}
                   onChange={(e) => setDischargeDur(Number(e.target.value))}
                   aria-label="Discharge test duration"
-                  className="bg-white border border-zinc-300 rounded-[2px] px-2.5 py-1.5 font-mono text-xs text-black"
+                  className="bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 font-mono text-xs text-black"
                 >
                   <option value={30}>Quick Audit (30s)</option>
                   <option value={45}>Balanced Audit (45s)</option>
@@ -540,7 +553,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
                   <button
                     type="button"
                     onClick={() => invoke("cancel_battery_discharge_test").catch(() => {})}
-                    className="px-4 py-1.5 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                    className="px-4 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
                   >
                     <Square className="w-3.5 h-3.5" /> Abort Discharge Test
                   </button>
@@ -549,7 +562,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
                     type="button"
                     onClick={startDischargeTest}
                     disabled={sagRunning}
-                    className="px-4 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                    className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
                   >
                     <Play className="w-3.5 h-3.5" /> Run Discharge Normality Test
                   </button>
@@ -558,7 +571,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
             </div>
 
             {currentAc && !dischargeRunning && (
-              <div className="rounded-[2px] border border-black bg-[#F8FAFC] px-3 py-2 flex items-center gap-2 text-xs text-black">
+              <div className="rounded-lg border border-black bg-[#F8FAFC] px-3 py-2 flex items-center gap-2 text-xs text-black">
                 <Unplug className="w-4 h-4 text-blue-600 shrink-0" />
                 <span>
                   <strong>AC Charger Detected:</strong> Unplug AC power before running the discharge normality test so the battery discharges naturally (running while plugged in will report <span className="font-mono font-bold">AC_CONNECTED</span>).
@@ -567,7 +580,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
             )}
 
             {isLowBatteryPreFlight && !dischargeRunning && (
-              <div className="rounded-[2px] border border-black bg-black text-white px-3 py-2 flex items-center gap-2 text-xs">
+              <div className="rounded-lg border border-black bg-black text-white px-3 py-2 flex items-center gap-2 text-xs">
                 <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
                 <span>
                   <strong>Low Battery Guard ({currentPct.toFixed(0)}% &le; {BATTERY_LOW_SOC_ABORT_PCT}%):</strong> Charge above {BATTERY_LOW_SOC_ABORT_PCT}% before running to prevent deep-discharge shutdown (starting below {BATTERY_LOW_SOC_ABORT_PCT}% returns <span className="font-mono font-bold">ABORTED_LOW_BATTERY</span>).
@@ -576,13 +589,13 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
             )}
 
             {dischargeError && (
-              <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">
+              <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">
                 {dischargeError}
               </div>
             )}
 
             {dischargeRunning && dischargeProg && (
-              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-2 font-mono text-xs tabular-nums">
+              <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] p-3 space-y-2 font-mono text-xs tabular-nums">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-bold text-blue-700 uppercase">
                     PHASE: {dischargeProg.phase} ({dischargeProg.acPlugged ? "AC PLUGGED" : "ON BATTERY"})
@@ -630,7 +643,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
 
             {dischargeResult && !dischargeRunning && (
               <div
-                className={`rounded-[2px] border p-3.5 space-y-3 ${
+                className={`rounded-lg border p-3.5 space-y-3 ${
                   dischargeResult.verdict === "ABNORMAL" || dischargeResult.status === "fail"
                     ? "border-black bg-black text-white"
                     : dischargeResult.verdict === "NORMAL"
@@ -642,7 +655,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
-                        className={`px-2 py-0.5 rounded-[2px] font-mono text-xs font-black uppercase ${
+                        className={`px-2 py-0.5 rounded-lg font-mono text-xs font-black uppercase ${
                           dischargeResult.verdict === "ABNORMAL"
                             ? "bg-white text-black"
                             : dischargeResult.verdict === "NORMAL"
@@ -719,7 +732,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
           </div>
 
           {/* 15-Second Battery Voltage-Sag Load Pulse */}
-          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3">
+          <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="text-xs font-black uppercase tracking-wider text-black flex items-center gap-1.5">
@@ -733,7 +746,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
               {sagRunning ? (
                 <button
                   onClick={() => invoke("cancel_battery_sag_pulse").catch(() => {})}
-                  className="px-4 py-1.5 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
                 >
                   <Square className="w-3.5 h-3.5" /> Abort Pulse
                 </button>
@@ -741,14 +754,14 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
                 <button
                   onClick={startSagPulse}
                   disabled={dischargeRunning}
-                  className="px-4 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-mono text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5" /> Run 15s Sag Pulse
                 </button>
               )}
             </div>
 
-            {sagError && <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{sagError}</div>}
+            {sagError && <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">{sagError}</div>}
 
             {sagRunning && sagProg && (
               <div className="space-y-1.5 font-mono text-xs tabular-nums">
@@ -782,7 +795,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
 
             {sagResult && !sagRunning && (
               <div
-                className={`rounded-[2px] border px-3.5 py-2.5 font-mono text-xs flex items-center justify-between gap-2 ${
+                className={`rounded-lg border px-3.5 py-2.5 font-mono text-xs flex items-center justify-between gap-2 ${
                   sagResult.status === "fail"
                     ? "bg-black text-white border-black"
                     : "bg-[#F8FAFC] text-black border-blue-600"
@@ -795,7 +808,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
           </div>
 
           {/* Live Guided Charge & Discharge */}
-          <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-3.5">
+          <div className="rounded-lg border border-zinc-300 bg-white p-4 space-y-3.5">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="text-xs font-black uppercase tracking-wider text-black flex items-center gap-1.5">
@@ -808,7 +821,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
               </div>
               <button
                 onClick={() => setMonitoring((m) => !m)}
-                className={`px-3.5 py-1.5 rounded-[2px] font-mono text-xs font-bold uppercase transition cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-lg font-mono text-xs font-bold uppercase transition cursor-pointer ${
                   monitoring
                     ? "bg-black hover:bg-zinc-800 text-white"
                     : "bg-blue-600 hover:bg-blue-700 text-white"
@@ -820,7 +833,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div
-                className={`rounded-[2px] border p-3 flex items-center justify-between ${
+                className={`rounded-lg border p-3 flex items-center justify-between ${
                   dischargeVerified ? "bg-blue-50/40 border-blue-600" : "bg-[#F8FAFC] border-zinc-300"
                 }`}
               >
@@ -837,7 +850,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
               </div>
 
               <div
-                className={`rounded-[2px] border p-3 flex items-center justify-between ${
+                className={`rounded-lg border p-3 flex items-center justify-between ${
                   chargeVerified ? "bg-blue-50/40 border-blue-600" : "bg-[#F8FAFC] border-zinc-300"
                 }`}
               >
@@ -854,7 +867,7 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
               </div>
             </div>
 
-            <div className="rounded-[2px] bg-[#F8FAFC] border border-zinc-300 p-3.5 flex flex-col md:flex-row items-center justify-between gap-3">
+            <div className="rounded-lg bg-[#F8FAFC] border border-zinc-300 p-3.5 flex flex-col md:flex-row items-center justify-between gap-3">
               <div className="space-y-0.5 font-mono text-xs tabular-nums">
                 <div className="text-zinc-600">
                   LIVE RATE:{" "}
@@ -876,19 +889,19 @@ export const BatteryView: React.FC<BatteryViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => finalizeVerdict("pass")}
-                  className="px-3.5 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase cursor-pointer"
                 >
                   Confirm PASS
                 </button>
                 <button
                   onClick={() => finalizeVerdict("warn")}
-                  className="px-3.5 py-1.5 rounded-[2px] border border-blue-600 bg-white hover:bg-blue-50 text-blue-700 font-mono text-xs font-bold uppercase cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg border border-blue-600 bg-white hover:bg-blue-50 text-blue-700 font-mono text-xs font-bold uppercase cursor-pointer"
                 >
                   Mark WARN
                 </button>
                 <button
                   onClick={() => finalizeVerdict("fail")}
-                  className="px-3.5 py-1.5 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono text-xs font-bold uppercase cursor-pointer"
                 >
                   Mark FAIL
                 </button>

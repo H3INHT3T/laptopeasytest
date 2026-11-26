@@ -879,7 +879,7 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             onClick={(e) => e.stopPropagation()}
             onMouseEnter={() => setHudHover(true)}
             onMouseLeave={() => setHudHover(false)}
-            className={`fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/90 border border-white/25 rounded-[2px] px-5 py-3 text-xs text-white flex items-center gap-4 shadow-2xl transition-opacity duration-200 ${
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/90 border border-white/25 rounded-lg px-5 py-3 text-xs text-white flex items-center gap-4 shadow-2xl transition-opacity duration-200 ${
               hudVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
             }`}
           >
@@ -900,21 +900,21 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
             <button
               type="button"
               onClick={() => setIdx((i) => (i - 1 + PATTERNS.length) % PATTERNS.length)}
-              className="px-2.5 py-1.5 rounded-[2px] border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
             >
               Prev
             </button>
             <button
               type="button"
               onClick={() => setIdx((i) => (i + 1) % PATTERNS.length)}
-              className="px-2.5 py-1.5 rounded-[2px] border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg border border-white/25 hover:bg-white/10 text-white font-bold cursor-pointer"
             >
               Next
             </button>
             <button
               type="button"
               onClick={exitFullscreen}
-              className="px-3.5 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
             >
               Exit
             </button>

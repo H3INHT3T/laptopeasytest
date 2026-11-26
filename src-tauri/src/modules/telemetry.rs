@@ -48,6 +48,43 @@ pub(crate) fn tenths_kelvin_to_celsius(tk: f64) -> Option<f32> {
     kelvin_to_celsius(tk / 10.0)
 }
 
+/// Decodes NVIDIA NVML `nvmlDeviceGetCurrentClocksThrottleReasons` bitmask into
+/// clean, human-readable active hardware/software throttling causes (ignoring idle bits).
+pub fn decode_nvml_throttle_reasons(mask: u64) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if (mask & 0x0000_0000_0000_0040) != 0 {
+        reasons.push("HW Thermal Slowdown".to_string());
+    }
+    if (mask & 0x0000_0000_0000_0080) != 0 {
+        reasons.push("HW Power Brake".to_string());
+    }
+    if (mask & 0x0000_0000_0000_0008) != 0 {
+        reasons.push("HW Slowdown".to_string());
+    }
+    if (mask & 0x0000_0000_0000_0020) != 0 {
+        reasons.push("SW Thermal Slowdown".to_string());
+    }
+    if (mask & 0x0000_0000_0000_0004) != 0 {
+        reasons.push("SW Power Cap".to_string());
+    }
+    if (mask & 0x0000_0000_0000_0010) != 0 {
+        reasons.push("Sync Boost".to_string());
+    }
+    reasons
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NvmlSample {
+    pub temp_c: Option<f32>,
+    pub load_pct: Option<f32>,
+    pub power_w: Option<f32>,
+    pub gpu_clock_mhz: Option<u32>,
+    pub mem_clock_mhz: Option<u32>,
+    pub fan_pct: Option<u32>,
+    pub slowdown_temp_c: Option<u32>,
+    pub throttle_reasons: Vec<String>,
+}
+
 /// Parses a `nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw --format=csv,noheader,nounits`
 /// output line into `(gpu_temp_c, gpu_load_pct, gpu_power_w)`.
 #[allow(dead_code)]
@@ -253,10 +290,10 @@ impl TelemetryReader {
 
         #[cfg(target_os = "windows")]
         {
-            if let Some((gt, gl, gp)) = windows_native::read_nvidia_gpu_telemetry() {
-                gpu_temp_c = gt;
-                gpu_load_pct = gl;
-                gpu_power_w = gp;
+            if let Some(nv) = windows_native::read_nvidia_gpu_telemetry() {
+                gpu_temp_c = nv.temp_c;
+                gpu_load_pct = nv.load_pct;
+                gpu_power_w = nv.power_w;
             }
             if gpu_load_pct.is_none() {
                 if let Some(ref pdh) = self.pdh_sampler {
@@ -388,6 +425,12 @@ impl TelemetryReader {
             }
         }
 
+        let mut gpu_clock_mhz: Option<u32> = None;
+        let mut gpu_mem_clock_mhz: Option<u32> = None;
+        let mut gpu_fan_pct: Option<u32> = None;
+        let mut gpu_slowdown_temp_c: Option<u32> = None;
+        let mut gpu_throttle_reasons: Vec<String> = Vec::new();
+
         // 2. Windows fast in-process PDH + NVML + throttled LHM/ACPI fallbacks
         #[cfg(target_os = "windows")]
         {
@@ -414,20 +457,34 @@ impl TelemetryReader {
             }
 
             // Tier B: Direct In-Process NVIDIA NVML (or one-time-probed throttled nvidia-smi)
-            if let Some((nv_temp, nv_load, nv_power)) = windows_native::read_nvidia_gpu_telemetry()
-            {
-                if let Some(gt) = nv_temp {
+            if let Some(nv) = windows_native::read_nvidia_gpu_telemetry() {
+                if let Some(gt) = nv.temp_c {
                     gpu_temp_c = Some(gt);
                     sensor_source = "Native + NVML".to_string();
                     if raw_temp_source.is_empty() {
                         raw_temp_source = "NVML (GPU only)".to_string();
                     }
                 }
-                if nv_load.is_some() {
-                    gpu_load_pct = nv_load;
+                if nv.load_pct.is_some() {
+                    gpu_load_pct = nv.load_pct;
                 }
-                if nv_power.is_some() {
-                    gpu_power_w = nv_power;
+                if nv.power_w.is_some() {
+                    gpu_power_w = nv.power_w;
+                }
+                if nv.gpu_clock_mhz.is_some() {
+                    gpu_clock_mhz = nv.gpu_clock_mhz;
+                }
+                if nv.mem_clock_mhz.is_some() {
+                    gpu_mem_clock_mhz = nv.mem_clock_mhz;
+                }
+                if nv.fan_pct.is_some() {
+                    gpu_fan_pct = nv.fan_pct;
+                }
+                if nv.slowdown_temp_c.is_some() {
+                    gpu_slowdown_temp_c = nv.slowdown_temp_c;
+                }
+                if !nv.throttle_reasons.is_empty() {
+                    gpu_throttle_reasons = nv.throttle_reasons;
                 }
             }
 
@@ -545,6 +602,11 @@ impl TelemetryReader {
             temp_source,
             per_core_temps_c,
             pawnio_installed,
+            gpu_clock_mhz,
+            gpu_mem_clock_mhz,
+            gpu_fan_pct,
+            gpu_slowdown_temp_c,
+            gpu_throttle_reasons,
         };
         self.last_snapshot = Some((Instant::now(), include_battery, snap.clone()));
         snap
@@ -1023,6 +1085,10 @@ mod windows_native {
     type NvmlDeviceGetUtilizationRatesFn =
         unsafe extern "system" fn(usize, *mut NvmlUtilization) -> i32;
     type NvmlDeviceGetPowerUsageFn = unsafe extern "system" fn(usize, *mut u32) -> i32;
+    type NvmlDeviceGetClockInfoFn = unsafe extern "system" fn(usize, u32, *mut u32) -> i32;
+    type NvmlDeviceGetFanSpeedFn = unsafe extern "system" fn(usize, *mut u32) -> i32;
+    type NvmlDeviceGetTempThresholdFn = unsafe extern "system" fn(usize, u32, *mut u32) -> i32;
+    type NvmlDeviceGetThrottleReasonsFn = unsafe extern "system" fn(usize, *mut u64) -> i32;
 
     struct NvmlLib {
         device_get_count: NvmlDeviceGetCountFn,
@@ -1030,6 +1096,10 @@ mod windows_native {
         device_get_temp: NvmlDeviceGetTemperatureFn,
         device_get_util: Option<NvmlDeviceGetUtilizationRatesFn>,
         device_get_power: Option<NvmlDeviceGetPowerUsageFn>,
+        device_get_clock: Option<NvmlDeviceGetClockInfoFn>,
+        device_get_fan: Option<NvmlDeviceGetFanSpeedFn>,
+        device_get_temp_threshold: Option<NvmlDeviceGetTempThresholdFn>,
+        device_get_throttle_reasons: Option<NvmlDeviceGetThrottleReasonsFn>,
     }
 
     impl NvmlLib {
@@ -1071,6 +1141,12 @@ mod windows_native {
                     load_proc(h, b"nvmlDeviceGetTemperature\0")?;
                 let device_get_util = load_proc(h, b"nvmlDeviceGetUtilizationRates\0");
                 let device_get_power = load_proc(h, b"nvmlDeviceGetPowerUsage\0");
+                let device_get_clock = load_proc(h, b"nvmlDeviceGetClockInfo\0");
+                let device_get_fan = load_proc(h, b"nvmlDeviceGetFanSpeed\0");
+                let device_get_temp_threshold =
+                    load_proc(h, b"nvmlDeviceGetTemperatureThreshold\0");
+                let device_get_throttle_reasons =
+                    load_proc(h, b"nvmlDeviceGetCurrentClocksThrottleReasons\0");
 
                 Some(Self {
                     device_get_count,
@@ -1078,12 +1154,19 @@ mod windows_native {
                     device_get_temp,
                     device_get_util,
                     device_get_power,
+                    device_get_clock,
+                    device_get_fan,
+                    device_get_temp_threshold,
+                    device_get_throttle_reasons,
                 })
             }
         }
 
-        fn sample(&self) -> Option<(Option<f32>, Option<f32>, Option<f32>)> {
+        fn sample(&self) -> Option<super::NvmlSample> {
             const NVML_TEMPERATURE_GPU: u32 = 0;
+            const NVML_CLOCK_GRAPHICS: u32 = 0;
+            const NVML_CLOCK_MEM: u32 = 2;
+            const NVML_TEMPERATURE_THRESHOLD_SLOWDOWN: u32 = 1;
             let mut count: u32 = 0;
             if unsafe { (self.device_get_count)(&mut count) } != 0 || count == 0 {
                 return None;
@@ -1121,15 +1204,78 @@ mod windows_native {
                     }
                 });
 
-                if temp.is_some() || load.is_some() || power.is_some() {
-                    return Some((temp, load, power));
+                let gpu_clock_mhz = self.device_get_clock.and_then(|f| {
+                    let mut mhz: u32 = 0;
+                    if unsafe { f(handle, NVML_CLOCK_GRAPHICS, &mut mhz) } == 0
+                        && (100..=4500).contains(&mhz)
+                    {
+                        Some(mhz)
+                    } else {
+                        None
+                    }
+                });
+
+                let mem_clock_mhz = self.device_get_clock.and_then(|f| {
+                    let mut mhz: u32 = 0;
+                    if unsafe { f(handle, NVML_CLOCK_MEM, &mut mhz) } == 0
+                        && (200..=15000).contains(&mhz)
+                    {
+                        Some(mhz)
+                    } else {
+                        None
+                    }
+                });
+
+                let fan_pct = self.device_get_fan.and_then(|f| {
+                    let mut pct: u32 = 0;
+                    if unsafe { f(handle, &mut pct) } == 0 && pct <= 100 {
+                        Some(pct)
+                    } else {
+                        None
+                    }
+                });
+
+                let slowdown_temp_c = self.device_get_temp_threshold.and_then(|f| {
+                    let mut c: u32 = 0;
+                    if unsafe { f(handle, NVML_TEMPERATURE_THRESHOLD_SLOWDOWN, &mut c) } == 0
+                        && (60..=115).contains(&c)
+                    {
+                        Some(c)
+                    } else {
+                        None
+                    }
+                });
+
+                let throttle_reasons = self
+                    .device_get_throttle_reasons
+                    .and_then(|f| {
+                        let mut mask: u64 = 0;
+                        if unsafe { f(handle, &mut mask) } == 0 {
+                            Some(super::decode_nvml_throttle_reasons(mask))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+
+                if temp.is_some() || load.is_some() || power.is_some() || gpu_clock_mhz.is_some() {
+                    return Some(super::NvmlSample {
+                        temp_c: temp,
+                        load_pct: load,
+                        power_w: power,
+                        gpu_clock_mhz,
+                        mem_clock_mhz,
+                        fan_pct,
+                        slowdown_temp_c,
+                        throttle_reasons,
+                    });
                 }
             }
             None
         }
     }
 
-    pub(super) fn read_nvidia_gpu_telemetry() -> Option<(Option<f32>, Option<f32>, Option<f32>)> {
+    pub(super) fn read_nvidia_gpu_telemetry() -> Option<super::NvmlSample> {
         static NVML: OnceLock<Option<NvmlLib>> = OnceLock::new();
         if let Some(lib) = NVML.get_or_init(NvmlLib::load).as_ref() {
             return lib.sample();
@@ -1144,12 +1290,11 @@ mod windows_native {
             return None;
         }
 
-        static CLI_CACHE: Mutex<Option<(Instant, Option<(Option<f32>, Option<f32>, Option<f32>)>)>> =
-            Mutex::new(None);
+        static CLI_CACHE: Mutex<Option<(Instant, Option<super::NvmlSample>)>> = Mutex::new(None);
         if let Ok(guard) = CLI_CACHE.lock() {
-            if let Some((ts, cached)) = *guard {
+            if let Some((ts, ref cached)) = *guard {
                 if ts.elapsed() < Duration::from_secs(2) {
-                    return cached;
+                    return cached.clone();
                 }
             }
         }
@@ -1162,10 +1307,16 @@ mod windows_native {
             ],
         )
         .ok()
-        .and_then(|out| parse_nvidia_smi_csv(&out));
+        .and_then(|out| parse_nvidia_smi_csv(&out))
+        .map(|(t, u, p)| super::NvmlSample {
+            temp_c: t,
+            load_pct: u,
+            power_w: p,
+            ..Default::default()
+        });
 
         if let Ok(mut guard) = CLI_CACHE.lock() {
-            *guard = Some((Instant::now(), parsed));
+            *guard = Some((Instant::now(), parsed.clone()));
         }
         parsed
     }
@@ -1770,5 +1921,20 @@ mod tests {
         let with_bat = reader.sample_throttled(true, Duration::from_secs(10));
         assert!(!with_bat.sensor_source.is_empty());
         assert!(!with_bat.temp_source.is_empty());
+    }
+
+    #[test]
+    fn test_decode_nvml_throttle_reasons_v310() {
+        // Idle bit (0x01) alone must not report throttling
+        assert!(decode_nvml_throttle_reasons(0x01).is_empty());
+
+        // HW Thermal (0x40) + SW Power Cap (0x04)
+        let reasons = decode_nvml_throttle_reasons(0x40 | 0x04);
+        assert!(reasons.iter().any(|r| r == "HW Thermal Slowdown"));
+        assert!(reasons.iter().any(|r| r == "SW Power Cap"));
+
+        // HW Power Brake (0x80)
+        let brake = decode_nvml_throttle_reasons(0x80);
+        assert_eq!(brake, vec!["HW Power Brake".to_string()]);
     }
 }

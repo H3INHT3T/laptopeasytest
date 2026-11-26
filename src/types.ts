@@ -302,6 +302,11 @@ export interface SecurityAuditReport {
   summary: string;
   plainSummary?: string;
   ownershipRisks?: string[];
+  licenseChannel?: string;
+  kmsPiracySuspected?: boolean;
+  oemBiosKeyPresent?: boolean | null;
+  oemBiosKeyHint?: string | null;
+  licenseGraceDays?: number | null;
 }
 
 export interface DisplayBrightnessInfo {
@@ -381,6 +386,8 @@ export interface BatteryHealthReport {
   notes: string;
   cycleSource?: string;
   capacityHistory?: BatteryCapacityHistoryPoint[];
+  adapterSource?: string;
+  adapterWarning?: string | null;
 }
 
 export interface BatteryChargeProgress {
@@ -867,6 +874,11 @@ export interface LiveTelemetrySnapshot {
   tempSource?: string;
   perCoreTempsC?: number[];
   pawnioInstalled?: boolean;
+  gpuClockMhz?: number | null;
+  gpuMemClockMhz?: number | null;
+  gpuFanPct?: number | null;
+  gpuSlowdownTempC?: number | null;
+  gpuThrottleReasons?: string[];
 }
 
 export interface ShopModelBenchmarkAvg {
@@ -1225,6 +1237,34 @@ export interface ExportReportPayload {
   displayPro?: DisplayProResult | null;
   sleepAudit?: SleepStandbyReport | null;
   removableDriveBench?: RemovableDriveBenchResult | null;
+  securityAudit?: SecurityAuditReport | null;
+  batteryHealth?: BatteryHealthReport | null;
+  storageBench?: StorageBenchResult | null;
+  perfBench?: PerfBenchResult | null;
+  tamperForensics?: TamperForensicsReport | null;
+}
+
+export interface PortableStorageInfo {
+  isPortable: boolean;
+  reason: string;
+  dataDir: string;
+  reportsDir: string;
+}
+
+export interface TamperForensicFinding {
+  id: string;
+  title: string;
+  severity: "info" | "warn" | string;
+  detail: string;
+}
+
+export interface TamperForensicsReport {
+  status: TestStatus;
+  findings: TamperForensicFinding[];
+  infoCount: number;
+  warnCount: number;
+  summary: string;
+  plainSummary: string;
 }
 
 export interface DeviceManagerFault {

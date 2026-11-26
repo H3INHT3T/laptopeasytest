@@ -1,10 +1,19 @@
-# LaptopBench QC v3.0.0
+# LaptopBench QC v3.1.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v3.0.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
+**LaptopBench QC v3.1.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
 
-## What's New in v3.0.0 — 6 Flagship Hardware Diagnostic Upgrades
+## What's New in v3.1.0 — Deep Hardware Forensics, Input/Media Lab & Auto Portable USB Mode
+
+- **Windows KMS Piracy vs Genuine OEM BIOS Key (`OA3`) Forensics (Stage 02):** Inspects `ProductKeyChannel`, KMS server host, remaining activation days, and UEFI motherboard `OA3xOriginalProductKey` to catch 180-day pirated KMS cracks (`WARN`) while verifying genuine factory OEM licenses.
+- **Used-Laptop Tamper & Refurbisher Mismatch Forensics (Stage 01 & Certificates):** Cross-checks SSD Power-On-Hours & TBW against Battery Cycles, aftermarket/generic battery vendors, replacement panel EDIDs, and Intel 13th/14th-Gen HX pre-2024 BIOS microcode risk — transparently disclosing honest refurbisher swaps without false-failing.
+- **Deep Zero-Driver NVIDIA NVML Diagnostics & Negotiated Charger Wattage (Live Dock & Stage 03):** Queries in-process `nvml.dll` for hardware throttle bitmasks (`HW Thermal Slowdown`, `HW Power Brake`, `SW Power Cap`), GPU/VRAM clocks, fan %, and slowdown temperature threshold with zero kernel drivers, plus flags undersized AC/USB-C PD chargers (`<= 65W`) on discrete-GPU laptops.
+- **Full Native PDF Certificate Parity:** Prints every `v2.10–v3.1` finding (KMS/OA3 License, Charger Wattage, Active AC Charging IC, Display Pro Max-Hz & Hinge-Flex, Sleep/S0ix, BD PROCHOT & Cool-Down, SSD Write Collapse, USB/SD 64 MB Speed, and Tamper Forensics) natively in both PDF and HTML certificates.
+- **Input & Media Lab Upgrades (Stages 08, 10, 14):** Touchpad live polling-rate (Hz) & jitter audit + 2-finger horizontal scroll & pinch-to-zoom counters, Win ISO/UK & Mac ISO keyboard layouts, Webcam frozen-frame detector, Dual-Array Stereo Mic L/R balance meter, and a 4s `100 Hz → 4 kHz` chassis speaker-rattle sweep.
+- **Auto-Detect Portable USB Storage & Unified Minimal UI:** Automatically stores shop logo, warranty archive, model history, sessions, and reports in `./LaptopBench_Data/` next to `portable.exe` when run from a removable USB drive or portable filename (zero trace left on customer laptops), plus `React.lazy` code-splitting and 100% unified minimal `rounded-xl` / `TechnicalDetailsDrawer` screens.
+
+## Highlights from v3.0.0 — 6 Flagship Hardware Diagnostic Upgrades
 
 - **BD PROCHOT / Stuck-Clock Fault Detector (Stage 12 & Stress Lab):** Continuously monitors real CPU clock MHz under load and flags `FAIL` if the processor gets locked `< 900 MHz` for `>= 4s` (catching Dell/ThinkPad/HP `0.39 GHz / 0.79 GHz` charger ID-pin and VR sensor faults).
 - **Passive Sleep / Modern Standby (S0ix / S3) Drain & Wake-Crash Audit (Stage 04):** Zero-reboot audit parsing `powercfg /a`, `powercfg /devicequery wake_armed`, `powercfg /sleepstudy /xml`, and macOS `pmset -g log` to catch overnight standby battery drain (`> 5%/hr` WARN, `> 12%/hr` FAIL), rogue wake-armed devices, and sleep/wake crashes.
@@ -133,6 +142,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v3.0.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v3.1.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle
