@@ -1,10 +1,17 @@
-# LaptopBench QC v2.8.0
+# LaptopBench QC v2.9.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v2.8.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a clean Novabench/OCCT-inspired **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) sequential step-by-step interface.
+**LaptopBench QC v2.9.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
 
-## What's New in v2.8.0 — Hidden Hardware Faults, PCIe Lane Audit & Display Panel EDID Authenticity
+## What's New in v2.9.0 — Computrace/Autopilot Lock Audit, Live External Display & USB-C Flip, Active BT/Ethernet, Auto Mic-Verified Speaker THD & Full Strict Minimal UI
+
+- **Computrace / Absolute & Windows Autopilot Deep Lock Check (`security_audit.rs`):** Detects active Absolute persistence services (`rpcnet`/`rpcnetp`), Dell/HP/Lenovo BIOS Computrace flags, and cached Windows Autopilot corporate provisioning policies (`AutoPilotDDSZTDFile.json` / registry tenant) right inside Stage 02.
+- **Live Port Diagnostics (`port_diagnostics.rs` — Smart Bench Mode):** Auto-detects plugged external HDMI/DisplayPort/USB-C monitors with resolution & Hz, checks USB-C reversible Side A / Flip 180° Side B charging wattage, verifies active Bluetooth devices and Gigabit Ethernet (`1000 Mbps` vs degraded `100 Mbps`) — without penalizing unplugged optional cables.
+- **Auto Mic-Verified Speaker L/R & Blown-Cone Distortion (THD) Test:** One-click 3-second acoustic check plays isolated Left (880 Hz), Right (880 Hz), and Bass (180 Hz) tones while analyzing live mic FFT response to catch dead speakers, L/R imbalance, and rattling/blown cones automatically.
+- **Strict Minimal Design System Rollout:** Removed the top telemetry bar across the entire app (compact live CPU/Clock/Temp/AC sits cleanly inside the bottom `Sensors` bar), unified `rounded-xl` cards, `border-zinc-200`, normal sentence case, generous whitespace, and collapsed `Details` drawers across all 14 stages.
+
+## Highlights from v2.8.0 — Hidden Hardware Faults, PCIe Lane Audit & Display Panel EDID Authenticity
 
 - **Device Manager / PnP Fault Scanner (`hardware_faults.rs`):** Detects Windows Device Manager error codes (`Code 43` dead discrete GPU, `Code 10` failed Wi-Fi/audio start, `Code 12/31`, `Code 28` missing drivers) using Smart Shop Standard rules (critical hardware faults auto-FAIL Stage 01; missing drivers WARN).
 - **ASPM-Aware PCIe Lane Width & Speed Audit:** Inspects GPU & NVMe PCIe `CurrentLinkWidth` vs `MaxLinkWidth` (and `CurrentLinkSpeed` vs `MaxLinkSpeed`). Allows healthy idle Gen downclocking (ASPM) without false alarms, while catching physical lane downgrades (`x1`/`x2` instead of `x4`/`x8`/`x16`).
@@ -104,6 +111,6 @@ pnpm tauri build
 
 ## Automated Windows + macOS Universal Releases
 
-Push a version tag (e.g., `git tag v2.8.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
+Push a version tag (e.g., `git tag v2.9.0 && git push --tags`) or manually trigger `.github/workflows/release.yml` to compile and publish:
 - **Windows x64**: `.msi` and `.exe` (NSIS) installers
 - **macOS Universal (Apple Silicon + Intel)**: `.dmg` bundle

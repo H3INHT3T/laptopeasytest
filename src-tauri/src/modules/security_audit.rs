@@ -310,6 +310,70 @@ pub(crate) fn evaluate_windows_security_items(
                     buyer_note: note,
                 });
             }
+
+            // Computrace / Absolute Persistence (BIOS anti-theft firmware lock)
+            if let Some(ct) = v.get("computrace").filter(|c| c.is_object()) {
+                let state = ct["state"].as_str().unwrap_or("clean").to_lowercase();
+                let detail = ct["detail"].as_str().unwrap_or("").to_string();
+                let (val, st, note) = if state == "active" {
+                    let msg = "DO NOT BUY: Absolute / Computrace firmware persistence is ACTIVE! Even wiping or replacing the SSD will re-install corporate tracking/lock.";
+                    ownership_risks.push(format!("Computrace / Absolute Active: {}", msg));
+                    ("ACTIVE (Persistence Locked)".to_string(), TestStatus::Fail, msg.to_string())
+                } else if state == "disabled" {
+                    (
+                        "Clean (Disabled in BIOS)".to_string(),
+                        TestStatus::Pass,
+                        "Computrace / Absolute persistence is disabled or permanently deactivated.".to_string(),
+                    )
+                } else {
+                    (
+                        "Clean (Not Active)".to_string(),
+                        TestStatus::Pass,
+                        "No active Absolute / Computrace agent service or BIOS lock detected.".to_string(),
+                    )
+                };
+                items.push(SecurityCheckItem {
+                    id: "computrace".to_string(),
+                    label: "Computrace / Absolute Lock".to_string(),
+                    value: val,
+                    status: st,
+                    detail,
+                    buyer_note: note,
+                });
+            }
+
+            // Windows Autopilot Cached Enrollment Policy
+            if let Some(ap) = v.get("autopilot").filter(|a| a.is_object()) {
+                let enrolled = ap["enrolled"].as_bool().unwrap_or(false);
+                let tenant = ap["tenant"].as_str().unwrap_or("").trim().to_string();
+                let detail = ap["detail"].as_str().unwrap_or("").to_string();
+                let (val, st, note) = if enrolled {
+                    let msg = format!(
+                        "DO NOT BUY: Cached Windows Autopilot corporate profile detected{} — resetting Windows will force corporate login!",
+                        if tenant.is_empty() { String::new() } else { format!(" (Tenant: {})", tenant) }
+                    );
+                    ownership_risks.push(format!("Windows Autopilot Lock: {}", msg));
+                    (
+                        if tenant.is_empty() { "ENROLLED (Autopilot Policy)".into() } else { format!("ENROLLED ({})", tenant) },
+                        TestStatus::Fail,
+                        msg,
+                    )
+                } else {
+                    (
+                        "Clean (No Autopilot Profile)".to_string(),
+                        TestStatus::Pass,
+                        "No cached Windows Autopilot corporate provisioning policy found on this device.".to_string(),
+                    )
+                };
+                items.push(SecurityCheckItem {
+                    id: "autopilot".to_string(),
+                    label: "Windows Autopilot Policy".to_string(),
+                    value: val,
+                    status: st,
+                    detail,
+                    buyer_note: note,
+                });
+            }
         }
     }
 
@@ -495,6 +559,53 @@ if ($biosLock.state -eq 'unverifiable') {
     } catch {}
 }
 
+# Computrace / Absolute Persistence check (agent services + Dell/HP/Lenovo WMI)
+$ct = @{ state = 'clean'; detail = 'No rpcnet/Absolute agent service or active BIOS Computrace lock detected.' }
+$rpcSvc = Get-Service -Name 'rpcnet','rpcnetp','Absolute*' -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' -or $_.StartType -eq 'Automatic' } | Select-Object -First 1
+if ($rpcSvc) {
+    $ct = @{ state = 'active'; detail = "Active Absolute Persistence service detected: $($rpcSvc.Name) ($($rpcSvc.Status))." }
+} else {
+    try {
+        $lenCt = Get-CimInstance -Namespace root\wmi -ClassName Lenovo_BiosSetting -ErrorAction Stop | Where-Object { $_.CurrentSetting -match 'Computrace|Absolute' } | Select-Object -First 1
+        if ($lenCt) {
+            $cs = [string]$lenCt.CurrentSetting
+            if ($cs -match 'Enabled|Activated') { $ct = @{ state = 'active'; detail = "Lenovo BIOS WMI: $cs" } }
+            else { $ct = @{ state = 'disabled'; detail = "Lenovo BIOS WMI: $cs" } }
+        }
+    } catch {}
+    if ($ct.state -eq 'clean') {
+        try {
+            $hpCt = Get-CimInstance -Namespace root\hp\instrumentedBIOS -ClassName HP_BIOSSetting -ErrorAction Stop | Where-Object { $_.Name -match 'Absolute|Computrace' } | Select-Object -First 1
+            if ($hpCt) {
+                $hv = [string]$hpCt.Value
+                if ($hv -match 'Active|Enable' -and $hv -notmatch 'Inactive|Disable') { $ct = @{ state = 'active'; detail = "HP BIOS WMI: $($hpCt.Name) = $hv" } }
+                else { $ct = @{ state = 'disabled'; detail = "HP BIOS WMI: $($hpCt.Name) = $hv" } }
+            }
+        } catch {}
+    }
+}
+
+# Windows Autopilot Cached Policy check
+$ap = @{ enrolled = $false; tenant = ''; detail = 'No cached AutoPilotDDSZTDFile.json or registry CloudAssignedTenantDomain.' }
+$apPath = Join-Path $env:WINDIR 'Provisioning\Autopilot\AutoPilotDDSZTDFile.json'
+if (Test-Path $apPath) {
+    try {
+        $apJson = Get-Content $apPath -Raw -ErrorAction Stop | ConvertFrom-Json
+        $ten = if ($apJson.CloudAssignedTenantDomain) { [string]$apJson.CloudAssignedTenantDomain } else { 'Corporate Tenant' }
+        $ap = @{ enrolled = $true; tenant = $ten; detail = "Cached Autopilot JSON found at $apPath (Tenant: $ten)." }
+    } catch {
+        $ap = @{ enrolled = $true; tenant = 'Cached Policy'; detail = "Cached Autopilot JSON present at $apPath." }
+    }
+} else {
+    try {
+        $regAp = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Provisioning\Diagnostics\AutoPilot' -ErrorAction Stop
+        if ($regAp -and $regAp.CloudAssignedTenantDomain -and [string]$regAp.CloudAssignedTenantDomain -ne '') {
+            $ten = [string]$regAp.CloudAssignedTenantDomain
+            $ap = @{ enrolled = $true; tenant = $ten; detail = "Registry AutoPilot CloudAssignedTenantDomain = $ten." }
+        }
+    } catch {}
+}
+
 @{
     licStatus = $licStatus
     licName = $licName
@@ -503,6 +614,8 @@ if ($biosLock.state -eq 'unverifiable') {
     tpm = $tpm
     bitlocker = $bl
     biosLock = $biosLock
+    computrace = $ct
+    autopilot = $ap
 } | ConvertTo-Json -Depth 4 -Compress
 "#;
 
@@ -843,5 +956,43 @@ mod tests {
             parse_macos_firmware_password("Password Enabled: No\n"),
             (Some(false), "UNLOCKED".to_string())
         );
+    }
+
+    #[test]
+    fn test_computrace_and_autopilot_lock_detection() {
+        let locked_ps = r#"{
+            "licStatus": 1,
+            "licName": "Windows 11 Pro",
+            "licKey": "11111",
+            "secureBoot": "True",
+            "tpm": {"present": true, "ready": true, "enabled": true, "spec": "2.0"},
+            "bitlocker": {"status": "Off", "enc": "FullyDecrypted", "pct": 0},
+            "computrace": {"state": "active", "detail": "rpcnet running"},
+            "autopilot": {"enrolled": true, "tenant": "acme-corp.com", "detail": "Cached JSON"}
+        }"#;
+        let rep = evaluate_windows_security_items(
+            Some((false, false, false, String::new())),
+            Some(locked_ps),
+        );
+        assert_eq!(rep.overall_status, TestStatus::Fail);
+        assert!(rep.ownership_risks.iter().any(|r| r.contains("Computrace")));
+        assert!(rep.ownership_risks.iter().any(|r| r.contains("Autopilot")));
+
+        let clean_ps = r#"{
+            "licStatus": 1,
+            "licName": "Windows 11 Pro",
+            "licKey": "11111",
+            "secureBoot": "True",
+            "tpm": {"present": true, "ready": true, "enabled": true, "spec": "2.0"},
+            "bitlocker": {"status": "Off", "enc": "FullyDecrypted", "pct": 0},
+            "computrace": {"state": "clean", "detail": "Not active"},
+            "autopilot": {"enrolled": false, "tenant": "", "detail": "Clean"}
+        }"#;
+        let rep_clean = evaluate_windows_security_items(
+            Some((false, false, false, String::new())),
+            Some(clean_ps),
+        );
+        assert_eq!(rep_clean.overall_status, TestStatus::Pass);
+        assert!(rep_clean.ownership_risks.is_empty());
     }
 }

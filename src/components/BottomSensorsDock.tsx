@@ -96,9 +96,13 @@ export const BottomSensorsDock: React.FC<BottomSensorsDockProps> = ({ telemetry 
         >
           {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
           <span>Sensors</span>
-          {telemetry?.sensorSource && (
-            <span className="text-[10px] font-mono text-zinc-400 ml-1">
-              • {telemetry.sensorSource}
+          {telemetry && (
+            <span className="text-[11px] font-mono text-zinc-500 ml-1.5 tabular-nums hidden sm:inline">
+              CPU {telemetry.cpuUsagePct.toFixed(0)}%
+              {telemetry.cpuClockMhz > 0 ? ` • ${telemetry.cpuClockMhz} MHz` : ""}
+              {telemetry.cpuTempC != null ? ` • ${telemetry.cpuTempC.toFixed(0)}°C` : ""}
+              {telemetry.acPlugged != null ? ` • ${telemetry.acPlugged ? "AC" : "BAT"}` : ""}
+              {telemetry.batteryPercent != null ? ` ${telemetry.batteryPercent.toFixed(0)}%` : ""}
             </span>
           )}
           {perCoreTemps.length > 0 && (
@@ -229,7 +233,7 @@ export const BottomSensorsDock: React.FC<BottomSensorsDockProps> = ({ telemetry 
           onClick={() => setShowSensorHelp(false)}
         >
           <div
-            className="bg-white rounded-2xl border border-zinc-200 max-w-md w-full p-5 space-y-4 shadow-xl"
+            className="bg-white rounded-xl border border-zinc-200 max-w-md w-full p-6 space-y-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">

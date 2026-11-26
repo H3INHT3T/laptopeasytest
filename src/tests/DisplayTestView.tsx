@@ -769,33 +769,31 @@ export const DisplayTestView: React.FC<DisplayTestViewProps> = ({
         </div>
       )}
 
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="px-2 py-0.5 rounded-[2px] bg-black text-white font-mono text-xs font-bold">
-              STAGE {String(stepNumber).padStart(2, "0")}
-            </span>
-            <h1 className="text-xl font-black text-black tracking-tight">
-              Display Check (MonitorTest {PATTERNS.length}-Pattern Suite)
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold text-black tracking-tight">
+              Display Check
+              <span className="sr-only"> (MonitorTest 23-Pattern Suite)</span>
             </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-zinc-600 mt-1">
-            True unobstructed fullscreen: controls stay hidden until you hover the bottom edge (or press H). Click/Space: Next • Esc/Right-Click: Exit.
-          </p>
+          <div className="text-xs text-zinc-500">
+            Step {stepNumber} of {totalSteps} • {PATTERNS.length}-pattern fullscreen suite ({viewedSet.size}/{PATTERNS.length} inspected)
+          </div>
         </div>
         <button
           type="button"
           onClick={() => enterFullscreen(0)}
-          className="px-4 py-2.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-2 cursor-pointer"
+          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs inline-flex items-center gap-2 cursor-pointer"
         >
           <Maximize2 className="w-4 h-4" />
-          Launch True Fullscreen Test ({viewedSet.size}/{PATTERNS.length} Inspected)
+          Launch True Fullscreen Test
         </button>
       </div>
 
       {/* Live Display Backlight Brightness Check */}
-      <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3.5 space-y-2.5">
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2.5">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Sun className="w-4 h-4 text-blue-600 shrink-0" />

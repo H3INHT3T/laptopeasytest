@@ -318,36 +318,31 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
   const nextStageNum = String(Math.min(stepNumber + 1, totalSteps)).padStart(2, "0");
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-zinc-300">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white font-mono text-[10px] font-bold">
-              STAGE {String(stepNumber).padStart(2, "0")}
-            </span>
-            <h1 className="text-lg font-black text-black tracking-tight">
-              360° All-Scope Performance, Creator &amp; Thermal Audit
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold text-black tracking-tight">
+              360° Performance &amp; Creator Benchmark
+              <span className="sr-only"> — 360° All-Scope Performance, Creator &amp; Thermal Audit</span>
             </h1>
             <StatusBadge status={status} />
             {result?.simdIsa && (
-              <span className="px-1.5 py-0.5 rounded-[2px] bg-white border border-blue-600 text-blue-700 font-mono text-[10px] font-bold">
+              <span className="px-2 py-0.5 rounded-full bg-white border border-zinc-200 text-blue-700 font-mono text-[11px] font-semibold">
                 {result.simdIsa}
               </span>
             )}
-            <span className="px-1.5 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] text-zinc-700 font-mono text-[10px] font-bold">
-              THERMAL GUARD &le; {CPU_THERMAL_CUTOFF_MAX_C}°C
-            </span>
           </div>
-          <p className="text-xs text-zinc-600 mt-0.5">
-            14 sustained stages: PassMark 11 Weighted Harmonic Mean CPU (9 subtests) &amp; Memory (7 subtests), Office Productivity, SIMD AI GEMM, 3D Path-Tracing Renderer, Thermal Cutoff Guard, and UserBenchmark Calibration.
-          </p>
+          <div className="text-xs text-zinc-500">
+            Step {stepNumber} of {totalSteps} • CPU, Office, AI GEMM, 3D Ray-Tracing &amp; Memory • Guard &le; {CPU_THERMAL_CUTOFF_MAX_C}°C
+          </div>
         </div>
       </div>
 
       <EnvironmentGuard telemetry={telemetry} requireAc={true} />
 
       {/* Controls */}
-      <div className="rounded-[2px] border border-zinc-300 bg-white p-4 space-y-4">
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">

@@ -462,38 +462,38 @@ export const KeyboardTestView: React.FC<KeyboardTestViewProps> = ({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-zinc-300">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white font-mono text-[10px] font-bold">
-              STAGE {String(stepNumber).padStart(2, "0")}
-            </span>
-            <h1 className="text-lg font-black text-black tracking-tight">
-              Keyboard &amp; Touchpad Dead-Zone Audit
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold text-black tracking-tight">
+              Keyboard &amp; Touchpad
+              <span className="sr-only"> — Keyboard &amp; Touchpad Dead-Zone Audit</span>
             </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-zinc-600 mt-0.5">
-            Runs en.key-test.ru-style idle stuck-key scan, NKRO chord rollover, mean key dwell ms &amp; sub-25ms chatter bounce, plus Touchpad 12×6 grid &amp; cursor drift.
-          </p>
+          <div className="text-xs text-zinc-500">
+            Step {stepNumber} of {totalSteps} • Stuck-key scan, NKRO rollover, chatter &amp; touchpad grid
+          </div>
         </div>
-        <div className="inline-flex border border-zinc-300 rounded-[2px] overflow-hidden font-mono text-[11px] font-bold uppercase">
+        <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1 gap-1 text-xs font-semibold">
           <button
+            type="button"
             onClick={() => setSubTab("keyboard")}
-            className={`px-3 py-1.5 flex items-center gap-1.5 cursor-pointer ${
-              subTab === "keyboard" ? "bg-black text-white" : "bg-white text-black hover:bg-zinc-100"
+            className={`px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 cursor-pointer ${
+              subTab === "keyboard" ? "bg-blue-600 text-white" : "text-zinc-600 hover:text-black"
             }`}
           >
-            <Keyboard className="w-3.5 h-3.5 text-blue-600" /> 01. Keyboard ({testedTestableCount}/{testableKeyCount})
+            <Keyboard className="w-3.5 h-3.5" /> Keyboard ({testedTestableCount}/{testableKeyCount})
           </button>
           <button
+            type="button"
             onClick={() => setSubTab("touchpad")}
-            className={`px-3 py-1.5 flex items-center gap-1.5 border-l border-zinc-300 cursor-pointer ${
-              subTab === "touchpad" ? "bg-black text-white" : "bg-white text-black hover:bg-zinc-100"
+            className={`px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 cursor-pointer ${
+              subTab === "touchpad" ? "bg-blue-600 text-white" : "text-zinc-600 hover:text-black"
             }`}
           >
-            <MousePointer2 className="w-3.5 h-3.5 text-blue-600" /> 02. Touchpad ({padPct}%)
+            <MousePointer2 className="w-3.5 h-3.5" /> Touchpad ({padPct}%)
           </button>
         </div>
       </div>

@@ -1482,6 +1482,65 @@ pub struct HardwareFaultsReport {
     pub plain_summary: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct ExternalDisplayInfo {
+    pub name: String,
+    pub connector: String,
+    pub is_internal: bool,
+    pub resolution: String,
+    pub refresh_hz: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct BluetoothScanInfo {
+    pub radio_present: bool,
+    pub radio_enabled: bool,
+    pub paired_or_nearby_count: usize,
+    pub device_names: Vec<String>,
+    pub status: TestStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct EthernetLinkInfo {
+    pub adapter_name: String,
+    pub connected: bool,
+    pub link_speed_mbps: Option<u64>,
+    pub status: TestStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct UsbCChargerProbe {
+    pub ac_plugged: bool,
+    pub is_charging: bool,
+    pub charge_percent: Option<f64>,
+    pub watts: Option<f64>,
+    pub voltage_mv: Option<u64>,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct PortDiagnosticsReport {
+    pub platform: String,
+    pub displays: Vec<ExternalDisplayInfo>,
+    pub external_display_count: usize,
+    pub bluetooth: BluetoothScanInfo,
+    pub ethernet: Option<EthernetLinkInfo>,
+    pub charger: UsbCChargerProbe,
+    pub summary: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

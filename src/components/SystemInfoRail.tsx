@@ -49,13 +49,13 @@ export const SystemInfoRail: React.FC<SystemInfoRailProps> = ({
       : "Pending";
 
   return (
-    <aside className="hidden xl:flex w-56 shrink-0 bg-white border-l border-zinc-200 flex-col h-full select-none">
-      <div className="h-11 px-4 border-b border-zinc-200 flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
-        <span>System Info</span>
+    <aside className="hidden xl:flex w-60 shrink-0 bg-white border-l border-zinc-200 flex-col h-full select-none">
+      <div className="h-12 px-5 border-b border-zinc-200 flex items-center gap-1.5 text-xs font-semibold text-zinc-600">
+        <span>System info</span>
         <Info className="w-3.5 h-3.5 text-zinc-400" />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs">
+      <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
         {/* CPU */}
         <div className="space-y-1">
           <div className="flex items-center gap-2 font-bold text-black">

@@ -532,6 +532,44 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
           summary: "0 Device Manager faults • PCIe full width verified • Panel AUO (2022)",
           plainSummary: "Zero hidden Device Manager faults (no Code 43/10), full PCIe lane widths verified, and display panel EDID matches chassis era.",
         },
+      scan_port_diagnostics: async () =>
+        fixture.portDiagnostics || {
+          platform: "Windows",
+          displays: [
+            {
+              name: "Built-in Laptop Display",
+              connector: "Internal eDP",
+              isInternal: true,
+              resolution: "1920x1080",
+              refreshHz: 60,
+            },
+          ],
+          externalDisplayCount: 0,
+          bluetooth: {
+            radioPresent: true,
+            radioEnabled: true,
+            pairedOrNearbyCount: 1,
+            deviceNames: ["BT Test Speaker"],
+            status: "pass",
+            detail: "Bluetooth radio ON • 1 paired/discovered device(s) verified.",
+          },
+          ethernet: {
+            adapterName: "Intel Gigabit LAN",
+            connected: false,
+            linkSpeedMbps: null,
+            status: "notApplicable",
+            detail: "No Ethernet cable plugged in (optional).",
+          },
+          charger: {
+            acPlugged: true,
+            isCharging: false,
+            chargePercent: 92,
+            watts: 45,
+            voltageMv: 11600,
+            detail: "AC plugged (92% • 45.0 W steady)",
+          },
+          summary: "External monitors: 0 • Bluetooth radio ON • No Ethernet cable plugged in",
+        },
     };
 
     async function invoke(cmd, args = {}, _options = {}) {

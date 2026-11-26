@@ -234,21 +234,19 @@ export const RamTestView: React.FC<RamTestViewProps> = ({
     : [];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-zinc-300">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white font-mono text-[10px] font-bold">
-              STAGE {String(stepNumber).padStart(2, "0")}
-            </span>
-            <h1 className="text-lg font-black text-black tracking-tight">
-              RAM Continuous Durability Audit (TestMem5 Engine)
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold text-black tracking-tight">
+              RAM Stress Test (TestMem5)
+              <span className="sr-only"> — RAM Continuous Durability Audit (TestMem5 Engine)</span>
             </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-zinc-600 mt-0.5">
-            Sustained time-enforced TestMem5 profiles (Default @ serj, Absolut @ anta777, Extreme @ anta777) cycling {activeKernelList.length} MT0.dll retention, prime/256-stride &amp; SIMD kernels.
-          </p>
+          <div className="text-xs text-zinc-500">
+            Step {stepNumber} of {totalSteps} • {activeKernelList.length} MT0.dll bit-flip &amp; retention kernels
+          </div>
         </div>
       </div>
 

@@ -111,7 +111,35 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
       : 0;
 
   const [fullscreen, setFullscreen] = useState(false);
+  const [hudVisible, setHudVisible] = useState(false);
+  const hudTimerRef = useRef<number | null>(null);
   const [notes, setNotes] = useState(initialNotes);
+
+  const scheduleHudHide = useCallback((ms = 4000) => {
+    if (hudTimerRef.current !== null) {
+      window.clearTimeout(hudTimerRef.current);
+    }
+    hudTimerRef.current = window.setTimeout(() => {
+      setHudVisible(false);
+      hudTimerRef.current = null;
+    }, ms);
+  }, []);
+
+  const revealHud = useCallback(
+    (ms = 4500) => {
+      setHudVisible(true);
+      scheduleHudHide(ms);
+    },
+    [scheduleHudHide]
+  );
+
+  const hideHudNow = useCallback(() => {
+    if (hudTimerRef.current !== null) {
+      window.clearTimeout(hudTimerRef.current);
+      hudTimerRef.current = null;
+    }
+    setHudVisible(false);
+  }, []);
 
   // Coverage Matrix state (16 x 10 = 160 cells) — strictly populated by pointerType === "touch"
   const [coveredSet, setCoveredSet] = useState<Set<number>>(() => new Set());
@@ -149,6 +177,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
 
   const enterFullscreen = async () => {
     setFullscreen(true);
+    revealHud(2200);
     try {
       const win = getCurrentWindow();
       await win.setDecorations(false);
@@ -160,6 +189,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
   };
 
   const exitFullscreen = useCallback(async () => {
+    hideHudNow();
     setFullscreen(false);
     try {
       const win = getCurrentWindow();
@@ -171,10 +201,14 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
         document.exitFullscreen?.().catch(() => {});
       }
     }
-  }, []);
+  }, [hideHudNow]);
 
   useEffect(() => {
     return () => {
+      if (hudTimerRef.current !== null) {
+        window.clearTimeout(hudTimerRef.current);
+        hudTimerRef.current = null;
+      }
       if (fullscreenRef.current) {
         try {
           const win = getCurrentWindow();
@@ -194,11 +228,17 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
       if (e.key === "Escape") {
         e.preventDefault();
         exitFullscreen();
+      } else if (e.key.toLowerCase() === "h") {
+        setHudVisible((prev) => {
+          const next = !prev;
+          if (next) scheduleHudHide(4500);
+          return next;
+        });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [fullscreen, exitFullscreen]);
+  }, [fullscreen, exitFullscreen, scheduleHudHide]);
 
   const resetMatrix = () => {
     activeContactsRef.current.clear();
@@ -314,6 +354,9 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
     }
 
     e.preventDefault();
+    if (fullscreenRef.current) {
+      hideHudNow();
+    }
     const el = surfaceRef.current;
     if (!el) return;
     try {
@@ -559,33 +602,72 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
         </div>
       ))}
 
-      {/* Fullscreen Floating Control Bar */}
+      {/* Fullscreen Auto-Hiding Floating Control Bar + Touch Reveal Handle */}
       {isPortalFullscreen && (
-        <div
-          onPointerDown={(e) => e.stopPropagation()}
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-black/90 text-white border border-zinc-700 rounded-[2px] px-4 py-2 flex items-center gap-4 text-xs font-mono shadow-xl"
-        >
-          <span>
-            GRID {coveredCells}/{TOTAL_CELLS} ({coveragePct}%) • MAX {maxSimultaneousTouches}-PT • RMS{" "}
-            {swipeRmsPx}px • {pollingHz}Hz
-            {simulatedEventCount > 0 && touchEventCount === 0 ? " • MOUSE IGNORED (USE TOUCH)" : ""}
-          </span>
-          <button
-            type="button"
-            onClick={resetMatrix}
-            className="px-2.5 py-1 rounded-[2px] border border-zinc-600 hover:bg-zinc-800 text-white font-bold cursor-pointer"
+        <>
+          {/* Subtle bottom-center tap/hover zone to reveal HUD without blocking cells */}
+          {!hudVisible && (
+            <button
+              type="button"
+              aria-label="Show Touch Controls"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                revealHud(5000);
+              }}
+              onMouseEnter={() => revealHud(5000)}
+              onClick={(e) => {
+                e.stopPropagation();
+                revealHud(5000);
+              }}
+              className="fixed bottom-1.5 left-1/2 -translate-x-1/2 px-5 py-1.5 rounded-full bg-black/25 hover:bg-black/75 text-white/90 text-[10px] font-mono font-bold tracking-wider backdrop-blur-xs transition cursor-pointer flex items-center gap-2"
+            >
+              <span className="w-8 h-1 rounded-full bg-white/80" />
+              <span>{coveredCells}/{TOTAL_CELLS}</span>
+            </button>
+          )}
+
+          {/* Auto-hiding description & control rectangle (appears when handle touched/hovered or H pressed) */}
+          <div
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              revealHud(6000);
+            }}
+            onMouseEnter={() => {
+              if (hudTimerRef.current !== null) {
+                window.clearTimeout(hudTimerRef.current);
+                hudTimerRef.current = null;
+              }
+              setHudVisible(true);
+            }}
+            onMouseLeave={() => scheduleHudHide(2000)}
+            className={`fixed bottom-4 left-1/2 -translate-x-1/2 bg-black/90 text-white border border-zinc-700 rounded-xl px-4 py-2 flex items-center gap-4 text-xs font-mono shadow-xl transition-all duration-200 ${
+              hudVisible
+                ? "opacity-100 translate-y-0 pointer-events-auto"
+                : "opacity-0 translate-y-3 pointer-events-none"
+            }`}
           >
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={exitFullscreen}
-            className="px-3 py-1 rounded-[2px] bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-1 cursor-pointer"
-          >
-            <Minimize2 className="w-3.5 h-3.5" />
-            Exit Fullscreen (Esc)
-          </button>
-        </div>
+            <span>
+              GRID {coveredCells}/{TOTAL_CELLS} ({coveragePct}%) • MAX {maxSimultaneousTouches}-PT • RMS{" "}
+              {swipeRmsPx}px • {pollingHz}Hz
+              {simulatedEventCount > 0 && touchEventCount === 0 ? " • MOUSE IGNORED (USE TOUCH)" : ""}
+            </span>
+            <button
+              type="button"
+              onClick={resetMatrix}
+              className="px-2.5 py-1 rounded-md border border-zinc-600 hover:bg-zinc-800 text-white font-bold cursor-pointer"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={exitFullscreen}
+              className="px-3 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Minimize2 className="w-3.5 h-3.5" />
+              Exit Fullscreen (Esc)
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
@@ -613,32 +695,30 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
     : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {fullscreenPortal}
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-200">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="px-2 py-0.5 rounded-[2px] bg-black text-white font-mono text-xs font-bold">
-              STAGE {String(stepNumber).padStart(2, "0")}
-            </span>
-            <h1 className="text-xl font-black text-black tracking-tight flex items-center gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold text-black tracking-tight flex items-center gap-2">
               <Hand className="w-5 h-5 text-blue-600" />
-              Touchscreen &amp; Multi-Touch Digitizer Test
+              Touchscreen &amp; Multi-Touch
+              <span className="sr-only">Touchscreen &amp; Multi-Touch Digitizer Test</span>
             </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-zinc-600 mt-1">
-            Verify 16×10 (160-cell) touch coverage, dead zones, 10-point multi-touch, swipe linearity (H/V/Diagonal), polling rate (Hz), and tap latency.
-          </p>
+          <div className="text-xs text-zinc-500">
+            Step {stepNumber} of {totalSteps} • 160-cell touch grid, multi-touch &amp; linearity
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={resetMatrix}
-            className="px-3 py-2 rounded-[2px] border border-zinc-300 bg-white hover:border-black text-black font-mono text-[11px] font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+            className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:border-black text-black text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Reset Matrix
@@ -646,7 +726,7 @@ export const TouchscreenTestView: React.FC<TouchscreenTestViewProps> = ({
           <button
             type="button"
             onClick={enterFullscreen}
-            className="px-4 py-2 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono text-[11px] font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
           >
             <Maximize2 className="w-3.5 h-3.5" />
             Fullscreen Touch Test

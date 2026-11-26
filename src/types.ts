@@ -1200,3 +1200,47 @@ export interface ExportedReportPaths {
   jsonPath: string;
   generatedAt: string;
 }
+
+export interface ExternalDisplayInfo {
+  name: string;
+  connector: string;
+  isInternal: boolean;
+  resolution: string;
+  refreshHz: number | null;
+}
+
+export interface BluetoothScanInfo {
+  radioPresent: boolean;
+  radioEnabled: boolean;
+  pairedOrNearbyCount: number;
+  deviceNames: string[];
+  status: TestStatus;
+  detail: string;
+}
+
+export interface EthernetLinkInfo {
+  adapterName: string;
+  connected: boolean;
+  linkSpeedMbps: number | null;
+  status: TestStatus;
+  detail: string;
+}
+
+export interface UsbCChargerProbe {
+  acPlugged: boolean;
+  isCharging: boolean;
+  chargePercent: number | null;
+  watts: number | null;
+  voltageMv: number | null;
+  detail: string;
+}
+
+export interface PortDiagnosticsReport {
+  platform: string;
+  displays: ExternalDisplayInfo[];
+  externalDisplayCount: number;
+  bluetooth: BluetoothScanInfo;
+  ethernet: EthernetLinkInfo | null;
+  charger: UsbCChargerProbe;
+  summary: string;
+}

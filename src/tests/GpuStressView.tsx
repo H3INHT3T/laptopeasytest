@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -7,6 +8,8 @@ import {
   Cpu,
   Flame,
   HardDrive,
+  Maximize2,
+  Minimize2,
   Play,
   ShieldAlert,
   Square,
@@ -95,7 +98,20 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
   onSkip,
 }) => {
   const [tab, setTab] = useState<GpuTab>("furmark");
+  const [maximizedViewport, setMaximizedViewport] = useState<"furmark" | "torture" | null>(null);
   const [adapters, setAdapters] = useState<GpuAdapterInfo[]>([]);
+
+  useEffect(() => {
+    if (!maximizedViewport) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMaximizedViewport(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [maximizedViewport]);
   const [selectedAdapter, setSelectedAdapter] = useState<number>(0);
 
   const [preset, setPreset] = useState<"quick" | "standard" | "burnin" | "extended">("quick");
@@ -420,34 +436,30 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
       : [];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-zinc-300">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-1.5 py-0.5 rounded-[2px] bg-black text-white font-mono text-[10px] font-bold">
-              STAGE {String(stepNumber).padStart(2, "0")}
-            </span>
-            <h1 className="text-lg font-black text-black tracking-tight">
-              GPU Burn-In, Dedicated VRAM Integrity &amp; Combined Power Torture
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold text-black tracking-tight">
+              GPU, VRAM &amp; Power Stress
+              <span className="sr-only"> — GPU Burn-In, Dedicated VRAM Integrity &amp; Combined Power Torture</span>
             </h1>
             <StatusBadge status={status} />
             {isGamingCapable && (
-              <span className="px-1.5 py-0.5 rounded-[2px] bg-blue-600 text-white font-mono text-[9.5px] font-bold">
+              <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white font-mono text-[10px] font-bold">
                 dGPU
               </span>
             )}
-            <span className="px-1.5 py-0.5 rounded-[2px] border border-zinc-300 bg-[#F8FAFC] text-zinc-700 font-mono text-[10px] font-bold">
-              GPU CUTOFF &le; {GPU_THERMAL_CUTOFF_MAX_C}°C
-            </span>
           </div>
-          <p className="text-xs text-zinc-600 mt-0.5">
-            Native wgpu DX12 / Vulkan / Metal diagnostic bench: FurMark-2 Artifact Scan &amp; Throttle Diagnosis, Dedicated VRAM Integrity, Combined CPU+GPU+RAM Charger Torture, and UserBenchmark GPU Calibration.
-          </p>
+          <div className="text-xs text-zinc-500">
+            Step {stepNumber} of {totalSteps} • Native wgpu 3D burn-in, VRAM integrity &amp; combined power • Cutoff &le; {GPU_THERMAL_CUTOFF_MAX_C}°C
+          </div>
         </div>
         {!isGamingCapable && !running && (
           <button
+            type="button"
             onClick={onMarkNA}
-            className="px-3 py-1.5 rounded-[2px] border border-black bg-white hover:bg-zinc-100 font-mono text-[11px] font-bold uppercase text-black cursor-pointer"
+            className="px-4 py-2 rounded-xl border border-zinc-200 bg-white hover:border-black text-xs font-semibold text-black cursor-pointer"
           >
             Mark N/A (Office iGPU)
           </button>
@@ -658,7 +670,10 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 rounded-[2px] border border-zinc-300 bg-black overflow-hidden relative aspect-video flex items-center justify-center">
+            <div
+              onDoubleClick={() => setMaximizedViewport("furmark")}
+              className="lg:col-span-2 rounded-xl border border-zinc-200 bg-black overflow-hidden relative aspect-video flex items-center justify-center"
+            >
               {progress?.previewDataUrl ? (
                 <img src={progress.previewDataUrl} alt="Live wgpu Stress Render" className="w-full h-full object-contain" />
               ) : (
@@ -680,8 +695,16 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   </span>
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => setMaximizedViewport("furmark")}
+                className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/80 hover:bg-blue-600 text-white text-[11px] font-mono font-bold flex items-center gap-1 border border-white/20 cursor-pointer"
+                title="Maximize 3D GPU Viewport"
+              >
+                <Maximize2 className="w-3.5 h-3.5" /> Maximize
+              </button>
               {progress?.thermalWarning && (
-                <div className="absolute bottom-2.5 left-2.5 right-2.5 rounded-[2px] bg-blue-600 text-white px-3 py-1.5 font-mono text-xs font-bold flex items-center gap-2">
+                <div className="absolute bottom-11 left-2.5 right-2.5 rounded-[2px] bg-blue-600 text-white px-3 py-1.5 font-mono text-xs font-bold flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   HIGH GPU TEMPERATURE APPROACHING CUTOFF ({cutoffC}°C)
                 </div>
@@ -988,7 +1011,10 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 rounded-[2px] border border-zinc-300 bg-black overflow-hidden relative aspect-video flex items-center justify-center">
+            <div
+              onDoubleClick={() => setMaximizedViewport("torture")}
+              className="lg:col-span-2 rounded-xl border border-zinc-200 bg-black overflow-hidden relative aspect-video flex items-center justify-center"
+            >
               {tortureProg?.previewDataUrl ? (
                 <img src={tortureProg.previewDataUrl} alt="Combined Torture Render" className="w-full h-full object-contain" />
               ) : (
@@ -1010,6 +1036,14 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
                   </span>
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => setMaximizedViewport("torture")}
+                className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/80 hover:bg-blue-600 text-white text-[11px] font-mono font-bold flex items-center gap-1 border border-white/20 cursor-pointer"
+                title="Maximize Combined Torture Viewport"
+              >
+                <Maximize2 className="w-3.5 h-3.5" /> Maximize
+              </button>
             </div>
 
             <div className="rounded-[2px] border border-zinc-300 bg-white divide-y divide-zinc-200 flex flex-col justify-between font-mono tabular-nums text-xs">
@@ -1208,6 +1242,105 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
         onNext={onNext}
         onSkip={onSkip}
       />
+
+      {maximizedViewport &&
+        createPortal(
+          <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4 select-none">
+            <div className="fixed top-4 left-4 right-4 flex items-center justify-between gap-2 flex-wrap z-50">
+              <div className="px-3 py-1.5 rounded-lg bg-black/85 border border-white/20 text-white font-mono text-xs flex items-center gap-3 flex-wrap">
+                {maximizedViewport === "furmark" ? (
+                  <>
+                    <span className="text-blue-400 font-bold">
+                      {progress ? `${progress.fps.toFixed(1)} FPS` : result ? `${result.avgFps.toFixed(1)} Avg FPS` : "3D Shader Viewport"}
+                    </span>
+                    {progress && (
+                      <>
+                        <span>1% Low: {progress.low1pctFps.toFixed(1)}</span>
+                        <span>Art: {progress.artifactErrors ?? 0}</span>
+                        <span>
+                          {fmtTime(progress.elapsedSecs)} / {fmtTime(progress.durationSecs)} ({pctFur}%)
+                        </span>
+                        {progress.gpuTempC != null && <span>GPU: {progress.gpuTempC.toFixed(0)}°C</span>}
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-blue-400 font-bold">
+                      {tortureProg ? `GPU ${tortureProg.gpuFps.toFixed(1)} FPS` : "Combined CPU+GPU+RAM Torture"}
+                    </span>
+                    {tortureProg && (
+                      <>
+                        <span>CPU: {tortureProg.telemetry.cpuUsagePct.toFixed(0)}%</span>
+                        <span>Art: {tortureProg.artifactErrors ?? 0}</span>
+                        <span>
+                          {fmtTime(tortureProg.elapsedSecs)} / {fmtTime(tortureProg.durationSecs)}
+                        </span>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {running && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      invoke(maximizedViewport === "furmark" ? "cancel_gpu_stress" : "cancel_power_torture").catch(() => {})
+                    }
+                    className="px-3 py-1.5 rounded-lg bg-black/85 hover:bg-zinc-800 border border-white/25 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Square className="w-3.5 h-3.5" /> Abort Stress
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setMaximizedViewport(null)}
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" /> Exit Fullscreen (Esc)
+                </button>
+              </div>
+            </div>
+
+            {maximizedViewport === "furmark" ? (
+              progress?.previewDataUrl ? (
+                <img
+                  src={progress.previewDataUrl}
+                  alt="Maximized wgpu 3D Shader Stress"
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <div className="text-center space-y-2 font-mono">
+                  <Flame className="w-12 h-12 text-blue-500 mx-auto" />
+                  <div className="text-sm font-bold text-white uppercase">Native wgpu 3D Shader Viewport</div>
+                  <div className="text-xs text-zinc-400">Start 3D Shader Burn-In to inspect live rendered frames fullscreen.</div>
+                </div>
+              )
+            ) : tortureProg?.previewDataUrl ? (
+              <img
+                src={tortureProg.previewDataUrl}
+                alt="Maximized Combined Power Torture Render"
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <div className="text-center space-y-2 font-mono">
+                <Zap className="w-12 h-12 text-blue-500 mx-auto" />
+                <div className="text-sm font-bold text-white uppercase">Combined CPU + GPU + RAM Viewport</div>
+                <div className="text-xs text-zinc-400">Start Combined Power Torture to inspect live frames fullscreen.</div>
+              </div>
+            )}
+
+            {maximizedViewport === "furmark" && progress?.thermalWarning && (
+              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-blue-600 text-white px-4 py-2 font-mono text-xs font-bold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                HIGH GPU TEMPERATURE APPROACHING CUTOFF ({cutoffC}°C)
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

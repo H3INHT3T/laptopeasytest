@@ -226,7 +226,7 @@ export function createCliRunner({ rootDir, noBuild = false } = {}) {
     return cache.runSelfTest;
   }
 
-  function checkVersionAlignment(expectedVersion = "2.8.0") {
+  function checkVersionAlignment(expectedVersion = "2.9.0") {
     const findings = [];
     const expectedMajorMinor = expectedVersion.split(".").slice(0, 2).join(".");
 

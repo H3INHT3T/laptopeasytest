@@ -36,7 +36,6 @@ import type {
   WarrantyReturnDiff,
 } from "./types";
 import { Sidebar } from "./components/Sidebar";
-import { TopTelemetryStrip } from "./components/TopTelemetryStrip";
 import { SystemInfoRail } from "./components/SystemInfoRail";
 import { BottomSensorsDock } from "./components/BottomSensorsDock";
 import { PreReportModal } from "./components/PreReportModal";
@@ -1137,17 +1136,10 @@ export const App: React.FC = () => {
       />
 
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <TopTelemetryStrip
-          specs={specs}
-          telemetry={liveTelemetry}
-          completedCount={completedCount}
-          totalSteps={totalSteps}
-        />
-
         <div className="flex-1 flex min-h-0 overflow-hidden">
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-            <main className="flex-1 overflow-y-auto p-6 bg-[#F8FAFC]">
-              <div className="max-w-5xl mx-auto">
+            <main className="flex-1 overflow-y-auto px-8 py-7 bg-[#F8FAFC]">
+              <div className="max-w-4xl mx-auto">
                 {activeTab === "dashboard" && (
                   <DashboardView
                     specs={specs}

@@ -141,57 +141,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="mt-auto text-center px-1">
           <div className="font-mono text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
-            v2.8.0
+            v2.9.0
           </div>
         </div>
       </div>
 
       {/* Clean Secondary Step List */}
       <div className="w-52 shrink-0 flex flex-col h-full bg-white">
-        <div className="h-11 px-3.5 border-b border-zinc-200 flex items-center justify-between">
-          <span className="font-bold text-xs text-black tracking-tight">LaptopBench QC</span>
-          <span className="font-mono text-[10px] font-semibold text-zinc-500 tabular-nums">
+        <div className="h-12 px-4 border-b border-zinc-200 flex items-center justify-between">
+          <span className="font-bold text-sm text-black tracking-tight">LaptopBench QC</span>
+          <span className="font-mono text-[11px] font-semibold text-zinc-500 tabular-nums">
             {completedCount}/{stepOrder.length}
           </span>
         </div>
 
-        <div className="p-2 border-b border-zinc-100 space-y-1">
-          <button
-            type="button"
-            onClick={() => onSelect("dashboard")}
-            className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition cursor-pointer ${
-              activeTab === "dashboard"
-                ? "bg-blue-600 text-white font-semibold shadow-2xs"
-                : "text-zinc-700 hover:bg-zinc-100 font-medium"
-            }`}
-          >
-            <span>Inspection Manifest</span>
-            <span className={`font-mono text-[10px] ${activeTab === "dashboard" ? "text-blue-100" : "text-zinc-400"}`}>
-              {pct}%
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelect("stress_hub")}
-            className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition cursor-pointer ${
-              activeTab === "stress_hub"
-                ? "bg-blue-600 text-white font-semibold shadow-2xs"
-                : "text-zinc-700 hover:bg-zinc-100 font-medium"
-            }`}
-          >
-            <span className="flex items-center gap-1.5">
-              <Flame className={`w-3.5 h-3.5 ${activeTab === "stress_hub" ? "text-white" : "text-blue-600"}`} />
-              <span>Stress Lab</span>
-            </span>
-          </button>
+        <div className="px-4 pt-4 pb-1.5 text-[11px] font-medium text-zinc-400">
+          Inspection steps
         </div>
 
-        <div className="px-3.5 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-          QC Checklist
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto px-2.5 pb-3 space-y-0.5">
           {stepOrder.map((id, idx) => {
             const mod = modules[id];
             const isUnlocked = idx <= unlockedIndex;

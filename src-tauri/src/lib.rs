@@ -4,7 +4,7 @@ mod types;
 
 use modules::{
     baselines, battery, biometrics, cpu_stress, error_logs, gpu_stress, hardware_controls,
-    hardware_faults, keyboard_hook, network, perf_bench, power_torture, qc_archive, ram_test,
+    hardware_faults, keyboard_hook, network, perf_bench, port_diagnostics, power_torture, qc_archive, ram_test,
     raytracer, report, security_audit, session, shop_history, simd_kernels, specs, storage,
     telemetry, usb_ports, userbenchmark, vram_test,
 };
@@ -18,7 +18,7 @@ use types::{
     BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
     HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
-    PowerTortureResult, QcArchiveRecord, RamTestResult, SavedSessionPayload, SecurityAuditReport,
+    PortDiagnosticsReport, PowerTortureResult, QcArchiveRecord, RamTestResult, SavedSessionPayload, SecurityAuditReport,
     ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, StorageBenchResult,
     StorageSmartReport, SystemSpecs, TestStatus, TouchscreenTestResult, UsbDeviceInfo,
     UserBenchmarkComparison, UserBenchmarkInput, VramTestResult, WarrantyReturnDiff,
@@ -559,6 +559,13 @@ async fn scan_hardware_faults() -> Result<HardwareFaultsReport, String> {
 }
 
 #[tauri::command]
+async fn scan_port_diagnostics() -> Result<PortDiagnosticsReport, String> {
+    tauri::async_runtime::spawn_blocking(port_diagnostics::scan_port_diagnostics)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn check_warranty_return_diff(
     app: AppHandle,
     serial: String,
@@ -602,7 +609,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.8.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.9.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -917,8 +924,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.8.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.8.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.9.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.9.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -991,6 +998,9 @@ pub fn run_self_test() -> Result<(), String> {
         hw_faults.status, hw_faults.summary
     );
 
+    let port_diag = port_diagnostics::scan_port_diagnostics();
+    println!("[PASS] Live Port Diagnostics ({}): {}", port_diag.platform, port_diag.summary);
+
     let mut cpu_buf = vec![0u64; 1024];
     let cd1 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
     let cd2 = cpu_stress::compute_deterministic_cpu_block(0xCAFE_BABE, &mut cpu_buf);
@@ -1006,7 +1016,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.8.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.9.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -1073,6 +1083,7 @@ pub fn run() {
             export_qc_archive,
             import_qc_archive,
             scan_hardware_faults,
+            scan_port_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

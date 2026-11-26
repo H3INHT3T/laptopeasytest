@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Camera, CheckCircle2, Mic, Play, RotateCcw, Square, Volume2, XCircle } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Maximize2, Mic, Minimize2, Play, RotateCcw, Square, Volume2, XCircle } from "lucide-react";
 import type { TestStatus } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 import { StepActionBar } from "../components/StepActionBar";
@@ -34,6 +34,7 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
   const [selectedCam, setSelectedCam] = useState("");
   const [selectedMic, setSelectedMic] = useState("");
   const [camActive, setCamActive] = useState(false);
+  const [camMaximized, setCamMaximized] = useState(false);
   const [micActive, setMicActive] = useState(false);
   const [camInfo, setCamInfo] = useState("Stopped");
 
@@ -149,7 +150,20 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
     setSharpnessScore(Math.round(edgeEnergy * 10) / 10);
   };
 
+  useEffect(() => {
+    if (!camMaximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setCamMaximized(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [camMaximized]);
+
   const stopCamera = () => {
+    setCamMaximized(false);
     camActiveRef.current = false;
     const video = videoRef.current as VideoWithFrameCallback | null;
     if (camMonitorHandleRef.current) {
@@ -427,21 +441,19 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
       : "Soft / Low Contrast";
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-zinc-300">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="px-2 py-0.5 rounded-[2px] bg-black text-white font-mono text-xs font-bold">
-              STAGE {String(stepNumber).padStart(2, "0")}
-            </span>
-            <h1 className="text-xl font-black text-black tracking-tight">
-              Camera &amp; Microphone Test
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-bold text-black tracking-tight">
+              Camera &amp; Microphone
+              <span className="sr-only"> — Camera &amp; Microphone Test</span>
             </h1>
             <StatusBadge status={status} />
           </div>
-          <p className="text-xs text-zinc-600 mt-1">
-            Verifies live webcam FPS stability, dropped frames, shutter/focus contrast, microphone noise floor &amp; SNR, clipping, and 3-second loopback audio.
-          </p>
+          <div className="text-xs text-zinc-500">
+            Step {stepNumber} of {totalSteps} • Live webcam stability, microphone SNR &amp; 3s loopback
+          </div>
         </div>
       </div>
 
@@ -456,21 +468,33 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             <div className="flex items-center gap-2 text-sm font-bold text-black">
               <Camera className="w-4 h-4 text-blue-600" /> Webcam Preview &amp; Stability
             </div>
-            {camActive ? (
-              <button
-                onClick={stopCamera}
-                className="px-3 py-1.5 rounded-[2px] bg-black text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <Square className="w-3 h-3" /> Stop
-              </button>
-            ) : (
-              <button
-                onClick={startCamera}
-                className="px-3 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <Play className="w-3 h-3" /> Start Camera
-              </button>
-            )}
+            <div className="flex items-center gap-1.5">
+              {camActive && (
+                <button
+                  type="button"
+                  onClick={() => setCamMaximized(true)}
+                  className="px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white hover:border-blue-600 text-black text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  title="Maximize Webcam Preview"
+                >
+                  <Maximize2 className="w-3.5 h-3.5 text-blue-600" /> Maximize
+                </button>
+              )}
+              {camActive ? (
+                <button
+                  onClick={stopCamera}
+                  className="px-3 py-1.5 rounded-lg bg-black text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Square className="w-3 h-3" /> Stop
+                </button>
+              ) : (
+                <button
+                  onClick={startCamera}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Play className="w-3 h-3" /> Start Camera
+                </button>
+              )}
+            </div>
           </div>
 
           <select
@@ -489,19 +513,66 @@ export const MediaTestView: React.FC<MediaTestViewProps> = ({
             )}
           </select>
 
-          <div className="aspect-video rounded-[2px] bg-black border border-zinc-300 overflow-hidden flex items-center justify-center">
+          <div
+            onDoubleClick={() => camActive && setCamMaximized((m) => !m)}
+            className={
+              camMaximized
+                ? "fixed inset-0 z-50 bg-black flex items-center justify-center p-4"
+                : "relative aspect-video rounded-xl bg-black border border-zinc-200 overflow-hidden flex items-center justify-center"
+            }
+          >
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className={`w-full h-full object-cover ${camActive ? "block" : "hidden"}`}
+              className={`${camMaximized ? "w-full h-full object-contain" : "w-full h-full object-cover"} ${
+                camActive ? "block" : "hidden"
+              }`}
             />
             {!camActive && (
               <div className="text-xs text-zinc-400 flex flex-col items-center gap-2">
                 <Camera className="w-8 h-8 opacity-40" />
                 <span>Click Start Camera to inspect live video</span>
               </div>
+            )}
+            {camActive && !camMaximized && (
+              <button
+                type="button"
+                onClick={() => setCamMaximized(true)}
+                className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/80 hover:bg-blue-600 text-white text-[11px] font-mono font-bold flex items-center gap-1 border border-white/20 cursor-pointer"
+                title="Maximize Webcam"
+              >
+                <Maximize2 className="w-3.5 h-3.5" /> Fullscreen
+              </button>
+            )}
+            {camActive && camMaximized && (
+              <>
+                <div className="fixed top-4 left-4 right-4 flex items-center justify-between gap-2 flex-wrap z-50">
+                  <div className="px-3 py-1.5 rounded-lg bg-black/85 border border-white/20 text-white font-mono text-xs flex items-center gap-3">
+                    <span className="text-blue-400 font-bold">{camResText}</span>
+                    <span>{actualFps != null ? `${actualFps} / ${targetFps} FPS` : `${targetFps} FPS`}</span>
+                    <span>Drops: {droppedFrames}</span>
+                    <span>Focus: {focusRating}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      className="px-3 py-1.5 rounded-lg bg-black/85 hover:bg-zinc-800 border border-white/25 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Square className="w-3.5 h-3.5" /> Stop Camera
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCamMaximized(false)}
+                      className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" /> Exit Fullscreen (Esc)
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
