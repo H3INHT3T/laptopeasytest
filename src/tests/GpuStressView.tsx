@@ -7,6 +7,7 @@ import {
   BatteryCharging,
   Cpu,
   Flame,
+  Gamepad2,
   HardDrive,
   Maximize2,
   Minimize2,
@@ -21,8 +22,10 @@ import {
   GPU_THERMAL_CUTOFF_MAX_C,
   GPU_THERMAL_CUTOFF_MIN_C,
   type GpuAdapterInfo,
+  type GpuComputeBenchResult,
   type GpuStressProgress,
   type GpuStressResult,
+  type GraphicsFpsSuiteResult,
   type LiveTelemetrySnapshot,
   type PowerTortureProgress,
   type PowerTortureResult,
@@ -41,6 +44,7 @@ import { EnvironmentGuard } from "../components/EnvironmentGuard";
 import { EngineeringConsole, ThresholdAuditTable, type ThresholdAuditRow } from "../components/EngineeringConsole";
 import { NovabenchScoreBar } from "../components/NovabenchScoreBar";
 import { TechnicalDetailsDrawer } from "../components/TechnicalDetailsDrawer";
+import { GraphicsFpsLab } from "../components/GraphicsFpsLab";
 
 interface GpuStressViewProps {
   telemetry: LiveTelemetrySnapshot | null;
@@ -49,6 +53,8 @@ interface GpuStressViewProps {
   result: GpuStressResult | null;
   vramResult: VramTestResult | null;
   tortureResult: PowerTortureResult | null;
+  graphicsFpsResult?: GraphicsFpsSuiteResult | null;
+  gpuComputeResult?: GpuComputeBenchResult | null;
   userbenchmarkComparison?: UserBenchmarkComparison | null;
   status: TestStatus;
   stepNumber: number;
@@ -57,13 +63,15 @@ interface GpuStressViewProps {
   onComplete: (res: GpuStressResult) => void;
   onVramComplete: (res: VramTestResult) => void;
   onTortureComplete: (res: PowerTortureResult) => void;
+  onGraphicsFpsComplete?: (res: GraphicsFpsSuiteResult) => void;
+  onGpuComputeComplete?: (res: GpuComputeBenchResult) => void;
   onMarkNA: () => void;
   onRunningChange: (running: boolean) => void;
   onNext: () => void;
   onSkip: () => void;
 }
 
-type GpuTab = "furmark" | "vram" | "torture";
+type GpuTab = "furmark" | "vram" | "torture" | "graphics_lab";
 
 function fmtTime(secs: number): string {
   const s = Math.max(0, Math.round(secs));
@@ -84,6 +92,8 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
   result,
   vramResult,
   tortureResult,
+  graphicsFpsResult = null,
+  gpuComputeResult = null,
   userbenchmarkComparison,
   status,
   stepNumber,
@@ -92,6 +102,8 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
   onComplete,
   onVramComplete,
   onTortureComplete,
+  onGraphicsFpsComplete,
+  onGpuComputeComplete,
   onMarkNA,
   onRunningChange,
   onNext,
@@ -307,7 +319,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
   const pctFur = progress
     ? Math.min(100, Math.round((progress.elapsedSecs / Math.max(progress.durationSecs, 1)) * 100))
     : 0;
-  const hasAnyResult = Boolean(result || vramResult || tortureResult);
+  const hasAnyResult = Boolean(result || vramResult || tortureResult || graphicsFpsResult || gpuComputeResult);
 
   const furmarkThrottleLabel = result
     ? result.throttleReason ||
@@ -484,8 +496,8 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
 
       <EnvironmentGuard telemetry={telemetry} requireAc={true} />
 
-      {/* 3-Tab Architectural Mode Switcher */}
-      <div className="grid grid-cols-1 md:grid-cols-3 border border-zinc-200 divide-y md:divide-y-0 md:divide-x divide-zinc-200 rounded-xl overflow-hidden bg-white">
+      {/* 4-Tab Architectural Mode Switcher */}
+      <div className="grid grid-cols-1 md:grid-cols-4 border border-zinc-200 divide-y md:divide-y-0 md:divide-x divide-zinc-200 rounded-xl overflow-hidden bg-white">
         <button
           disabled={running}
           onClick={() => setTab("furmark")}
@@ -519,7 +531,7 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
             </span>
             {vramResult && <StatusBadge status={vramResult.status} compact />}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-0.5">wgpu compute • 0-error GDDR verification</div>
+          <div className="text-[11px] text-zinc-500 mt-0.5">wgpu compute • 0-error GDDR check</div>
         </button>
 
         <button
@@ -537,7 +549,30 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
             </span>
             {tortureResult && <StatusBadge status={tortureResult.status} compact />}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-0.5">100% CPU+GPU+RAM • AC Charger Drain check</div>
+          <div className="text-[11px] text-zinc-500 mt-0.5">100% CPU+GPU+RAM • AC Drain check</div>
+        </button>
+
+        <button
+          disabled={running}
+          onClick={() => setTab("graphics_lab")}
+          className={`p-3 text-left transition cursor-pointer border-b-2 ${
+            tab === "graphics_lab"
+              ? "bg-white border-b-blue-600 text-black"
+              : "bg-[#F8FAFC] border-b-transparent text-zinc-600 hover:bg-white"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[11px] font-bold uppercase flex items-center gap-1.5 text-black">
+              <Gamepad2 className="w-3.5 h-3.5 text-blue-600" /> 04. Graphics &amp; FPS Lab
+            </span>
+            {(graphicsFpsResult || gpuComputeResult) && (
+              <StatusBadge
+                status={graphicsFpsResult?.status ?? gpuComputeResult?.status ?? "pass"}
+                compact
+              />
+            )}
+          </div>
+          <div className="text-[11px] text-zinc-500 mt-0.5">9 Fullscreen Scenes, Mini-Games &amp; FP32</div>
         </button>
       </div>
 
@@ -620,6 +655,23 @@ export const GpuStressView: React.FC<GpuStressViewProps> = ({
       </div>
 
       {error && <div className="rounded-lg bg-black text-white px-3.5 py-2 font-mono text-xs">{error}</div>}
+
+      {/* ===================== TAB 4: FULLSCREEN GRAPHICS, MINI-GAMES & FP32 LAB ===================== */}
+      {tab === "graphics_lab" && (
+        <GraphicsFpsLab
+          selectedAdapter={selectedAdapter}
+          adapterName={activeAdapter?.name ?? specs?.gpus[0]?.name ?? "Primary GPU"}
+          isDiscreteGpu={Boolean(activeAdapter?.isDiscrete ?? isGamingCapable)}
+          suiteResult={graphicsFpsResult}
+          computeResult={gpuComputeResult}
+          onSuiteComplete={(res) => onGraphicsFpsComplete?.(res)}
+          onComputeComplete={(res) => onGpuComputeComplete?.(res)}
+          onRunningChange={(r) => {
+            setRunningMode(r ? "graphics_lab" : null);
+            onRunningChange(r);
+          }}
+        />
+      )}
 
       {/* ===================== TAB 1: FURMARK 3D SHADER ===================== */}
       {tab === "furmark" && (

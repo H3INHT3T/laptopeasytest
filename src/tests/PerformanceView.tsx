@@ -945,6 +945,41 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* v3.2.0 Real-World Media, Crypto, JSON & Multi-Core Scaling Strip */}
+            {(result.videoEncodeFps || result.sha256MbS || result.jsonParseMbS || result.coreScalingRatio) && (
+              <div className="border-t border-zinc-200 bg-white px-4 py-2.5">
+                <div className="font-mono text-[9.5px] font-bold uppercase tracking-wider text-blue-700 mb-1.5">
+                  Real-World Media, Crypto, Dev &amp; Multi-Core Scaling (v3.2.0)
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono tabular-nums text-[10.5px]">
+                  <div className="bg-[#F8FAFC] border border-zinc-200 px-2.5 py-1.5 rounded-lg">
+                    <div className="text-[8.5px] text-zinc-500 uppercase">4K Video DCT Encode</div>
+                    <div className="font-bold text-black">
+                      {(result.videoEncodeFps ?? 0).toFixed(1)} FPS
+                    </div>
+                  </div>
+                  <div className="bg-[#F8FAFC] border border-zinc-200 px-2.5 py-1.5 rounded-lg">
+                    <div className="text-[8.5px] text-zinc-500 uppercase">SHA-256 Crypto</div>
+                    <div className="font-bold text-black">
+                      {(result.sha256MbS ?? 0).toFixed(1)} MB/s
+                    </div>
+                  </div>
+                  <div className="bg-[#F8FAFC] border border-zinc-200 px-2.5 py-1.5 rounded-lg">
+                    <div className="text-[8.5px] text-zinc-500 uppercase">JSON Parse &amp; Serialize</div>
+                    <div className="font-bold text-black">
+                      {(result.jsonParseMbS ?? 0).toFixed(1)} MB/s
+                    </div>
+                  </div>
+                  <div className="bg-[#F8FAFC] border border-zinc-200 px-2.5 py-1.5 rounded-lg">
+                    <div className="text-[8.5px] text-zinc-500 uppercase">Multi-Core Scaling</div>
+                    <div className="font-bold text-blue-700">
+                      {(result.coreScalingRatio ?? 0).toFixed(2)}x ({(result.coreScalingEfficiencyPct ?? 0).toFixed(0)}% eff)
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <NovabenchScoreBar

@@ -1,10 +1,25 @@
-# LaptopBench QC v3.1.0
+# LaptopBench QC v3.2.0
 
 > **Created by Hein Htet Zaw • Telegram: @ich8g92**
 
-**LaptopBench QC v3.1.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) 3-block interface.
+**LaptopBench QC v3.2.0** is an offline-first, native-Rust-powered cross-platform laptop hardware diagnostics, forensic audit, hardware-safe durability burn-in, fullscreen graphics/mini-game FPS benchmark, and Quality Control (QC) desktop suite for **Windows (x64)** and **macOS (Apple Silicon + Intel Universal)** — built with **Tauri v2**, **Rust**, **AVX2/NEON SIMD**, **wgpu**, **WebGL2**, and **React + TypeScript** using a strict minimal **White, Black & Cobalt Blue** (`#FFFFFF`, `#09090B`, `#2563EB`) interface.
 
-## What's New in v3.1.0 — Deep Hardware Forensics, Input/Media Lab & Auto Portable USB Mode
+## What's New in v3.2.0 — Fullscreen Graphics & Playable Mini-Game FPS Lab, Native wgpu FP32 Compute & Stage 12 Media/Dev Suite
+
+- **Fullscreen 9-Scene Graphics, Zooming, Text, 3D WebGL2 & Playable Mini-Game Lab (Stage 13 Tab 04):** True borderless fullscreen benchmark portal (`Esc` to exit cleanly) with floating live HUD (**FPS / 1% Low / 0.1% Low / Frametime ms Graph / Load Preset `Light–Ultra` / 1-Click `"Take Control (Play)"` vs `"Auto-AI"` toggle**) and 1-click **Full Automated Suite (~45s)** or individual scene launch:
+  1. **Graphic Rendering (2D Vectors & Particle Storm)** — Procedural Bezier ribbons, radial light fields & scaling physics particles.
+  2. **Graphic Zooming (`1× → 128×` Deep-Zoom CAD Blueprint & Fractal)** — Continuous deep zoom/pan stress across an architectural CAD schematic + nested fractal grid (with interactive mouse wheel/drag zoom in Play mode).
+  3. **Text & Typography Rendering & Smooth Scroll** — Multi-size/weight Unicode, Myanmar (`မင်္ဂလာပါ`), CJK & code glyph rasterizer measuring `Glyphs/sec` and scroll jitter.
+  4. **3D WebGL2 Instanced Lighting Arena** — Custom GLSL lit metallic 3D polyhedra arena with dynamic orbiting spotlights & specular highlights (clean Canvas2D fallback if WebGL2 is unavailable).
+  5. **GPU Shader Overdraw & Fillrate Stress** — Multi-layer WebGL2 volumetric ray/noise overdraw stress exposing memory bandwidth limits & driver micro-stutters.
+  6. **Mini-Game 1 — Starfighter Bullet-Hell Arena** — Waves of enemies, lasers, shockwaves & particle explosions (Auto-AI pilot or live Mouse/WASD play).
+  7. **Mini-Game 2 — 2,000-Ball Physics & Gravity Sandbox** — Real-time spatial-hash rigid-body collisions with velocity trails & gravity flips (Auto-Rain or click/drag shockwave blast).
+  8. **Mini-Game 3 — 3D Hyper-Tunnel Reflex Runner** — High-speed 3D perspective gate corridor testing 60/120/144/240Hz frame pacing + reaction latency (ms) (Auto-Pilot or `←/→/Mouse/Space`).
+  9. **Web / Office UI Reflow Latency (4s)** — Real main-thread DOM layout, sort & style-recalc burst reporting `UI Ops/sec` & `P95 Latency ms`.
+- **Native Rust `wgpu` Uncapped GPU FP32 Compute Benchmark (`gpu_compute.wgsl`):** Runs verified FMA compute shader dispatches directly on DX12/Vulkan/Metal to measure raw **GFLOPS / TFLOPS** and shader pipeline compile time independent of 60Hz VSync.
+- **Stage 12 Real-World Media, Crypto, JSON & Multi-Core Scaling Expansion (`perf_bench.rs`):** Adds **4K Video 8×8 DCT + Motion-Estimation Encode (`FPS`)**, **Cryptographic SHA-256 Throughput (`MB/s`)**, **Structured JSON Parse/Serialize (`MB/s`)**, and **Apples-to-Apples 1-Thread vs N-Thread Multi-Core Scaling Efficiency Ratio** — all automatically exported to PDF, HTML, and JSON certificates!
+
+## Highlights from v3.1.0 — Deep Hardware Forensics, Input/Media Lab & Auto Portable USB Mode
 
 - **Windows KMS Piracy vs Genuine OEM BIOS Key (`OA3`) Forensics (Stage 02):** Inspects `ProductKeyChannel`, KMS server host, remaining activation days, and UEFI motherboard `OA3xOriginalProductKey` to catch 180-day pirated KMS cracks (`WARN`) while verifying genuine factory OEM licenses.
 - **Used-Laptop Tamper & Refurbisher Mismatch Forensics (Stage 01 & Certificates):** Cross-checks SSD Power-On-Hours & TBW against Battery Cycles, aftermarket/generic battery vendors, replacement panel EDIDs, and Intel 13th/14th-Gen HX pre-2024 BIOS microcode risk — transparently disclosing honest refurbisher swaps without false-failing.

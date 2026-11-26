@@ -25,7 +25,9 @@ import type {
   ErrorLogsReport,
   ExportReportPayload,
   ExportedReportPaths,
+  GpuComputeBenchResult,
   GpuStressResult,
+  GraphicsFpsSuiteResult,
   HardwareFaultsReport,
   ModuleRecord,
   NetworkDiagnosticsReport,
@@ -74,6 +76,8 @@ interface PreReportModalProps {
   gpuResult?: GpuStressResult | null;
   vramResult?: VramTestResult | null;
   tortureResult?: PowerTortureResult | null;
+  graphicsFpsResult?: GraphicsFpsSuiteResult | null;
+  gpuComputeResult?: GpuComputeBenchResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
   hardwareFaults?: HardwareFaultsReport | null;
   sleepAuditReport?: SleepStandbyReport | null;
@@ -108,6 +112,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
   gpuResult,
   vramResult,
   tortureResult,
+  graphicsFpsResult,
+  gpuComputeResult,
   networkReport,
   hardwareFaults,
   sleepAuditReport,
@@ -537,6 +543,30 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         : "VERIFIED",
     });
   }
+  if (graphicsFpsResult || gpuComputeResult) {
+    const gfFail = graphicsFpsResult?.status === "fail" || gpuComputeResult?.status === "fail";
+    const gfWarn = !gfFail && (graphicsFpsResult?.status === "warn" || gpuComputeResult?.status === "warn");
+    const gfScore = graphicsFpsResult
+      ? Math.max(10, Math.min(100, Math.round(graphicsFpsResult.compositeScore / 100)))
+      : gpuComputeResult?.verifiedOk
+      ? 92
+      : 50;
+    const parts = [
+      graphicsFpsResult ? `${graphicsFpsResult.smoothnessTier} (${graphicsFpsResult.compositeScore})` : null,
+      graphicsFpsResult ? `UI Reflow ${graphicsFpsResult.uiReflowOpsPerSec.toFixed(0)} ops/s` : null,
+      gpuComputeResult ? `${gpuComputeResult.fp32Gflops.toFixed(0)} GFLOPS` : null,
+    ].filter(Boolean);
+    subsystemScores.push({
+      label: "Graphics, Mini-Games & FP32",
+      scorePct: gfFail ? 15 : gfScore,
+      metricText: parts.join(" • "),
+      statusLabel: gfFail
+        ? "FAIL"
+        : gfWarn
+        ? "WARN"
+        : graphicsFpsResult?.smoothnessTier.toUpperCase() ?? "PASS",
+    });
+  }
   if (hardwareFaults) {
     const hfFail = hardwareFaults.criticalFaultCount > 0 || hardwareFaults.status === "fail";
     const hfWarn = !hfFail && (hardwareFaults.warningFaultCount > 0 || hardwareFaults.pcieDowngradeCount > 0 || hardwareFaults.status === "warn");
@@ -753,6 +783,18 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
       if (perfResult.cooldownDropC != null && perfResult.cooldownVerdict) {
         out.push(["12s Cool-Down", `-${perfResult.cooldownDropC.toFixed(1)}°C (${perfResult.cooldownVerdict})`]);
       }
+      if (perfResult.videoEncodeFps) {
+        out.push(["4K Video DCT", `${perfResult.videoEncodeFps.toFixed(1)} FPS`]);
+      }
+      if (perfResult.sha256MbS) {
+        out.push(["SHA-256", `${perfResult.sha256MbS.toFixed(0)} MB/s`]);
+      }
+      if (perfResult.jsonParseMbS) {
+        out.push(["JSON Parse", `${perfResult.jsonParseMbS.toFixed(0)} MB/s`]);
+      }
+      if (perfResult.coreScalingRatio) {
+        out.push(["Core Scaling", `${perfResult.coreScalingRatio.toFixed(2)}x (${(perfResult.coreScalingEfficiencyPct ?? 0).toFixed(0)}%)`]);
+      }
       if (perfResult.thermalCutoffTriggered) out.push(["Thermal Cutoff", "TRIGGERED"]);
       if (effectiveCpuUb) {
         out.push(["UB CPU", `${effectiveCpuUb.vehicleTier} (${effectiveCpuUb.standingLabel})`]);
@@ -769,6 +811,12 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         if (effectiveGpuUb) {
           out.push(["UB GPU", `${effectiveGpuUb.vehicleTier} (${effectiveGpuUb.standingLabel})`]);
         }
+      }
+      if (graphicsFpsResult) {
+        out.push(["Graphics Lab", `${graphicsFpsResult.compositeScore} (${graphicsFpsResult.smoothnessTier})`]);
+      }
+      if (gpuComputeResult) {
+        out.push(["wgpu FP32", `${gpuComputeResult.fp32Gflops.toFixed(0)} GFLOPS`]);
       }
       if (vramResult) {
         out.push(["VRAM", `${vramResult.errorsFound} err (${vramResult.totalGbVerified.toFixed(1)} GB)`]);
@@ -835,6 +883,8 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         storageBench: storageBench ?? null,
         perfBench: perfResult ?? null,
         tamperForensics: tamperForensics ?? null,
+        graphicsFps: graphicsFpsResult ?? null,
+        gpuCompute: gpuComputeResult ?? null,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);
@@ -1097,11 +1147,11 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
             )}
 
             {error && (
-              <div className="rounded-[2px] bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>
+              <div className="rounded-lg bg-black text-white px-3 py-2 font-mono text-xs">{error}</div>
             )}
 
             {exported && (
-              <div className="rounded-[2px] bg-blue-50/50 border border-blue-600 p-3 space-y-2">
+              <div className="rounded-lg bg-blue-50/50 border border-blue-600 p-3 space-y-2">
                 <div className="flex items-center gap-1.5 text-blue-800 font-mono font-bold text-xs uppercase">
                   <CheckCircle2 className="w-4 h-4 text-blue-600" />
                   Certificate Issued Successfully
@@ -1110,19 +1160,19 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   <button
                     onClick={() => openPath(exported.pdfPath)}
-                    className="px-3 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 text-white font-mono font-bold text-[10.5px] uppercase flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-mono font-bold text-[10.5px] uppercase flex items-center gap-1 cursor-pointer"
                   >
                     <FileText className="w-3 h-3" /> Open PDF
                   </button>
                   <button
                     onClick={() => openPath(exported.htmlPath)}
-                    className="px-3 py-1.5 rounded-[2px] border border-black bg-white hover:bg-zinc-100 text-black font-mono font-bold text-[10.5px] uppercase cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg border border-black bg-white hover:bg-zinc-100 text-black font-mono font-bold text-[10.5px] uppercase cursor-pointer"
                   >
                     Open HTML
                   </button>
                   <button
                     onClick={() => openPath(exported.directory)}
-                    className="px-3 py-1.5 rounded-[2px] bg-black hover:bg-zinc-800 text-white font-mono font-bold text-[10.5px] uppercase flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white font-mono font-bold text-[10.5px] uppercase flex items-center gap-1 cursor-pointer"
                   >
                     <FolderOpen className="w-3 h-3" /> Folder
                   </button>
@@ -1194,19 +1244,19 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
               </div>
 
               {/* Plain-Language Verdict & UserBenchmark Executive Summary */}
-              <div className="rounded-[2px] border border-zinc-300 bg-[#F8FAFC] p-3 space-y-2">
+              <div className="rounded-lg border border-zinc-300 bg-[#F8FAFC] p-3 space-y-2">
                 <div className="font-mono text-[9px] font-bold uppercase tracking-wider text-blue-700">
                   Plain-Language Verdict &amp; Long-Term Reliability Summary
                 </div>
                 <div className="text-[11px] text-black leading-relaxed">{plainVerdictSummary}</div>
 
                 {userbenchmarkComparison && (
-                  <div className="rounded-[2px] border border-zinc-300 bg-white p-2.5 space-y-1.5">
+                  <div className="rounded-lg border border-zinc-300 bg-white p-2.5 space-y-1.5">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="font-mono text-[9.5px] font-bold uppercase text-black flex items-center gap-1.5">
                         <Award className="w-3.5 h-3.5 text-blue-600" />
                         UserBenchmark Standing:
-                        <span className="px-1.5 py-0.5 rounded-[2px] bg-blue-600 text-white font-black">
+                        <span className="px-1.5 py-0.5 rounded-lg bg-blue-600 text-white font-black">
                           {userbenchmarkComparison.overallVehicleTier}
                         </span>
                       </div>
@@ -1228,7 +1278,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                         .map((comp) => (
                           <span
                             key={comp!.component}
-                            className="px-1.5 py-0.5 rounded-[2px] border border-zinc-200 bg-[#F8FAFC] font-mono text-[9px] text-black"
+                            className="px-1.5 py-0.5 rounded-lg border border-zinc-200 bg-[#F8FAFC] font-mono text-[9px] text-black"
                           >
                             <strong>{comp!.component.toUpperCase()}</strong>: {comp!.vehicleTier} ({comp!.standingLabel})
                           </span>
@@ -1240,7 +1290,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                 {(batteryDischargeResult || touchscreenResult || networkReport) && (
                   <div className="flex flex-wrap gap-1.5 pt-0.5">
                     {batteryDischargeResult && (
-                      <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-white font-mono text-[9.5px] text-black">
+                      <span className="px-2 py-0.5 rounded-lg border border-zinc-300 bg-white font-mono text-[9.5px] text-black">
                         Battery Discharge:{" "}
                         <strong
                           className={
@@ -1254,7 +1304,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                       </span>
                     )}
                     {touchscreenResult && (
-                      <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-white font-mono text-[9.5px] text-black">
+                      <span className="px-2 py-0.5 rounded-lg border border-zinc-300 bg-white font-mono text-[9.5px] text-black">
                         Touchscreen:{" "}
                         <strong className="text-blue-700">
                           {touchscreenResult.touchCapable
@@ -1264,7 +1314,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                       </span>
                     )}
                     {networkReport && (
-                      <span className="px-2 py-0.5 rounded-[2px] border border-zinc-300 bg-white font-mono text-[9.5px] text-black">
+                      <span className="px-2 py-0.5 rounded-lg border border-zinc-300 bg-white font-mono text-[9.5px] text-black">
                         Network: <strong className="text-blue-700">{networkReport.verdict}</strong>
                       </span>
                     )}
@@ -1387,14 +1437,14 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-3.5 py-1.5 rounded-[2px] border border-zinc-300 bg-white hover:border-black font-mono text-xs font-bold uppercase text-black cursor-pointer"
+              className="px-3.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:border-black font-mono text-xs font-bold uppercase text-black cursor-pointer"
             >
               Close
             </button>
             <button
               onClick={handleExport}
               disabled={exporting}
-              className="px-5 py-1.5 rounded-[2px] bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-mono font-bold text-xs uppercase cursor-pointer"
+              className="px-5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-mono font-bold text-xs uppercase cursor-pointer"
             >
               {exporting ? "Generating PDF + HTML + JSON..." : "Issue Official QC Certificate"}
             </button>

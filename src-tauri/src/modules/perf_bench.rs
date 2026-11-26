@@ -735,6 +735,17 @@ pub fn run_performance_benchmark(
     };
     let creator_image_score = (img_rate * 1650.0).round() as u64;
 
+    // v3.2.0 Stage 12b: Real-World 4K Video DCT Encode, SHA-256 Crypto Hashing & JSON Parse/Serialize (~1.0s total)
+    let _ = emit_and_check(
+        "12b/14 4K Video DCT Encode, SHA-256 & JSON Throughput",
+        84.5,
+        raytrace_preview_url.clone(),
+        &mut telemetry,
+    );
+    let video_encode_fps = run_video_dct_motion_bench(threads);
+    let sha256_mb_s = run_sha256_throughput_bench(threads, sys.physical_core_count().unwrap_or(threads).max(1));
+    let json_parse_mb_s = run_json_throughput_bench(threads);
+
     // Stage 13: Memory Suite — 7 PassMark Memory Subtests (DB Ops, Cached, Uncached >LLC, Write, Avail RAM, Latency >LLC, Threaded)
     if let Some(tc) = emit_and_check(
         "13/14 Memory Cached / Uncached / Write / Latency",
@@ -1270,7 +1281,232 @@ pub fn run_performance_benchmark(
         min_load_clock_mhz: min_load_clk,
         stuck_clock_secs: stuck_secs_r,
         stuck_clock_note: stuck_clock_note.clone(),
+        video_encode_fps,
+        sha256_mb_s: sha256_mb_s.0,
+        json_parse_mb_s,
+        core_scaling_ratio: sha256_mb_s.1,
+        core_scaling_efficiency_pct: sha256_mb_s.2,
     })
+}
+
+/// Pure FIPS-180-4 SHA-256 64-byte block compression kernel (zero external crate overhead).
+fn sha256_compress_block(state: &mut [u32; 8], block: &[u8; 64]) {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+    let mut w = [0u32; 64];
+    for i in 0..16 {
+        let j = i * 4;
+        w[i] = u32::from_be_bytes([block[j], block[j + 1], block[j + 2], block[j + 3]]);
+    }
+    for i in 16..64 {
+        let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+        let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+    }
+    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
+    for i in 0..64 {
+        let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+        let ch = (e & f) ^ ((!e) & g);
+        let temp1 = h.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+        let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+        let maj = (a & b) ^ (a & c) ^ (b & c);
+        let temp2 = s0.wrapping_add(maj);
+        h = g;
+        g = f;
+        f = e;
+        e = d.wrapping_add(temp1);
+        d = c;
+        c = b;
+        b = a;
+        a = temp1.wrapping_add(temp2);
+    }
+    state[0] = state[0].wrapping_add(a);
+    state[1] = state[1].wrapping_add(b);
+    state[2] = state[2].wrapping_add(c);
+    state[3] = state[3].wrapping_add(d);
+    state[4] = state[4].wrapping_add(e);
+    state[5] = state[5].wrapping_add(f);
+    state[6] = state[6].wrapping_add(g);
+    state[7] = state[7].wrapping_add(h);
+}
+
+fn hash_chunk_sha256(buf: &[u8]) -> u32 {
+    let mut st: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
+    for chunk in buf.chunks_exact(64) {
+        let blk: &[u8; 64] = chunk.try_into().unwrap();
+        sha256_compress_block(&mut st, blk);
+    }
+    st[0] ^ st[7]
+}
+
+/// Measures multi-threaded SHA-256 throughput (MB/s) AND true 1-thread vs N-thread Core Scaling Efficiency (v3.2.0).
+pub fn run_sha256_throughput_bench(threads: usize, phys_cores: usize) -> (f64, f64, f64) {
+    let phys = phys_cores.max(1);
+    let buf: Vec<u8> = (0..(256 * 1024)).map(|i| ((i * 131 + 17) & 0xFF) as u8).collect();
+    let chunk_mb = (buf.len() as f64) / (1024.0 * 1024.0);
+
+    // 1. Single-thread baseline (~60ms)
+    let t_st = Instant::now();
+    let mut st_passes = 0u64;
+    let mut st_acc = 0u32;
+    while t_st.elapsed().as_secs_f64() < 0.06 || st_passes < 4 {
+        st_acc ^= black_box(hash_chunk_sha256(&buf));
+        st_passes += 1;
+        if st_passes >= 512 {
+            break;
+        }
+    }
+    black_box(st_acc);
+    let st_mb_s = ((st_passes as f64) * chunk_mb) / t_st.elapsed().as_secs_f64().max(0.001);
+
+    // 2. Multi-threaded burst (~220ms across all logical threads)
+    let t_mt = Instant::now();
+    let workers = threads.max(1);
+    let mut mt_chunks = 0u64;
+    while t_mt.elapsed().as_secs_f64() < 0.22 || mt_chunks == 0 {
+        let xor_sum: u32 = (0..workers)
+            .into_par_iter()
+            .map(|_| {
+                let mut a = 0u32;
+                for _ in 0..4 {
+                    a ^= hash_chunk_sha256(&buf);
+                }
+                a
+            })
+            .reduce(|| 0u32, |x, y| x ^ y);
+        black_box(xor_sum);
+        mt_chunks += (workers as u64) * 4;
+        if mt_chunks >= 4096 {
+            break;
+        }
+    }
+    let mt_mb_s = ((mt_chunks as f64) * chunk_mb) / t_mt.elapsed().as_secs_f64().max(0.001);
+    let ratio = if st_mb_s > 0.1 {
+        ((mt_mb_s / st_mb_s) * 100.0).round() / 100.0
+    } else {
+        1.0
+    };
+    let eff_pct = (((ratio / (phys as f64)) * 100.0).clamp(0.0, 150.0) * 10.0).round() / 10.0;
+    (((mt_mb_s * 10.0).round() / 10.0), ratio, eff_pct)
+}
+
+/// 4K Software Video Encode Kernel: 8x8 2D DCT + Quantization + SAD Motion Estimation (v3.2.0).
+/// Reports equivalent 4K (3840x2160) macroblock encode throughput in FPS.
+pub fn run_video_dct_motion_bench(threads: usize) -> f64 {
+    let workers = threads.max(1);
+    // A 4K (3840x2160) frame contains 480 * 270 = 129,600 8x8 luma blocks.
+    // We process batches of 4,096 8x8 blocks per worker pass and scale cleanly to 4K FPS.
+    let blocks_per_worker = 2048usize;
+    let t0 = Instant::now();
+    let mut total_blocks = 0u64;
+
+    while t0.elapsed().as_secs_f64() < 0.25 || total_blocks == 0 {
+        let sum: i64 = (0..workers)
+            .into_par_iter()
+            .map(|w_idx| {
+                let mut acc: i64 = 0;
+                let mut blk = [0i32; 64];
+                let mut tmp = [0i32; 64];
+                for b in 0..blocks_per_worker {
+                    let seed = (w_idx * 997 + b * 31) as i32;
+                    let mut sad = 0i32;
+                    for i in 0..64 {
+                        let cur = ((seed + i as i32 * 13) & 255) - 128;
+                        let ref_px = ((seed + i as i32 * 11 + 7) & 255) - 128;
+                        blk[i] = cur - ref_px;
+                        sad += blk[i].abs();
+                    }
+                    // 1D row butterfly DCT approximation (H.264/HEVC 8-point integer transform style)
+                    for r in 0..8 {
+                        let o = r * 8;
+                        let s07 = blk[o] + blk[o + 7];
+                        let d07 = blk[o] - blk[o + 7];
+                        let s16 = blk[o + 1] + blk[o + 6];
+                        let d16 = blk[o + 1] - blk[o + 6];
+                        let s25 = blk[o + 2] + blk[o + 5];
+                        let d25 = blk[o + 2] - blk[o + 5];
+                        let s34 = blk[o + 3] + blk[o + 4];
+                        let d34 = blk[o + 3] - blk[o + 4];
+                        tmp[o] = s07 + s16 + s25 + s34;
+                        tmp[o + 1] = d07 * 3 + d16 * 2 + d25 + d34;
+                        tmp[o + 2] = (s07 - s34) * 2 + (s16 - s25);
+                        tmp[o + 3] = d07 * 2 - d16 - d25 * 3 - d34;
+                        tmp[o + 4] = s07 - s16 - s25 + s34;
+                        tmp[o + 5] = d07 - d16 * 3 + d25 + d34 * 2;
+                        tmp[o + 6] = (s07 - s34) - (s16 - s25) * 2;
+                        tmp[o + 7] = d07 - d16 + d25 * 2 - d34 * 3;
+                    }
+                    // Column pass + quantization
+                    for c in 0..8 {
+                        let dc = (tmp[c] + tmp[c + 8] + tmp[c + 16] + tmp[c + 24]
+                            + tmp[c + 32] + tmp[c + 40] + tmp[c + 48] + tmp[c + 56])
+                            >> 4;
+                        acc = acc.wrapping_add((dc + sad) as i64);
+                    }
+                }
+                acc
+            })
+            .sum();
+        black_box(sum);
+        total_blocks += (workers * blocks_per_worker) as u64;
+    }
+
+    let elapsed = t0.elapsed().as_secs_f64().max(0.001);
+    let blocks_per_4k_frame = 129_600.0;
+    let fps = (total_blocks as f64 / blocks_per_4k_frame) / elapsed;
+    (fps * 10.0).round() / 10.0
+}
+
+/// Real-world Structured JSON Parse & Serialize Throughput Benchmark (MB/s, v3.2.0).
+pub fn run_json_throughput_bench(threads: usize) -> f64 {
+    let sample_doc = r#"{"unit":"LBQC-320","telemetry":[{"t":1,"cpu":42.5,"mhz":3420,"temp":64.2,"gpu":18.4,"ok":true},{"t":2,"cpu":88.1,"mhz":3890,"temp":72.8,"gpu":94.1,"ok":true},{"t":3,"cpu":96.4,"mhz":3750,"temp":78.5,"gpu":99.0,"ok":true},{"t":4,"cpu":74.2,"mhz":3610,"temp":71.0,"gpu":62.3,"ok":true}],"specs":{"vendor":"LaptopBench","ramGb":16,"nvme":"PCIe Gen4 x4","zones":["cpu","gpu","vram","nvme","wifi"]}}"#;
+    // Build a ~32 KB JSON array payload
+    let mut big = String::with_capacity(36_000);
+    big.push('[');
+    for i in 0..72 {
+        if i > 0 {
+            big.push(',');
+        }
+        big.push_str(sample_doc);
+    }
+    big.push(']');
+    let doc_bytes = big.len() as f64;
+    let workers = threads.max(1);
+
+    let t0 = Instant::now();
+    let mut total_bytes = 0.0f64;
+    while t0.elapsed().as_secs_f64() < 0.22 || total_bytes == 0.0 {
+        let len_sum: usize = (0..workers)
+            .into_par_iter()
+            .map(|_| {
+                let mut acc = 0usize;
+                for _ in 0..4 {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&big) {
+                        if let Ok(out) = serde_json::to_string(&val) {
+                            acc += out.len();
+                        }
+                    }
+                }
+                acc
+            })
+            .sum();
+        black_box(len_sum);
+        // Count both parse + serialize bytes processed
+        total_bytes += (workers as f64) * 4.0 * doc_bytes * 2.0;
+    }
+    let mb_s = (total_bytes / (1024.0 * 1024.0)) / t0.elapsed().as_secs_f64().max(0.001);
+    (mb_s * 10.0).round() / 10.0
 }
 
 fn thermal_cutoff_result(
@@ -1531,5 +1767,17 @@ mod tests {
             },
         );
         assert_eq!(cancel_res, Err(StageOutcome::Cancelled));
+    }
+
+    #[test]
+    fn test_v320_media_crypto_json_and_scaling_kernels() {
+        let vid_fps = run_video_dct_motion_bench(2);
+        let (sha_mbs, ratio, eff_pct) = run_sha256_throughput_bench(2, 2);
+        let json_mbs = run_json_throughput_bench(2);
+        assert!(vid_fps > 0.0 && vid_fps.is_finite(), "vid_fps={}", vid_fps);
+        assert!(sha_mbs > 0.0 && sha_mbs.is_finite(), "sha_mbs={}", sha_mbs);
+        assert!(ratio > 0.0 && ratio.is_finite(), "ratio={}", ratio);
+        assert!(eff_pct > 0.0 && eff_pct <= 150.0, "eff_pct={}", eff_pct);
+        assert!(json_mbs > 0.0 && json_mbs.is_finite(), "json_mbs={}", json_mbs);
     }
 }

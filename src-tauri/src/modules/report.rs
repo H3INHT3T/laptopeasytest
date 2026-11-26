@@ -430,6 +430,30 @@ pub(crate) fn build_long_term_meaning(payload: &ExportReportPayload) -> (String,
         }
     }
 
+    if let Some(gf) = &payload.graphics_fps {
+        let line = format!(
+            "Fullscreen Graphics & FPS Lab ({} • Score {}): {}",
+            gf.smoothness_tier, gf.composite_score, gf.plain_summary
+        );
+        if gf.status != TestStatus::Pass {
+            critical_bullets.push(line);
+        } else {
+            standard_bullets.push(line);
+        }
+    }
+
+    if let Some(gc) = &payload.gpu_compute {
+        let line = format!(
+            "Native wgpu FP32 Compute ({}): {:.1} GFLOPS ({:.2} TFLOPS) on {} — {}",
+            gc.tier, gc.fp32_gflops, gc.fp32_tflops, gc.adapter_name, gc.plain_summary
+        );
+        if gc.status != TestStatus::Pass {
+            critical_bullets.push(line);
+        } else {
+            standard_bullets.push(line);
+        }
+    }
+
     if let Some(ub) = &payload.user_benchmark {
         standard_bullets.push(format!(
             "UserBenchmark Standing ({}): Overall {} tier — Gaming {:.0}%, Desktop {:.0}%, Workstation {:.0}%. {}",
@@ -785,10 +809,93 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         || payload.network_report.is_some()
         || payload.security_audit.as_ref().map(|s| !s.license_channel.is_empty() || s.kms_piracy_suspected || s.oem_bios_key_present.is_some()).unwrap_or(false)
         || payload.storage_bench.as_ref().map(|s| !s.thermal_throttle_verdict.is_empty()).unwrap_or(false)
-        || payload.perf_bench.as_ref().map(|p| p.bd_prochot_suspected || !p.cooldown_verdict.is_empty()).unwrap_or(false)
+        || payload.perf_bench.as_ref().map(|p| p.bd_prochot_suspected || !p.cooldown_verdict.is_empty() || p.video_encode_fps > 0.0).unwrap_or(false)
         || payload.tamper_forensics.is_some()
+        || payload.graphics_fps.is_some()
+        || payload.gpu_compute.is_some()
     {
         let mut cards = String::new();
+        if let Some(gf) = &payload.graphics_fps {
+            let cls = match gf.status {
+                TestStatus::Pass => "st-pass",
+                TestStatus::Fail => "st-fail",
+                _ => "st-warn",
+            };
+            let scene_bits = gf
+                .scenes
+                .iter()
+                .map(|s| format!("{} {:.0} FPS (1%L {:.0})", s.name, s.avg_fps, s.low_1pct_fps))
+                .collect::<Vec<_>>()
+                .join(" &bull; ");
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">FULLSCREEN GRAPHICS, ZOOM, TEXT &amp; MINI-GAME FPS LAB</strong>
+                    <span class="stamp {cls}">{tier}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    Composite: {score} &bull; Display: {hz}Hz &bull; Preset: {preset} &bull; {bits}
+                  </div>
+                  <div class="ub-summary">{plain}</div>
+                </div>"#,
+                cls = cls,
+                tier = html_escape(&gf.smoothness_tier.to_uppercase()),
+                score = gf.composite_score,
+                hz = gf.display_hz,
+                preset = html_escape(&gf.load_preset),
+                bits = scene_bits,
+                plain = html_escape(&gf.plain_summary),
+            ));
+        }
+        if let Some(gc) = payload.gpu_compute.as_ref().or_else(|| payload.graphics_fps.as_ref().and_then(|g| g.gpu_compute.as_ref())) {
+            let cls = match gc.status {
+                TestStatus::Pass => "st-pass",
+                TestStatus::Fail => "st-fail",
+                _ => "st-warn",
+            };
+            cards.push_str(&format!(
+                r#"<div class="rel-card">
+                  <div class="ub-card-head">
+                    <strong class="mono">NATIVE WGPU UNCAPPED GPU FP32 COMPUTE</strong>
+                    <span class="stamp {cls}">{tier}</span>
+                  </div>
+                  <div class="rel-metrics mono">
+                    Adapter: {ad} ({bk}) &bull; FP32: {gf:.1} GFLOPS ({tf:.2} TFLOPS) &bull; Compile: {cm:.1}ms
+                  </div>
+                  <div class="ub-summary">{plain}</div>
+                </div>"#,
+                cls = cls,
+                tier = html_escape(&gc.tier.to_uppercase()),
+                ad = html_escape(&gc.adapter_name),
+                bk = html_escape(&gc.backend),
+                gf = gc.fp32_gflops,
+                tf = gc.fp32_tflops,
+                cm = gc.pipeline_compile_ms,
+                plain = html_escape(&gc.plain_summary),
+            ));
+        }
+        if let Some(pb_res) = &payload.perf_bench {
+            if pb_res.video_encode_fps > 0.0 || pb_res.sha256_mb_s > 0.0 || pb_res.json_parse_mb_s > 0.0 {
+                let cls = if pb_res.core_scaling_efficiency_pct > 0.0 && pb_res.core_scaling_efficiency_pct < 45.0 { "st-warn" } else { "st-pass" };
+                cards.push_str(&format!(
+                    r#"<div class="rel-card">
+                      <div class="ub-card-head">
+                        <strong class="mono">REAL-WORLD MEDIA, CRYPTO, JSON &amp; CORE-SCALING SUITE</strong>
+                        <span class="stamp {cls}">STAGE 12 PRO</span>
+                      </div>
+                      <div class="rel-metrics mono">
+                        4K Video DCT: {vid:.1} FPS &bull; SHA-256: {sha:.1} MB/s &bull; JSON: {js:.1} MB/s &bull; Scaling: {sr:.2}x ({se:.0}% eff)
+                      </div>
+                    </div>"#,
+                    cls = cls,
+                    vid = pb_res.video_encode_fps,
+                    sha = pb_res.sha256_mb_s,
+                    js = pb_res.json_parse_mb_s,
+                    sr = pb_res.core_scaling_ratio,
+                    se = pb_res.core_scaling_efficiency_pct,
+                ));
+            }
+        }
         if let Some(sec) = &payload.security_audit {
             if !sec.license_channel.is_empty() || sec.kms_piracy_suspected || sec.oem_bios_key_present.is_some() {
                 let (cls, badge) = if sec.kms_piracy_suspected {
@@ -1378,7 +1485,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </section>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.1.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.2.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Tamper-Check ID: {cert_id}</span>
   </footer>
 </div>
@@ -1392,7 +1499,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </table>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v3.1.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v3.2.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Cert ID: {cert_id}</span>
   </footer>
 </div>
@@ -1480,7 +1587,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         spk_ok = if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         spk_notes = html_escape(&payload.signoff.speakers_notes),
         notes_esc = if payload.technician_notes.trim().is_empty() {
-            format!("Unit inspected per {}-stage LaptopBench QC v3.1.0 protocol.", stage_count)
+            format!("Unit inspected per {}-stage LaptopBench QC v3.2.0 protocol.", stage_count)
         } else {
             html_escape(payload.technician_notes.trim())
         },
@@ -1536,7 +1643,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
     let json_val = serde_json::json!({
         "certificateId": cert_id,
         "generatedAt": generated_at,
-        "version": "3.1.0",
+        "version": "3.2.0",
         "report": payload
     });
     let json_str = serde_json::to_string_pretty(&json_val).map_err(|e| e.to_string())?;
@@ -1727,6 +1834,8 @@ mod tests {
             storage_bench: None,
             perf_bench: None,
             tamper_forensics: None,
+            graphics_fps: None,
+            gpu_compute: None,
             tests: (1..=14)
                 .map(|i| ReportTestEntry {
                     id: format!("stage_{}", i),
@@ -1753,7 +1862,7 @@ mod tests {
         let payload = sample_v230_payload(None, "ABNORMAL");
         let html = render_qc_html(&payload, "2026-11-26 10:00:00");
 
-        assert!(html.contains("LaptopBench QC v3.1.0"));
+        assert!(html.contains("LaptopBench QC v3.2.0"));
         assert!(html.contains("Created by Hein Htet Zaw"));
         assert!(html.contains("@ich8g92"));
         assert!(html.contains("14-STAGE TECHNICAL DIAGNOSTIC AUDIT LEDGER"));
@@ -1793,9 +1902,9 @@ mod tests {
 
         assert!(pdf_bytes.starts_with(b"%PDF-1.4"));
         assert!(pdf_bytes.ends_with(b"%%EOF\n"));
-        assert!(html_text.contains("LaptopBench QC v3.1.0"));
+        assert!(html_text.contains("LaptopBench QC v3.2.0"));
         let parsed: serde_json::Value = serde_json::from_str(&json_text).expect("valid JSON");
-        assert_eq!(parsed["version"], "3.1.0");
+        assert_eq!(parsed["version"], "3.2.0");
         assert_eq!(parsed["report"]["userBenchmark"]["overallVehicleTier"], "Aircraft Carrier");
         assert_eq!(parsed["report"]["batteryDischarge"]["verdict"], "NORMAL");
         assert_eq!(parsed["report"]["touchscreen"]["coveredCells"], 160);

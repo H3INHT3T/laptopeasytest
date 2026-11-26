@@ -854,6 +854,17 @@ pub struct PerfBenchResult {
     pub stuck_clock_secs: f64,
     #[serde(default)]
     pub stuck_clock_note: String,
+    // v3.2.0 Real-World Media, Crypto, JSON & Multi-Core Scaling Metrics
+    #[serde(default)]
+    pub video_encode_fps: f64,
+    #[serde(default)]
+    pub sha256_mb_s: f64,
+    #[serde(default)]
+    pub json_parse_mb_s: f64,
+    #[serde(default)]
+    pub core_scaling_ratio: f64,
+    #[serde(default)]
+    pub core_scaling_efficiency_pct: f64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1302,6 +1313,62 @@ pub struct ExportReportPayload {
     pub perf_bench: Option<PerfBenchResult>,
     #[serde(default)]
     pub tamper_forensics: Option<TamperForensicsReport>,
+    #[serde(default, alias = "graphicsFpsResult")]
+    pub graphics_fps: Option<GraphicsFpsSuiteResult>,
+    #[serde(default, alias = "gpuComputeResult")]
+    pub gpu_compute: Option<GpuComputeBenchResult>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct GpuComputeBenchResult {
+    pub status: TestStatus,
+    pub adapter_name: String,
+    pub backend: String,
+    pub fp32_gflops: f64,
+    pub fp32_tflops: f64,
+    pub pipeline_compile_ms: f64,
+    pub dispatches_completed: u32,
+    pub elapsed_secs: f64,
+    pub verified_ok: bool,
+    pub tier: String,
+    pub plain_summary: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct GraphicsFpsSceneScore {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub avg_fps: f64,
+    pub low_1pct_fps: f64,
+    pub low_01pct_fps: f64,
+    pub avg_frame_ms: f64,
+    pub jitter_ms: f64,
+    pub stutter_frames: u32,
+    pub throughput_label: String,
+    pub score: u64,
+    pub status: TestStatus,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct GraphicsFpsSuiteResult {
+    pub status: TestStatus,
+    pub composite_score: u64,
+    pub smoothness_tier: String, // "Ultra" | "Smooth" | "Office Ready" | "Struggling"
+    pub load_preset: String,
+    pub display_hz: u32,
+    pub renderer_name: String,
+    pub scenes: Vec<GraphicsFpsSceneScore>,
+    pub gpu_compute: Option<GpuComputeBenchResult>,
+    pub summary: String,
+    pub plain_summary: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

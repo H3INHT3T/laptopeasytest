@@ -973,6 +973,65 @@ export interface PerfBenchResult {
   minLoadClockMhz?: number;
   stuckClockSecs?: number;
   stuckClockNote?: string;
+  videoEncodeFps?: number;
+  sha256MbS?: number;
+  jsonParseMbS?: number;
+  coreScalingRatio?: number;
+  coreScalingEfficiencyPct?: number;
+}
+
+export interface GpuComputeBenchResult {
+  status: TestStatus;
+  adapterName: string;
+  backend: string;
+  fp32Gflops: number;
+  fp32Tflops: number;
+  pipelineCompileMs: number;
+  dispatchesCompleted: number;
+  elapsedSecs: number;
+  verifiedOk: boolean;
+  tier: string;
+  plainSummary: string;
+  summary: string;
+}
+
+export interface GraphicsFpsSceneScore {
+  id: string;
+  name: string;
+  category: string;
+  avgFps: number;
+  low1pctFps: number;
+  low01pctFps: number;
+  avgFrameMs: number;
+  jitterMs: number;
+  stutterFrames: number;
+  throughputLabel: string;
+  stutterFramesPct: number;
+  score: number;
+  primaryMetricLabel: string;
+  primaryMetricValue: string;
+  status: TestStatus;
+  interactivePlayed: boolean;
+}
+
+export interface GraphicsFpsSuiteResult {
+  status: TestStatus;
+  compositeScore: number;
+  smoothnessTier: string;
+  loadPreset: string;
+  displayHz: number;
+  rendererName: string;
+  loadTier: string;
+  resolution: string;
+  webgl2Supported: boolean;
+  gpuRendererString: string;
+  uiReflowOpsPerSec: number;
+  uiReflowP95Ms: number;
+  scenes: GraphicsFpsSceneScore[];
+  gpuCompute?: GpuComputeBenchResult | null;
+  elapsedSecs: number;
+  summary: string;
+  plainSummary: string;
 }
 
 export interface VramTestProgress {
@@ -1242,6 +1301,8 @@ export interface ExportReportPayload {
   storageBench?: StorageBenchResult | null;
   perfBench?: PerfBenchResult | null;
   tamperForensics?: TamperForensicsReport | null;
+  graphicsFps?: GraphicsFpsSuiteResult | null;
+  gpuCompute?: GpuComputeBenchResult | null;
 }
 
 export interface PortableStorageInfo {

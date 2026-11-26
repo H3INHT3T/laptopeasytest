@@ -449,6 +449,21 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         cancelledFlags.gpu = true;
         return null;
       },
+      run_gpu_compute_bench: async () =>
+        fixture.gpuCompute || {
+          status: "pass",
+          adapterName: "Intel Iris Xe Graphics (Mock)",
+          backend: "Dx12",
+          fp32Gflops: 1620.4,
+          fp32Tflops: 1.62,
+          pipelineCompileMs: 14.2,
+          dispatchesCompleted: 96,
+          elapsedSecs: 1.1,
+          verifiedOk: true,
+          tier: "Modern Integrated / Entry dGPU",
+          plainSummary: "Intel Iris Xe Graphics (Dx12) verified 1620.4 GFLOPS (1.62 TFLOPS) FP32 compute.",
+          summary: "1620.4 GFLOPS (1.62 TFLOPS) FP32 verified on Intel Iris Xe Graphics (Dx12)",
+        },
       run_vram_test: async () =>
         runLongCommand("vram", "vram:progress", fixture.vramTest, {
           cancelled: true,

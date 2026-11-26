@@ -18,7 +18,7 @@ use types::{
     BatterySagResult,
     BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult,
     DisplayCapabilitiesReport, EdpHingeFlexResult, ErrorLogsReport,
-    ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
+    ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuComputeBenchResult, GpuStressResult,
     HardwareControlsReport, HardwareFaultsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
     PortDiagnosticsReport, PortableStorageInfo, PowerTortureResult, QcArchiveRecord, RamTestResult,
     RemovableDriveBenchResult, RemovableDriveInfo, SavedSessionPayload, SecurityAuditReport,
@@ -684,7 +684,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v3.1.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v3.2.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -1004,6 +1004,8 @@ pub fn run_self_test() -> Result<(), String> {
         storage_bench: None,
         perf_bench: None,
         tamper_forensics: None,
+        graphics_fps: None,
+        gpu_compute: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -1012,8 +1014,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v3.1.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v3.1.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v3.2.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v3.2.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -1180,13 +1182,33 @@ pub fn run_self_test() -> Result<(), String> {
     let nv_throt = telemetry::decode_nvml_throttle_reasons(0x40 | 0x04);
     let chg_warn = battery::evaluate_charger_adequacy(true, Some(45), true);
     let tf_rep = hardware_faults::evaluate_tamper_forensics(Some(&sp), Some(&bat), Some(&smart), Some(&hw_faults));
-    let (port_ok, _) = portable::evaluate_portable_mode(std::path::Path::new("E:\\LaptopBench.QC_3.1.0_x64-portable.exe"), true, false);
+    let (port_ok, _) = portable::evaluate_portable_mode(std::path::Path::new("E:\\LaptopBench.QC_3.2.0_x64-portable.exe"), true, false);
     if nv_throt.len() < 2 || chg_warn.is_none() || !port_ok {
         return Err("v3.1.0 Forensics / NVML / Charger Adequacy / Portable USB check failed".into());
     }
     println!(
         "[PASS] v3.1.0 Forensics & Zero-Driver Engine (NVML_Decode=ok | ChargerWarn=ok | PortableDetect=ok | TamperForensics={:?})",
         tf_rep.status
+    );
+
+    let vid_fps = perf_bench::run_video_dct_motion_bench(2);
+    let (sha_mbs, scale_ratio, scale_eff) = perf_bench::run_sha256_throughput_bench(2, 2);
+    let json_mbs = perf_bench::run_json_throughput_bench(2);
+    if vid_fps <= 0.0 || sha_mbs <= 0.0 || json_mbs <= 0.0 || scale_ratio <= 0.0 {
+        return Err("v3.2.0 Video DCT / SHA-256 / JSON / Core-Scaling kernel check failed".into());
+    }
+    let gpu_comp_summary = match gpu_stress::run_gpu_compute_bench(None) {
+        Ok(gc) => {
+            if !gc.verified_ok || gc.fp32_gflops <= 0.0 {
+                return Err(format!("v3.2.0 GPU FP32 compute verification failed: {}", gc.plain_summary));
+            }
+            format!("{:.1} GFLOPS ({})", gc.fp32_gflops, gc.adapter_name)
+        }
+        Err(e) => format!("Skipped ({})", e),
+    };
+    println!(
+        "[PASS] v3.2.0 Graphics & Performance Expansion (Video4K={:.1} FPS | SHA256={:.1} MB/s | JSON={:.1} MB/s | Scaling={:.2}x [{:.0}%] | GPU_FP32={})",
+        vid_fps, sha_mbs, json_mbs, scale_ratio, scale_eff, gpu_comp_summary
     );
 
     let mut cpu_buf = vec![0u64; 1024];
@@ -1204,8 +1226,15 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v3.1.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v3.2.0 SELF-TESTS PASSED ===");
     Ok(())
+}
+
+#[tauri::command]
+async fn run_gpu_compute_bench(adapter_index: Option<usize>) -> Result<GpuComputeBenchResult, String> {
+    tauri::async_runtime::spawn_blocking(move || gpu_stress::run_gpu_compute_bench(adapter_index))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1268,6 +1297,7 @@ pub fn run() {
             list_gpu_adapters,
             run_gpu_stress,
             cancel_gpu_stress,
+            run_gpu_compute_bench,
             run_vram_test,
             cancel_vram_test,
             run_power_torture,

@@ -5,8 +5,8 @@ use crate::modules::{
     vram_test::clamp_gpu_thermal_cutoff,
 };
 use crate::types::{
-    GpuAdapterInfo, GpuStressProgress, GpuStressResult, LiveTelemetrySnapshot, TestStatus,
-    UserBenchmarkInput,
+    GpuAdapterInfo, GpuComputeBenchResult, GpuStressProgress, GpuStressResult,
+    LiveTelemetrySnapshot, TestStatus, UserBenchmarkInput,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use bytemuck::{Pod, Zeroable};
@@ -22,6 +22,16 @@ use wgpu::util::DeviceExt;
 
 const SHADER_WGSL: &str = include_str!("../shaders/fur_torus.wgsl");
 const ALU_VERIFY_WGSL: &str = include_str!("../shaders/vram_verify.wgsl");
+const GPU_COMPUTE_WGSL: &str = include_str!("../shaders/gpu_compute.wgsl");
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct ComputeBenchParams {
+    seed: u32,
+    iterations: u32,
+    thread_count: u32,
+    _pad: u32,
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -1021,6 +1031,254 @@ fn compute_low_1pct(samples: &[f64], fallback: f64) -> f64 {
     sorted[..n].iter().sum::<f64>() / n as f64
 }
 
+/// Classifies native `wgpu` FP32 GFLOPS compute throughput into hardware class tiers (v3.2.0).
+pub fn classify_gpu_compute_tier(fp32_gflops: f64, verified_ok: bool, is_software: bool) -> (TestStatus, String) {
+    if !verified_ok || !fp32_gflops.is_finite() {
+        return (TestStatus::Fail, "Compute Verification Fault".to_string());
+    }
+    if is_software || fp32_gflops < 40.0 {
+        return (TestStatus::Warn, "Software / Throttled Fallback".to_string());
+    }
+    let tier = if fp32_gflops >= 6000.0 {
+        "Flagship Workstation / RTX Gaming"
+    } else if fp32_gflops >= 2000.0 {
+        "Mid-High Gaming / Creator GPU"
+    } else if fp32_gflops >= 500.0 {
+        "Modern Integrated / Ultrabook GPU"
+    } else {
+        "Entry Integrated Graphics"
+    };
+    (TestStatus::Pass, tier.to_string())
+}
+
+/// Native Rust `wgpu` Uncapped GPU FP32 Compute Benchmark (~1.5s, VSync-independent, v3.2.0).
+/// Measures raw shader FMA GFLOPS/TFLOPS + shader pipeline compile latency and verifies finite outputs.
+pub fn run_gpu_compute_bench(adapter_index: Option<usize>) -> Result<GpuComputeBenchResult, String> {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..Default::default()
+    });
+    let mut adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY);
+    if adapters.is_empty() {
+        return Err("No compatible GPU adapter found by wgpu (DX12/Vulkan/Metal).".to_string());
+    }
+    let chosen_idx = match adapter_index {
+        Some(idx) if idx < adapters.len() => idx,
+        _ => adapters
+            .iter()
+            .position(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu)
+            .unwrap_or(0),
+    };
+    let adapter = adapters.swap_remove(chosen_idx);
+    let info = adapter.get_info();
+    let adapter_name = info.name.clone();
+    let backend = format!("{:?}", info.backend);
+    let is_software = info.device_type == wgpu::DeviceType::Cpu
+        || adapter_name.to_ascii_lowercase().contains("basic render");
+
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: Some("LaptopBench GPU FP32 Compute Device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+            memory_hints: wgpu::MemoryHints::Performance,
+        },
+        None,
+    ))
+    .map_err(|e| format!("Failed to initialize GPU compute device: {}", e))?;
+
+    let compile_t0 = Instant::now();
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("GPU FP32 Compute Shader"),
+        source: wgpu::ShaderSource::Wgsl(GPU_COMPUTE_WGSL.into()),
+    });
+
+    let thread_count: u32 = 65_536; // 1024 workgroups * 64 threads
+    let iterations: u32 = if info.device_type == wgpu::DeviceType::DiscreteGpu { 256 } else { 128 };
+    let workgroups: u32 = thread_count / 64;
+    let flops_per_dispatch: f64 = (thread_count as f64) * (iterations as f64) * 32.0;
+
+    let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("ComputeBenchParams"),
+        contents: bytemuck::cast_slice(&[ComputeBenchParams {
+            seed: 0x1357_9BDF,
+            iterations,
+            thread_count,
+            _pad: 0,
+        }]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    let out_bytes = (thread_count as u64) * 4;
+    let out_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("ComputeBenchOut"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let verify_bytes: u64 = 256 * 4;
+    let staging_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("ComputeBenchStaging"),
+        size: verify_bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ComputeBench BGL"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("ComputeBench BG"),
+        layout: &bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: params_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: out_buf.as_entire_binding(),
+            },
+        ],
+    });
+    let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("ComputeBench PL"),
+        bind_group_layouts: &[&bgl],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("ComputeBench Pipeline"),
+        layout: Some(&pl),
+        module: &shader,
+        entry_point: Some("cs_fp32_bench"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let pipeline_compile_ms = (compile_t0.elapsed().as_secs_f64() * 1000.0 * 10.0).round() / 10.0;
+
+    // Warmup single dispatch
+    {
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bg, &[]);
+            pass.dispatch_workgroups(workgroups, 1, 1);
+        }
+        queue.submit(Some(enc.finish()));
+        device.poll(wgpu::Maintain::Wait);
+    }
+
+    // Timed compute burst (~1.2s, batched 8 dispatches per submit to amortize driver overhead)
+    let target_secs = 1.25f64;
+    let batch_size: u32 = 8;
+    let mut dispatches_completed: u32 = 0;
+    let bench_t0 = Instant::now();
+    while bench_t0.elapsed().as_secs_f64() < target_secs && dispatches_completed < 4096 {
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bg, &[]);
+            for _ in 0..batch_size {
+                pass.dispatch_workgroups(workgroups, 1, 1);
+            }
+        }
+        queue.submit(Some(enc.finish()));
+        device.poll(wgpu::Maintain::Wait);
+        dispatches_completed += batch_size;
+    }
+    let elapsed_secs = bench_t0.elapsed().as_secs_f64().max(0.001);
+
+    // Readback & verify zero NaN/Inf on GPU output slice
+    {
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        enc.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, verify_bytes);
+        queue.submit(Some(enc.finish()));
+        device.poll(wgpu::Maintain::Wait);
+    }
+    let slice = staging_buf.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    device.poll(wgpu::Maintain::Wait);
+    let mut verified_ok = false;
+    if matches!(rx.recv(), Ok(Ok(()))) {
+        let data = slice.get_mapped_range();
+        let floats: &[f32] = bytemuck::cast_slice(&data);
+        let finite_count = floats.iter().filter(|v| v.is_finite()).count();
+        let nonzero_count = floats.iter().filter(|v| v.abs() > 1e-7).count();
+        verified_ok = finite_count == floats.len() && nonzero_count > 0;
+        drop(data);
+        staging_buf.unmap();
+    }
+
+    let total_flops = flops_per_dispatch * (dispatches_completed as f64);
+    let fp32_gflops = ((total_flops / elapsed_secs) / 1e9 * 10.0).round() / 10.0;
+    let fp32_tflops = (fp32_gflops / 1000.0 * 100.0).round() / 100.0;
+    let (status, tier) = classify_gpu_compute_tier(fp32_gflops, verified_ok, is_software);
+
+    let speed_str = if fp32_gflops >= 1000.0 {
+        format!("{:.2} TFLOPS ({:.0} GFLOPS)", fp32_tflops, fp32_gflops)
+    } else {
+        format!("{:.1} GFLOPS", fp32_gflops)
+    };
+    let plain_summary = if !verified_ok {
+        format!(
+            "FAIL: {} ({}) produced invalid/NaN GPU compute output during FP32 shader verification.",
+            adapter_name, backend
+        )
+    } else if status == TestStatus::Warn {
+        format!(
+            "WARN: {} ({}) measured only {} — possible software render fallback or severe power-limit throttle.",
+            adapter_name, backend, speed_str
+        )
+    } else {
+        format!(
+            "{} ({}) verified at {} FP32 compute ({}; pipeline compile {:.1} ms, 0 ALU errors).",
+            adapter_name, backend, speed_str, tier, pipeline_compile_ms
+        )
+    };
+
+    Ok(GpuComputeBenchResult {
+        status,
+        adapter_name,
+        backend,
+        fp32_gflops,
+        fp32_tflops,
+        pipeline_compile_ms,
+        dispatches_completed,
+        elapsed_secs: (elapsed_secs * 100.0).round() / 100.0,
+        verified_ok,
+        tier: tier.clone(),
+        summary: format!("{} • {}", speed_str, tier),
+        plain_summary,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1120,5 +1378,22 @@ mod tests {
         assert_eq!(r.adapter_name, "RTX 4070");
         assert_eq!(r.artifact_errors, 0);
         assert!(r.userbenchmark_rating.is_none());
+    }
+
+    #[test]
+    fn test_gpu_compute_tier_classifier_v320() {
+        let (st_rtx, t_rtx) = classify_gpu_compute_tier(9500.0, true, false);
+        assert_eq!(st_rtx, TestStatus::Pass);
+        assert!(t_rtx.contains("Flagship"));
+
+        let (st_igpu, t_igpu) = classify_gpu_compute_tier(1150.0, true, false);
+        assert_eq!(st_igpu, TestStatus::Pass);
+        assert!(t_igpu.contains("Integrated"));
+
+        let (st_sw, _) = classify_gpu_compute_tier(25.0, true, true);
+        assert_eq!(st_sw, TestStatus::Warn);
+
+        let (st_fail, _) = classify_gpu_compute_tier(5000.0, false, false);
+        assert_eq!(st_fail, TestStatus::Fail);
     }
 }

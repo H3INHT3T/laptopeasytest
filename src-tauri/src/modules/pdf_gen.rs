@@ -284,7 +284,7 @@ impl PageBuilder {
             // Hairline footer rule
             self.line(MARGIN, 34.0, MARGIN + content_w, 34.0, 0.6, COL_RULE);
             let footer = format!(
-                "LaptopBench QC v3.1.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
+                "LaptopBench QC v3.2.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
                 self.cert_id, page_num
             );
             let _ = writeln!(
@@ -941,9 +941,11 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         || payload.network_report.is_some()
         || payload.security_audit.as_ref().map(|s| !s.license_channel.is_empty() || s.kms_piracy_suspected || s.oem_bios_key_present.is_some()).unwrap_or(false)
         || payload.storage_bench.as_ref().map(|s| !s.thermal_throttle_verdict.is_empty()).unwrap_or(false)
-        || payload.perf_bench.as_ref().map(|p| p.bd_prochot_suspected || !p.cooldown_verdict.is_empty()).unwrap_or(false)
+        || payload.perf_bench.as_ref().map(|p| p.bd_prochot_suspected || !p.cooldown_verdict.is_empty() || p.video_encode_fps > 0.0).unwrap_or(false)
         || payload.cpu_stress.as_ref().map(|c| c.bd_prochot_suspected || !c.cooldown_verdict.is_empty()).unwrap_or(false)
-        || payload.tamper_forensics.is_some();
+        || payload.tamper_forensics.is_some()
+        || payload.graphics_fps.is_some()
+        || payload.gpu_compute.is_some();
 
     if has_v3_diag {
         draw_section_header(
@@ -1150,6 +1152,59 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
             draw_diag_card(&mut pb, "USED-LAPTOP TAMPER & REFURBISHER FORENSICS", badge, sev, &body);
         }
 
+        if let Some(gf) = &payload.graphics_fps {
+            let sev = match gf.status {
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+                _ => "warn",
+            };
+            let scene_bits = gf
+                .scenes
+                .iter()
+                .map(|s| format!("{} {:.0} FPS (1%L {:.0})", s.name, s.avg_fps, s.low_1pct_fps))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            let body = format!(
+                "Composite {} ({}) | Display {}Hz | Load: {} | {} — {}",
+                gf.composite_score, gf.smoothness_tier, gf.display_hz, gf.load_preset, scene_bits, gf.plain_summary
+            );
+            draw_diag_card(&mut pb, "FULLSCREEN GRAPHICS, ZOOM, TEXT & MINI-GAME FPS LAB", &gf.smoothness_tier.to_uppercase(), sev, &body);
+        }
+
+        if let Some(gc) = payload.gpu_compute.as_ref().or_else(|| payload.graphics_fps.as_ref().and_then(|g| g.gpu_compute.as_ref())) {
+            let sev = match gc.status {
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+                _ => "warn",
+            };
+            let body = format!(
+                "Adapter: {} ({}) | FP32: {:.1} GFLOPS ({:.2} TFLOPS) | Compile: {:.1}ms | Verified: {} — {}",
+                gc.adapter_name,
+                gc.backend,
+                gc.fp32_gflops,
+                gc.fp32_tflops,
+                gc.pipeline_compile_ms,
+                if gc.verified_ok { "OK" } else { "FAULT" },
+                gc.plain_summary
+            );
+            draw_diag_card(&mut pb, "NATIVE WGPU UNCAPPED GPU FP32 COMPUTE", &gc.tier.to_uppercase(), sev, &body);
+        }
+
+        if let Some(pb_res) = &payload.perf_bench {
+            if pb_res.video_encode_fps > 0.0 || pb_res.sha256_mb_s > 0.0 || pb_res.json_parse_mb_s > 0.0 {
+                let body = format!(
+                    "4K Video DCT Encode: {:.1} FPS | SHA-256 Crypto Hash: {:.1} MB/s | Structured JSON Parse: {:.1} MB/s | Multi-Core Scaling: {:.2}x ({:.0}% core efficiency)",
+                    pb_res.video_encode_fps,
+                    pb_res.sha256_mb_s,
+                    pb_res.json_parse_mb_s,
+                    pb_res.core_scaling_ratio,
+                    pb_res.core_scaling_efficiency_pct
+                );
+                let sev = if pb_res.core_scaling_efficiency_pct > 0.0 && pb_res.core_scaling_efficiency_pct < 45.0 { "warn" } else { "pass" };
+                draw_diag_card(&mut pb, "REAL-WORLD MEDIA, CRYPTO, JSON & CORE-SCALING SUITE", "STAGE 12 PRO", sev, &body);
+            }
+        }
+
         if let Some(bat) = &payload.battery_discharge {
             let metrics_line = format!(
                 "Idle {:.1}W / Load {:.1}W | Power CV {:.1}% | Sag {:.0}mV | SoC {:.1}% -> {:.1}% (Max 5s Drop {:.1}%) | BMS {:.2}x | Wear {:.1}% ({} cyc)",
@@ -1331,7 +1386,7 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     ));
-    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.1.0 protocol.", stage_count);
+    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v3.2.0 protocol.", stage_count);
     let notes_s = format!(
         "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
@@ -1552,7 +1607,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("LaptopBench QC v3.1.0"));
+        assert!(text.contains("LaptopBench QC v3.2.0"));
         assert!(text.contains("Created by Hein Htet Zaw"));
         assert!(text.contains("@ich8g92"));
         assert!(!text.contains("v2.1."));
@@ -1708,6 +1763,8 @@ mod tests {
             storage_bench: None,
             perf_bench: None,
             tamper_forensics: None,
+            graphics_fps: None,
+            gpu_compute: None,
             output_dir: None,
         };
 
@@ -2262,5 +2319,73 @@ mod tests {
         assert!(text.contains("CPU BD PROCHOT"));
         assert!(text.contains("USB / SD-CARD REAL 64 MB SPEED AUDIT"));
         assert!(text.contains("USED-LAPTOP TAMPER & REFURBISHER FORENSICS"));
+    }
+
+    #[test]
+    fn test_pdf_v320_graphics_fps_compute_and_stage12_parity() {
+        use crate::types::{
+            GpuComputeBenchResult, GraphicsFpsSceneScore, GraphicsFpsSuiteResult, PerfBenchResult,
+        };
+        let payload = ExportReportPayload {
+            shop_profile: ShopProfile {
+                shop_name: "Swiss Lab".into(),
+                technician_name: "Tester".into(),
+                ..Default::default()
+            },
+            overall_verdict: "PASSED".into(),
+            graphics_fps: Some(GraphicsFpsSuiteResult {
+                status: TestStatus::Pass,
+                composite_score: 9420,
+                smoothness_tier: "Ultra".into(),
+                load_preset: "standard".into(),
+                display_hz: 144,
+                renderer_name: "RTX 4060 WebGL2".into(),
+                scenes: vec![GraphicsFpsSceneScore {
+                    id: "webgl_3d".into(),
+                    name: "3D WebGL2 Arena".into(),
+                    category: "3D".into(),
+                    avg_fps: 118.4,
+                    low_1pct_fps: 98.2,
+                    low_01pct_fps: 84.5,
+                    avg_frame_ms: 8.4,
+                    jitter_ms: 0.9,
+                    stutter_frames: 1,
+                    throughput_label: "500 meshes".into(),
+                    score: 9800,
+                    status: TestStatus::Pass,
+                }],
+                gpu_compute: None,
+                summary: "Ultra (9420) across 9 scenes".into(),
+                plain_summary: "Smooth high-refresh rendering across all 9 fullscreen scenes.".into(),
+            }),
+            gpu_compute: Some(GpuComputeBenchResult {
+                status: TestStatus::Pass,
+                adapter_name: "RTX 4060 Laptop".into(),
+                backend: "Dx12".into(),
+                fp32_gflops: 9820.5,
+                fp32_tflops: 9.82,
+                pipeline_compile_ms: 11.4,
+                dispatches_completed: 256,
+                elapsed_secs: 1.2,
+                verified_ok: true,
+                tier: "High-Performance Discrete GPU".into(),
+                plain_summary: "Verified 9.82 TFLOPS native wgpu FP32 compute.".into(),
+                summary: "9820.5 GFLOPS verified".into(),
+            }),
+            perf_bench: Some(PerfBenchResult {
+                video_encode_fps: 42.5,
+                sha256_mb_s: 1280.4,
+                json_parse_mb_s: 412.8,
+                core_scaling_ratio: 6.42,
+                core_scaling_efficiency_pct: 80.3,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let bytes = render_qc_certificate_pdf(&payload, "2026-11-26 20:00:00");
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("FULLSCREEN GRAPHICS, ZOOM, TEXT & MINI-GAME FPS LAB"));
+        assert!(text.contains("NATIVE WGPU UNCAPPED GPU FP32 COMPUTE"));
+        assert!(text.contains("REAL-WORLD MEDIA, CRYPTO, JSON & CORE-SCALING SUITE"));
     }
 }
