@@ -32,6 +32,7 @@ import type {
   UserBenchmarkComparison,
   UserBenchmarkInput,
   VramTestResult,
+  WarrantyReturnDiff,
 } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { TopTelemetryStrip } from "./components/TopTelemetryStrip";
@@ -40,6 +41,7 @@ import { BottomSensorsDock } from "./components/BottomSensorsDock";
 import { PreReportModal } from "./components/PreReportModal";
 import { DashboardView } from "./tests/DashboardView";
 import { StressHubView } from "./tests/StressHubView";
+import { ArchiveView } from "./tests/ArchiveView";
 import { SpecsView } from "./tests/SpecsView";
 import { SecurityAuditView } from "./tests/SecurityAuditView";
 import { BatteryView } from "./tests/BatteryView";
@@ -165,6 +167,14 @@ export const App: React.FC = () => {
   const [networkReport, setNetworkReport] = useState<NetworkDiagnosticsReport | null>(null);
   const [loadingNetwork, setLoadingNetwork] = useState(false);
   const [userbenchmarkComparison, setUserbenchmarkComparison] = useState<UserBenchmarkComparison | null>(null);
+  const [warrantyDiff, setWarrantyDiff] = useState<WarrantyReturnDiff | null>(null);
+  const [expressQueue, setExpressQueue] = useState<{
+    running: boolean;
+    mode: "fast" | "deep";
+    stepLabel: string;
+    percent: number;
+  } | null>(null);
+  const expressCancelRef = useRef(false);
   const [autoRunning, setAutoRunning] = useState(false);
 
   // Refs to prevent stale closures in skipStep / advanceFrom / persistSession
@@ -647,6 +657,114 @@ export const App: React.FC = () => {
     runAllAutoChecks();
   }, [runAllAutoChecks]);
 
+  // Automatic Return-Unit Warranty Anti-Fraud Diff when serial + hardware probes complete
+  useEffect(() => {
+    if (!specs?.serialNumber) return;
+    invoke<WarrantyReturnDiff | null>("check_warranty_return_diff", {
+      serial: specs.serialNumber,
+      currentBatteryHealth: batteryReport?.healthPercent ?? null,
+      currentSsdSerial: specs.disks[0]?.serialNumber ?? null,
+      currentSsdWear: smartReport?.drives[0]?.wearPercent ?? null,
+      currentRamGb: specs.totalRamGb,
+    })
+      .then((diff) => setWarrantyDiff(diff ?? null))
+      .catch(() => {});
+  }, [specs, batteryReport, smartReport]);
+
+  const cancelExpressAutoQc = useCallback(() => {
+    expressCancelRef.current = true;
+    invoke("cancel_storage_benchmark").catch(() => {});
+    invoke("cancel_ram_stress").catch(() => {});
+    invoke("cancel_performance_benchmark").catch(() => {});
+    invoke("cancel_gpu_stress").catch(() => {});
+    setExpressQueue(null);
+  }, []);
+
+  const runExpressAutoQc = useCallback(
+    async (mode: "fast" | "deep") => {
+      expressCancelRef.current = false;
+      const isDeep = mode === "deep";
+      setExpressQueue({ running: true, mode, stepLabel: "1/5 Refreshing Specs, BIOS, Battery, Logs & SMART...", percent: 10 });
+      try {
+        await runAllAutoChecks();
+        if (expressCancelRef.current) return;
+
+        // Auto-unlock through Stage 05 (SSD)
+        setUnlockedIndex((u) => Math.max(u, 4));
+
+        // Storage Direct-IO
+        setExpressQueue({ running: true, mode, stepLabel: "2/5 Running SSD Direct-IO Benchmark...", percent: 30 });
+        try {
+          const ssd = await invoke<StorageBenchResult>("run_storage_benchmark", {
+            preset: isDeep ? "standard" : "quick",
+            interfaceHint: specsRef.current?.disks[0]?.interfaceType ?? null,
+            mediaHint: specsRef.current?.disks[0]?.mediaType ?? null,
+            targetMount: null,
+          });
+          setStorageBench(ssd);
+          storageRef.current = ssd;
+          updateModule("storage", ssd.status, ssd.summary);
+        } catch {
+          // Continue queue if drive low space
+        }
+        if (expressCancelRef.current) return;
+
+        if (isDeep) {
+          setExpressQueue({ running: true, mode, stepLabel: "3/5 Running TestMem5 RAM Stress...", percent: 55 });
+          try {
+            const ram = await invoke<RamTestResult>("run_ram_stress", {
+              preset: "quick",
+              memoryPercent: 55,
+              customDurationSecs: 45,
+              memoryTypeHint: specsRef.current?.ramModules[0]?.memoryType ?? "DDR4",
+            });
+            setRamResult(ram);
+            ramRef.current = ram;
+            updateModule("ram", ram.status, ram.summary);
+          } catch {}
+        }
+        if (expressCancelRef.current) return;
+
+        setExpressQueue({ running: true, mode, stepLabel: "4/5 Running CPU & Creator Performance Suite...", percent: 75 });
+        try {
+          const perf = await invoke<PerfBenchResult>("run_performance_benchmark", {
+            preset: isDeep ? "standard" : "quick",
+            manufacturer: specsRef.current?.manufacturer ?? null,
+            model: specsRef.current?.model ?? null,
+          });
+          setPerfResult(perf);
+          perfRef.current = perf;
+          updateModule("performance", perf.status, perf.summary);
+          await refreshUserbenchmarkComparison({ perf });
+        } catch {}
+        if (expressCancelRef.current) return;
+
+        if (isDeep) {
+          setExpressQueue({ running: true, mode, stepLabel: "5/5 Running Native wgpu GPU Stress...", percent: 90 });
+          try {
+            const gpu = await invoke<GpuStressResult>("run_gpu_stress", {
+              adapterIndex: null,
+              preset: "quick",
+              resolution: "1080p",
+              extremeMode: false,
+              thermalCutoffC: 92,
+            });
+            setGpuResult(gpu);
+            gpuRef.current = gpu;
+            updateModule("gpu", gpu.status, gpu.summary);
+          } catch {}
+        }
+
+        // Jump straight to first human-interactive stage (Display Fullscreen, Stage 06)
+        setUnlockedIndex((u) => Math.max(u, 5));
+        setActiveTab("display");
+      } finally {
+        setExpressQueue(null);
+      }
+    },
+    [runAllAutoChecks, updateModule, refreshUserbenchmarkComparison]
+  );
+
   // Persistent Live Docked Telemetry Polling — PAUSES automatically during active stress benchmarks
   useEffect(() => {
     if (stressPaused) return;
@@ -1001,6 +1119,10 @@ export const App: React.FC = () => {
                     touchscreenResult={touchscreenResult}
                     batteryDischargeResult={batteryDischargeResult}
                     networkReport={networkReport}
+                    warrantyDiff={warrantyDiff}
+                    expressQueue={expressQueue}
+                    onStartExpressQueue={runExpressAutoQc}
+                    onCancelExpressQueue={cancelExpressAutoQc}
                     onResumeSession={handleResumeSession}
                     onDiscardSession={handleDiscardSession}
                     onRunAutoChecks={runAllAutoChecks}
@@ -1033,6 +1155,8 @@ export const App: React.FC = () => {
                     onPowerComplete={(res) => setTortureResult(res)}
                   />
                 )}
+
+            {activeTab === "archive" && <ArchiveView />}
 
             {activeTab === "specs" && <SpecsView {...specsViewProps} />}
 

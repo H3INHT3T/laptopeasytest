@@ -487,6 +487,11 @@ export function createTauriInitScript(scenarioFixture = {}, mockOptions = {}) {
         cancelledFlags.cpu_stress = true;
         return null;
       },
+      list_qc_archive: async () => fixture.qcArchive || [],
+      check_warranty_return_diff: async () => fixture.warrantyReturnDiff || null,
+      delete_qc_archive_entry: async () => 1,
+      export_qc_archive: async () => (fixture.qcArchive || []).length,
+      import_qc_archive: async () => 0,
     };
 
     async function invoke(cmd, args = {}, _options = {}) {

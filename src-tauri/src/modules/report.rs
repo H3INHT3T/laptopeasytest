@@ -958,6 +958,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     {bars_html}
     {ub_html}
     {reliability_html}
+    {cosmetic_html}
 
     <section class="sec">
       <div class="sec-title">05 // PHYSICAL SIGN-OFF, OFFLINE QR VERIFICATION &amp; AUTHORIZATION</div>
@@ -981,7 +982,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </section>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v2.5.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v2.6.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Tamper-Check ID: {cert_id}</span>
   </footer>
 </div>
@@ -995,7 +996,7 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
     </table>
   </div>
   <footer class="mono">
-    <span>LaptopBench QC v2.5.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
+    <span>LaptopBench QC v2.6.0 &bull; Created by Hein Htet Zaw • Telegram: @ich8g92</span>
     <span>Cert ID: {cert_id}</span>
   </footer>
 </div>
@@ -1022,12 +1023,68 @@ pub(crate) fn render_qc_html(payload: &ExportReportPayload, generated_at: &str) 
         bars_html = bars_html,
         ub_html = ub_html,
         reliability_html = reliability_html,
+        cosmetic_html = if let Some(cos) = &payload.cosmetic {
+            let mut pills = Vec::new();
+            for (lbl, ok) in [
+                ("Chassis / Lid", cos.chassis_ok),
+                ("Screen Coating", cos.screen_coating_ok),
+                ("Hinges", cos.hinges_ok),
+                ("Palmrest / Keys", cos.palmrest_ok),
+                ("Screws / Seals", cos.screws_seals_ok),
+                ("OEM Charger", cos.oem_charger_included),
+            ] {
+                let st = if ok { "OK" } else { "NOTE" };
+                let bg = if ok { "#eff6ff;border-color:#2563eb;color:#1d4ed8" } else { "#f4f4f5;border-color:#09090b;color:#09090b" };
+                pills.push(format!(
+                    "<span class='mono' style='display:inline-block;padding:3px 7px;margin:2px 4px 2px 0;font-size:10px;font-weight:700;border:1px solid;background:{}'>{}: {}</span>",
+                    bg, lbl, st
+                ));
+            }
+            let photos_html = if cos.photos.is_empty() {
+                String::new()
+            } else {
+                let imgs: String = cos
+                    .photos
+                    .iter()
+                    .take(4)
+                    .map(|p| {
+                        format!(
+                            "<div style='border:1px solid #d4d4d8;padding:4px;background:#fff'><img src='{}' alt='{}' style='width:100%;height:110px;object-fit:cover;display:block'/><div class='mono' style='font-size:9px;color:#52525b;margin-top:3px'>{}</div></div>",
+                            html_escape(&p.data_url),
+                            html_escape(&p.label),
+                            html_escape(&p.label)
+                        )
+                    })
+                    .collect();
+                format!(
+                    "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px'>{}</div>",
+                    imgs
+                )
+            };
+            let notes_line = if cos.notes.trim().is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "<div style='font-size:11px;color:#3f3f46;margin-top:6px'><strong>Cosmetic Notes:</strong> {}</div>",
+                    html_escape(cos.notes.trim())
+                )
+            };
+            format!(
+                "<section class='sec'><div class='sec-title'>PHYSICAL &amp; COSMETIC INSPECTION — GRADE {}</div><div style='border:1px solid #d4d4d8;background:#f8fafc;padding:10px 12px'><div>{}</div>{}{}</div></section>",
+                html_escape(&cos.grade.to_uppercase()),
+                pills.join(""),
+                notes_line,
+                photos_html
+            )
+        } else {
+            String::new()
+        },
         ports_ok = if payload.signoff.ports_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         ports_notes = html_escape(&payload.signoff.ports_notes),
         spk_ok = if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[NOT CONFIRMED]" },
         spk_notes = html_escape(&payload.signoff.speakers_notes),
         notes_esc = if payload.technician_notes.trim().is_empty() {
-            format!("Unit inspected per {}-stage LaptopBench QC v2.5.0 protocol.", stage_count)
+            format!("Unit inspected per {}-stage LaptopBench QC v2.6.0 protocol.", stage_count)
         } else {
             html_escape(payload.technician_notes.trim())
         },
@@ -1088,7 +1145,7 @@ pub fn export_qc_report_files(payload: &ExportReportPayload) -> Result<ExportedR
     let json_val = serde_json::json!({
         "certificateId": cert_id,
         "generatedAt": generated_at,
-        "version": "2.5.0",
+        "version": "2.6.0",
         "report": payload
     });
     let json_str = serde_json::to_string_pretty(&json_val).map_err(|e| e.to_string())?;
@@ -1108,7 +1165,10 @@ pub fn export_qc_report(
     payload: &ExportReportPayload,
 ) -> Result<ExportedReportPaths, String> {
     let _ = save_shop_profile(app, &payload.shop_profile);
-    export_qc_report_files(payload)
+    let paths = export_qc_report_files(payload)?;
+    let cert_id = compute_certificate_id(payload, &paths.generated_at);
+    crate::modules::qc_archive::record_exported_qc(app, payload, &paths, &cert_id);
+    Ok(paths)
 }
 
 #[cfg(test)]
@@ -1264,6 +1324,7 @@ mod tests {
                 plain_summary: "Low-latency Wi-Fi 6E link with zero packet loss.".into(),
             }),
             cpu_stress: None,
+            cosmetic: None,
             tests: (1..=14)
                 .map(|i| ReportTestEntry {
                     id: format!("stage_{}", i),
@@ -1290,7 +1351,7 @@ mod tests {
         let payload = sample_v230_payload(None, "ABNORMAL");
         let html = render_qc_html(&payload, "2026-11-26 10:00:00");
 
-        assert!(html.contains("LaptopBench QC v2.5.0"));
+        assert!(html.contains("LaptopBench QC v2.6.0"));
         assert!(html.contains("Created by Hein Htet Zaw"));
         assert!(html.contains("@ich8g92"));
         assert!(html.contains("14-STAGE TECHNICAL DIAGNOSTIC AUDIT LEDGER"));
@@ -1330,9 +1391,9 @@ mod tests {
 
         assert!(pdf_bytes.starts_with(b"%PDF-1.4"));
         assert!(pdf_bytes.ends_with(b"%%EOF\n"));
-        assert!(html_text.contains("LaptopBench QC v2.5.0"));
+        assert!(html_text.contains("LaptopBench QC v2.6.0"));
         let parsed: serde_json::Value = serde_json::from_str(&json_text).expect("valid JSON");
-        assert_eq!(parsed["version"], "2.5.0");
+        assert_eq!(parsed["version"], "2.6.0");
         assert_eq!(parsed["report"]["userBenchmark"]["overallVehicleTier"], "Aircraft Carrier");
         assert_eq!(parsed["report"]["batteryDischarge"]["verdict"], "NORMAL");
         assert_eq!(parsed["report"]["touchscreen"]["coveredCells"], 160);

@@ -1085,6 +1085,66 @@ pub struct ExportReportPayload {
     pub network_report: Option<NetworkDiagnosticsReport>,
     #[serde(default, alias = "cpuStressResult")]
     pub cpu_stress: Option<CpuStressResult>,
+    #[serde(default)]
+    pub cosmetic: Option<CosmeticInspection>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CosmeticPhoto {
+    pub label: String,
+    pub data_url: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CosmeticInspection {
+    pub grade: String,
+    pub chassis_ok: bool,
+    pub screen_coating_ok: bool,
+    pub hinges_ok: bool,
+    pub palmrest_ok: bool,
+    pub screws_seals_ok: bool,
+    pub oem_charger_included: bool,
+    pub notes: String,
+    pub photos: Vec<CosmeticPhoto>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct QcArchiveRecord {
+    pub id: String,
+    pub cert_id: String,
+    pub tested_at: String,
+    pub serial_number: String,
+    pub manufacturer: String,
+    pub model: String,
+    pub customer_or_sku: String,
+    pub overall_verdict: String,
+    pub durability_grade: Option<String>,
+    pub cosmetic_grade: Option<String>,
+    pub battery_health_pct: Option<f64>,
+    pub ssd_serial: Option<String>,
+    pub ssd_wear_pct: Option<u32>,
+    pub ram_gb: Option<f64>,
+    pub pdf_path: String,
+    pub html_path: String,
+    pub json_path: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct WarrantyReturnDiff {
+    pub previous_record: QcArchiveRecord,
+    pub previous_count: usize,
+    pub alerts: Vec<String>,
+    pub part_swap_suspected: bool,
+    pub summary: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

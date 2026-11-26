@@ -4,18 +4,21 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
   Award,
+  Camera,
   CheckCircle2,
   FileText,
   FolderOpen,
   Image as ImageIcon,
   Send,
   ShieldCheck,
+  Trash2,
   X,
 } from "lucide-react";
 import type {
   BatteryDischargeResult,
   BatteryHealthReport,
   BatterySagResult,
+  CosmeticInspection,
   CpuStressResult,
   ErrorLogsReport,
   ExportReportPayload,
@@ -99,9 +102,87 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
 
   const [customerOrSku, setCustomerOrSku] = useState("");
   const [technicianNotes, setTechnicianNotes] = useState("");
+  const [cosmetic, setCosmetic] = useState<CosmeticInspection>({
+    grade: "A Clean",
+    chassisOk: true,
+    screenCoatingOk: true,
+    hingesOk: true,
+    palmrestOk: true,
+    screwsSealsOk: true,
+    oemChargerIncluded: true,
+    notes: "",
+    photos: [],
+  });
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState<ExportedReportPaths | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const compressDataUrl = (rawUrl: string): Promise<string> =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 720;
+        const scale = Math.min(1, maxW / Math.max(1, img.width));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          resolve(c.toDataURL("image/jpeg", 0.72));
+        } else {
+          resolve(rawUrl);
+        }
+      };
+      img.onerror = () => resolve(rawUrl);
+      img.src = rawUrl;
+    });
+
+  const handleCosmeticPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || cosmetic.photos.length >= 4) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const raw = String(reader.result || "");
+      const compressed = await compressDataUrl(raw);
+      setCosmetic((prev) => ({
+        ...prev,
+        photos: [
+          ...prev.photos.slice(0, 3),
+          { label: `Photo ${prev.photos.length + 1}`, dataUrl: compressed },
+        ],
+      }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleWebcamSnap = async () => {
+    if (cosmetic.photos.length >= 4) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      await video.play();
+      await new Promise((r) => setTimeout(r, 250));
+      const c = document.createElement("canvas");
+      c.width = video.videoWidth || 640;
+      c.height = video.videoHeight || 480;
+      const ctx = c.getContext("2d");
+      if (ctx) ctx.drawImage(video, 0, 0, c.width, c.height);
+      stream.getTracks().forEach((t) => t.stop());
+      const url = c.toDataURL("image/jpeg", 0.75);
+      setCosmetic((prev) => ({
+        ...prev,
+        photos: [
+          ...prev.photos.slice(0, 3),
+          { label: `Webcam ${prev.photos.length + 1}`, dataUrl: url },
+        ],
+      }));
+    } catch {
+      setError("Could not access webcam for condition photo — use Upload Photo instead.");
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -654,6 +735,7 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
         touchscreen: touchscreenResult ?? null,
         networkReport: networkReport ?? null,
         cpuStress: cpuStressResult ?? null,
+        cosmetic,
       };
       const result = await invoke<ExportedReportPaths>("export_qc_report", { payload });
       setExported(result);
@@ -754,6 +836,106 @@ export const PreReportModal: React.FC<PreReportModalProps> = ({
                   placeholder="e.g. Clean Grade A unit, thermal paste verified, original adapter tested."
                   className="w-full bg-white border border-zinc-300 rounded-[2px] px-3 py-1.5 text-xs text-black"
                 />
+              </div>
+
+              {/* Physical & Cosmetic Condition + Photo Evidence */}
+              <div className="rounded-lg border border-zinc-200 bg-white p-3 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[10px] font-bold uppercase text-black">
+                    Physical &amp; Cosmetic Grade
+                  </span>
+                  <div className="flex gap-1">
+                    {(["A+ Mint", "A Clean", "B Minor Wear", "C Heavy Wear"] as const).map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setCosmetic((c) => ({ ...c, grade: g }))}
+                        className={`px-1.5 py-0.5 rounded font-mono text-[9.5px] font-bold border cursor-pointer ${
+                          cosmetic.grade === g
+                            ? "bg-blue-600 border-blue-600 text-white"
+                            : "bg-white border-zinc-200 text-zinc-700 hover:border-black"
+                        }`}
+                      >
+                        {g.split(" ")[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+                  {(
+                    [
+                      ["chassisOk", "Chassis / Lid OK"],
+                      ["screenCoatingOk", "Screen Coating OK"],
+                      ["hingesOk", "Hinges Tight"],
+                      ["palmrestOk", "Palmrest / Keys OK"],
+                      ["screwsSealsOk", "Screws / Seals OK"],
+                      ["oemChargerIncluded", "OEM Charger Included"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded border border-zinc-200 bg-[#F8FAFC] cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={cosmetic[key]}
+                        onChange={(e) => setCosmetic((c) => ({ ...c, [key]: e.target.checked }))}
+                        className="w-3 h-3 accent-blue-600"
+                      />
+                      <span className="truncate text-black font-medium">{label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="font-mono text-[9.5px] text-zinc-500">
+                    Condition Photos ({cosmetic.photos.length}/4)
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <label className="cursor-pointer px-2 py-1 rounded border border-zinc-300 bg-white hover:border-blue-600 font-mono text-[10px] font-bold text-black inline-flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3 text-blue-600" />
+                      Add Photo
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={handleCosmeticPhotoUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleWebcamSnap}
+                      className="px-2 py-1 rounded border border-zinc-300 bg-white hover:border-blue-600 font-mono text-[10px] font-bold text-black inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Camera className="w-3 h-3 text-blue-600" />
+                      Snap
+                    </button>
+                  </div>
+                </div>
+
+                {cosmetic.photos.length > 0 && (
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {cosmetic.photos.map((ph, idx) => (
+                      <div key={idx} className="relative group border border-zinc-200 rounded overflow-hidden">
+                        <img src={ph.dataUrl} alt={ph.label} className="w-full h-12 object-cover" />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCosmetic((c) => ({
+                              ...c,
+                              photos: c.photos.filter((_, i) => i !== idx),
+                            }))
+                          }
+                          className="absolute top-0.5 right-0.5 p-0.5 bg-black/80 text-white rounded cursor-pointer"
+                          title="Remove photo"
+                        >
+                          <Trash2 className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between gap-2 bg-white border border-zinc-300 rounded-[2px] px-3 py-2">

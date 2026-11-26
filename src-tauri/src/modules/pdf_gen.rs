@@ -284,7 +284,7 @@ impl PageBuilder {
             // Hairline footer rule
             self.line(MARGIN, 34.0, MARGIN + content_w, 34.0, 0.6, COL_RULE);
             let footer = format!(
-                "LaptopBench QC v2.5.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
+                "LaptopBench QC v2.6.0  |  Created by Hein Htet Zaw • Telegram: @ich8g92  |  Cert ID: {}  |  Page {}",
                 self.cert_id, page_num
             );
             let _ = writeln!(
@@ -1107,7 +1107,7 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         if payload.signoff.speakers_checked { "[VERIFIED]" } else { "[UNCONFIRMED]" },
         payload.signoff.speakers_notes.trim()
     ));
-    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v2.5.0 protocol.", stage_count);
+    let default_notes = format!("Unit inspected per {}-stage LaptopBench QC v2.6.0 protocol.", stage_count);
     let notes_s = format!(
         "NOTES: {}",
         if payload.technician_notes.trim().is_empty() {
@@ -1117,6 +1117,51 @@ pub fn render_qc_certificate_pdf(payload: &ExportReportPayload, generated_at: &s
         }
     );
     let notes_lines = wrap_text(&notes_s, 72);
+    // Optional Physical & Cosmetic Condition Strip
+    if let Some(cos) = &payload.cosmetic {
+        pb.ensure_space(56.0);
+        let cos_h = 44.0;
+        let cos_y = pb.y - cos_h;
+        pb.rect_fill(MARGIN, cos_y, content_w, cos_h, COL_PAPER);
+        pb.rect_stroke(MARGIN, cos_y, content_w, cos_h, 0.7, COL_RULE);
+        pb.text(
+            "F4",
+            8.2,
+            MARGIN + 10.0,
+            pb.y - 13.0,
+            COL_BLUE,
+            &format!(
+                "PHYSICAL & COSMETIC GRADE: {}   |   PHOTOS ATTACHED: {}",
+                cos.grade.to_uppercase(),
+                cos.photos.len()
+            ),
+        );
+        let checks = format!(
+            "Chassis:{} | Screen:{} | Hinges:{} | Palmrest:{} | Seals:{} | OEM Charger:{}",
+            if cos.chassis_ok { "OK" } else { "WEAR" },
+            if cos.screen_coating_ok { "OK" } else { "WEAR" },
+            if cos.hinges_ok { "OK" } else { "LOOSE" },
+            if cos.palmrest_ok { "OK" } else { "WEAR" },
+            if cos.screws_seals_ok { "OK" } else { "OPENED" },
+            if cos.oem_charger_included { "YES" } else { "NO" }
+        );
+        pb.text("F3", 7.3, MARGIN + 10.0, pb.y - 25.5, COL_BLACK, &checks);
+        let cnote = if cos.notes.trim().is_empty() {
+            "Condition documented in HTML archive with attached condition photos.".to_string()
+        } else {
+            format!("Notes: {}", cos.notes.trim())
+        };
+        pb.text(
+            "F1",
+            7.4,
+            MARGIN + 10.0,
+            pb.y - 36.5,
+            COL_INK_MUTED,
+            &cnote.chars().take(96).collect::<String>(),
+        );
+        pb.y = cos_y - 10.0;
+    }
+
     let box_h = (82.0 + (notes_lines.len() as f32) * 10.5).max(110.0);
 
     pb.ensure_space(box_h + 26.0);
@@ -1283,7 +1328,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-1.4"));
         assert!(bytes.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("LaptopBench QC v2.5.0"));
+        assert!(text.contains("LaptopBench QC v2.6.0"));
         assert!(text.contains("Created by Hein Htet Zaw"));
         assert!(text.contains("@ich8g92"));
         assert!(!text.contains("v2.1"));
@@ -1427,6 +1472,7 @@ mod tests {
                 plain_summary: "Healthy wireless link.".into(),
             }),
             cpu_stress: None,
+            cosmetic: None,
             output_dir: None,
         };
 

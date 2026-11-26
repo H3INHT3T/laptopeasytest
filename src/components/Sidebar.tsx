@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Activity,
+  Archive,
   Battery,
   Camera,
   Cpu,
@@ -68,7 +69,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pct = Math.round((completedCount / stepOrder.length) * 100);
 
   const isStressActive = activeTab === "stress_hub";
-  const isQcActive = !isStressActive;
+  const isArchiveActive = activeTab === "archive";
+  const isQcActive = !isStressActive && !isArchiveActive;
 
   return (
     <aside className="flex h-full shrink-0 bg-white border-r border-zinc-200 select-none">
@@ -111,6 +113,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <button
           type="button"
+          onClick={() => onSelect("archive")}
+          className={`w-14 py-2 rounded-lg flex flex-col items-center gap-1 text-[10px] font-semibold transition cursor-pointer ${
+            isArchiveActive
+              ? "bg-white text-blue-700 border border-blue-200 shadow-2xs"
+              : "text-zinc-500 hover:text-black hover:bg-white/70"
+          }`}
+        >
+          <Archive className="w-4 h-4" />
+          <span>Archive</span>
+        </button>
+
+        <button
+          type="button"
           onClick={onOpenReportModal}
           disabled={!allStepsDone}
           title={allStepsDone ? "Open QC Certificate" : `Complete or skip all ${stepOrder.length} steps`}
@@ -126,7 +141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="mt-auto text-center px-1">
           <div className="font-mono text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
-            v2.5.0
+            v2.6.0
           </div>
         </div>
       </div>

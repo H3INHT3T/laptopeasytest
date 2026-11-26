@@ -31,7 +31,7 @@ export type StepModuleId =
   | "gpu"
   | "ports_speakers";
 
-export type TestModuleId = "dashboard" | "stress_hub" | StepModuleId;
+export type TestModuleId = "dashboard" | "stress_hub" | "archive" | StepModuleId;
 
 export type StressPreset = "quick" | "standard" | "burnin";
 
@@ -1047,6 +1047,53 @@ export interface ExportReportPayload {
   touchscreen?: TouchscreenTestResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
   cpuStress?: CpuStressResult | null;
+  cosmetic?: CosmeticInspection | null;
+}
+
+export interface CosmeticPhoto {
+  label: string;
+  dataUrl: string;
+}
+
+export interface CosmeticInspection {
+  grade: "A+ Mint" | "A Clean" | "B Minor Wear" | "C Heavy Wear" | string;
+  chassisOk: boolean;
+  screenCoatingOk: boolean;
+  hingesOk: boolean;
+  palmrestOk: boolean;
+  screwsSealsOk: boolean;
+  oemChargerIncluded: boolean;
+  notes: string;
+  photos: CosmeticPhoto[];
+}
+
+export interface QcArchiveRecord {
+  id: string;
+  certId: string;
+  testedAt: string;
+  serialNumber: string;
+  manufacturer: string;
+  model: string;
+  customerOrSku: string;
+  overallVerdict: string;
+  durabilityGrade: string | null;
+  cosmeticGrade: string | null;
+  batteryHealthPct: number | null;
+  ssdSerial: string | null;
+  ssdWearPct: number | null;
+  ramGb: number | null;
+  pdfPath: string;
+  htmlPath: string;
+  jsonPath: string;
+  notes: string;
+}
+
+export interface WarrantyReturnDiff {
+  previousRecord: QcArchiveRecord;
+  previousCount: number;
+  alerts: string[];
+  partSwapSuspected: boolean;
+  summary: string;
 }
 
 export interface CpuStressProgress {

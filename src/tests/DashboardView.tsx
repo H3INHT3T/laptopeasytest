@@ -19,6 +19,7 @@ import {
   Timer,
   Upload,
   X,
+  Zap,
 } from "lucide-react";
 import type {
   BatteryDischargeResult,
@@ -33,6 +34,7 @@ import type {
   TestModuleId,
   TouchscreenTestResult,
   UserBenchmarkComparison,
+  WarrantyReturnDiff,
 } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -49,6 +51,10 @@ interface DashboardViewProps {
   touchscreenResult?: TouchscreenTestResult | null;
   batteryDischargeResult?: BatteryDischargeResult | null;
   networkReport?: NetworkDiagnosticsReport | null;
+  warrantyDiff?: WarrantyReturnDiff | null;
+  expressQueue?: { running: boolean; mode: "fast" | "deep"; stepLabel: string; percent: number } | null;
+  onStartExpressQueue?: (mode: "fast" | "deep") => void;
+  onCancelExpressQueue?: () => void;
   onResumeSession: () => void;
   onDiscardSession: () => void;
   onRunAutoChecks: () => void;
@@ -70,6 +76,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   touchscreenResult,
   batteryDischargeResult,
   networkReport,
+  warrantyDiff,
+  expressQueue,
+  onStartExpressQueue,
+  onCancelExpressQueue,
   onResumeSession,
   onDiscardSession,
   onRunAutoChecks,
@@ -222,6 +232,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
+      {/* Automatic Warranty Return-Unit Anti-Fraud Diff Banner */}
+      {warrantyDiff && (
+        <div
+          className={`rounded-xl border-2 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            warrantyDiff.partSwapSuspected
+              ? "border-black bg-black text-white"
+              : "border-blue-600 bg-blue-50/70 text-black"
+          }`}
+        >
+          <div className="space-y-1 text-xs">
+            <div className="font-mono text-[10.5px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldAlert className={`w-4 h-4 shrink-0 ${warrantyDiff.partSwapSuspected ? "text-blue-400" : "text-blue-600"}`} />
+              {warrantyDiff.summary}
+            </div>
+            {warrantyDiff.alerts.length > 0 && (
+              <ul className="list-disc list-inside text-[11px] font-mono opacity-95 space-y-0.5">
+                {warrantyDiff.alerts.map((a, i) => (
+                  <li key={i}>{a}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => onSelectModule("archive")}
+            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shrink-0 cursor-pointer"
+          >
+            View Archive ({warrantyDiff.previousCount})
+          </button>
+        </div>
+      )}
+
       {/* Novabench-Style Clean Centered Launcher Card */}
       <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-6 text-center space-y-4">
         <div className="space-y-1">
@@ -270,6 +312,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Compact Option Pills (Novabench Style) */}
         <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+          {onStartExpressQueue && (
+            <>
+              <button
+                type="button"
+                disabled={Boolean(expressQueue?.running)}
+                onClick={() => onStartExpressQueue("fast")}
+                className="px-3.5 py-2 rounded-lg border border-blue-600 bg-white hover:bg-blue-50 text-blue-700 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
+              >
+                <Zap className="w-3.5 h-3.5 text-blue-600" />
+                Fast Intake (2m)
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(expressQueue?.running)}
+                onClick={() => onStartExpressQueue("deep")}
+                className="px-3.5 py-2 rounded-lg border border-black bg-white hover:bg-zinc-100 text-black text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
+              >
+                <Zap className="w-3.5 h-3.5 text-black" />
+                Deep Resale QC (8m)
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => onSelectModule("stress_hub")}
@@ -304,6 +368,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             Shop DB
           </button>
         </div>
+
+        {/* Express Auto-QC Live Queue Progress */}
+        {expressQueue?.running && (
+          <div className="max-w-xl mx-auto rounded-xl border border-blue-200 bg-blue-50/50 p-3.5 text-left space-y-2">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-semibold text-blue-800">
+                {expressQueue.mode === "fast" ? "Fast Intake Auto-QC" : "Deep Resale Auto-QC"}: {expressQueue.stepLabel}
+              </span>
+              <button
+                type="button"
+                onClick={onCancelExpressQueue}
+                className="px-2.5 py-1 rounded-md bg-black text-white font-mono text-[10px] font-bold uppercase cursor-pointer"
+              >
+                Stop Queue
+              </button>
+            </div>
+            <div className="h-2 rounded-full bg-white overflow-hidden">
+              <div
+                className="h-full bg-blue-600 transition-all duration-300"
+                style={{ width: `${expressQueue.percent}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Clean Summary Counters */}
         <div className="grid grid-cols-4 max-w-xl mx-auto pt-3 border-t border-zinc-100 text-center font-mono tabular-nums">

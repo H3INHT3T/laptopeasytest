@@ -1,7 +1,7 @@
 {
   "name": "laptopbench-qc",
   "private": true,
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Offline Cross-Platform Laptop Hardware Diagnostics & QC Suite",
   "type": "module",
   "scripts": {

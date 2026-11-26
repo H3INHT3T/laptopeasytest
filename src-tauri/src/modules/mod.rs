@@ -10,6 +10,7 @@ pub mod network;
 pub mod pdf_gen;
 pub mod perf_bench;
 pub mod power_torture;
+pub mod qc_archive;
 pub mod ram_test;
 pub mod raytracer;
 pub mod report;

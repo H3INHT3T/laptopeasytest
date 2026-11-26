@@ -4,7 +4,7 @@ mod types;
 
 use modules::{
     baselines, battery, biometrics, cpu_stress, error_logs, gpu_stress, hardware_controls,
-    keyboard_hook, network, perf_bench, power_torture, ram_test, raytracer, report,
+    keyboard_hook, network, perf_bench, power_torture, qc_archive, ram_test, raytracer, report,
     security_audit, session, shop_history, simd_kernels, specs, storage, telemetry, usb_ports,
     userbenchmark, vram_test,
 };
@@ -18,10 +18,11 @@ use types::{
     BiometricAuthResult, BiometricsHardwareReport, BurnInResult, CpuStressResult, ErrorLogsReport,
     ExportReportPayload, ExportedReportPaths, GpuAdapterInfo, GpuStressResult,
     HardwareControlsReport, LiveTelemetrySnapshot, NetworkDiagnosticsReport, PerfBenchResult,
-    PowerTortureResult, RamTestResult, SavedSessionPayload, SecurityAuditReport,
+    PowerTortureResult, QcArchiveRecord, RamTestResult, SavedSessionPayload, SecurityAuditReport,
     ShopModelBenchmarkAvg, ShopModelComparison, ShopProfile, StorageBenchResult,
     StorageSmartReport, SystemSpecs, TestStatus, TouchscreenTestResult, UsbDeviceInfo,
-    UserBenchmarkComparison, UserBenchmarkInput, VramTestResult, BATTERY_DISCHARGE_MAX_SECS,
+    UserBenchmarkComparison, UserBenchmarkInput, VramTestResult, WarrantyReturnDiff,
+    BATTERY_DISCHARGE_MAX_SECS,
     BATTERY_LOW_SOC_ABORT_PCT, CPU_THERMAL_CUTOFF_DEFAULT_C, CPU_THERMAL_CUTOFF_MAX_C,
     CPU_THERMAL_CUTOFF_MIN_C, GPU_THERMAL_CUTOFF_DEFAULT_C, GPU_THERMAL_CUTOFF_MAX_C,
     GPU_THERMAL_CUTOFF_MIN_C,
@@ -545,6 +546,45 @@ fn cancel_cpu_stress(state: State<'_, CancelRegistry>) {
     signal_stop(&state.cpu_stress_cancel);
 }
 
+#[tauri::command]
+fn list_qc_archive(app: AppHandle) -> Vec<QcArchiveRecord> {
+    qc_archive::list_archive(&app)
+}
+
+#[tauri::command]
+fn check_warranty_return_diff(
+    app: AppHandle,
+    serial: String,
+    current_battery_health: Option<f64>,
+    current_ssd_serial: Option<String>,
+    current_ssd_wear: Option<u32>,
+    current_ram_gb: Option<f64>,
+) -> Option<WarrantyReturnDiff> {
+    qc_archive::check_warranty_return_diff(
+        &app,
+        &serial,
+        current_battery_health,
+        current_ssd_serial.as_deref(),
+        current_ssd_wear,
+        current_ram_gb,
+    )
+}
+
+#[tauri::command]
+fn delete_qc_archive_entry(app: AppHandle, id: String) -> Result<usize, String> {
+    qc_archive::delete_archive_entry(&app, &id)
+}
+
+#[tauri::command]
+fn export_qc_archive(app: AppHandle, target_path: String) -> Result<usize, String> {
+    qc_archive::export_archive_to_file(&app, &target_path)
+}
+
+#[tauri::command]
+fn import_qc_archive(app: AppHandle, source_path: String) -> Result<usize, String> {
+    qc_archive::import_archive_from_file(&app, &source_path)
+}
+
 struct SelfTestTempDirGuard(std::path::PathBuf);
 impl Drop for SelfTestTempDirGuard {
     fn drop(&mut self) {
@@ -553,7 +593,7 @@ impl Drop for SelfTestTempDirGuard {
 }
 
 pub fn run_self_test() -> Result<(), String> {
-    println!("=== LaptopBench QC v2.5.0 Self-Test & Hardware Verification ===");
+    println!("=== LaptopBench QC v2.6.0 Self-Test & Hardware Verification ===");
 
     // 1. RAM pattern verification & OS Reserve headroom
     let mut ram_buf = vec![0u64; 65536];
@@ -851,6 +891,7 @@ pub fn run_self_test() -> Result<(), String> {
             0.0,
         )),
         cpu_stress: None,
+        cosmetic: None,
     };
     let exported = report::export_qc_report_files(&sample_payload)?;
     let pdf_bytes = std::fs::read(&exported.pdf_path).map_err(|e| e.to_string())?;
@@ -859,8 +900,8 @@ pub fn run_self_test() -> Result<(), String> {
     if !pdf_bytes.starts_with(b"%PDF-1.4") || !pdf_bytes.ends_with(b"%%EOF\n") {
         return Err("Exported PDF failed header/EOF integrity check".into());
     }
-    if !html_str.contains("LaptopBench QC v2.5.0") || !html_str.contains("Hein Htet Zaw") {
-        return Err("Exported HTML missing v2.5.0 or attribution".into());
+    if !html_str.contains("LaptopBench QC v2.6.0") || !html_str.contains("Hein Htet Zaw") {
+        return Err("Exported HTML missing v2.6.0 or attribution".into());
     }
     if !json_str.contains("\"userBenchmark\"") || !json_str.contains("\"batteryDischarge\"") {
         return Err("Exported JSON missing userBenchmark or batteryDischarge keys".into());
@@ -942,7 +983,7 @@ pub fn run_self_test() -> Result<(), String> {
         println!("       - [{}] {} ({}, {})", g.index, g.name, g.device_type, g.backend);
     }
 
-    println!("=== ALL v2.5.0 SELF-TESTS PASSED ===");
+    println!("=== ALL v2.6.0 SELF-TESTS PASSED ===");
     Ok(())
 }
 
@@ -1003,6 +1044,11 @@ pub fn run() {
             set_display_brightness,
             run_cpu_stress,
             cancel_cpu_stress,
+            list_qc_archive,
+            check_warranty_return_diff,
+            delete_qc_archive_entry,
+            export_qc_archive,
+            import_qc_archive,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LaptopBench QC");

@@ -1179,17 +1179,17 @@ mod windows_native {
 
         let ps = r#"
 $ns = $null
-foreach ($cand in @('root\LibreHardwareMonitor','root\OpenHardwareMonitor')) {
+foreach ($cand in @('root\LibreHardwareMonitor','root\OpenHardwareMonitor','root\HWiNFO')) {
     if (Get-CimInstance -Namespace $cand -ClassName Sensor -ErrorAction SilentlyContinue | Select-Object -First 1) {
         $ns = $cand; break
     }
 }
 if (-not $ns) { exit 1 }
 $sensors = Get-CimInstance -Namespace $ns -ClassName Sensor -ErrorAction SilentlyContinue
-$ct = ($sensors | Where-Object { $_.SensorType -eq 'Temperature' -and $_.Name -match 'CPU Package|Core Max|Tctl|Tdie' } | Select-Object -First 1).Value
+$ct = ($sensors | Where-Object { $_.SensorType -eq 'Temperature' -and $_.Name -match 'CPU Package|Core Max|Core Average|Tctl|Tdie|CPU \(Tctl' } | Select-Object -First 1).Value
 $cp = ($sensors | Where-Object { $_.SensorType -eq 'Power' -and $_.Name -match 'CPU Package' } | Select-Object -First 1).Value
 $fr = ($sensors | Where-Object { $_.SensorType -eq 'Fan' -and $_.Value -gt 0 } | Select-Object -First 1).Value
-$gt = ($sensors | Where-Object { $_.SensorType -eq 'Temperature' -and $_.Name -match 'GPU Core|GPU Hot' } | Select-Object -First 1).Value
+$gt = ($sensors | Where-Object { $_.SensorType -eq 'Temperature' -and $_.Name -match 'GPU Core|GPU Hot|GPU Temperature' } | Select-Object -First 1).Value
 @{ ct = $ct; cp = $cp; fr = $fr; gt = $gt } | ConvertTo-Json -Compress
 "#;
 
@@ -1257,6 +1257,21 @@ if ($null -eq $tempC) {
     if ($tp) {
         $tempC = [math]::Round(([double]$tp.CurrentReading / 10.0), 1)
     }
+}
+if ($null -eq $tempC) {
+    # Dell Command | Monitor OEM temperature sensor (root\dcim\sysman)
+    $dell = Get-CimInstance -Namespace root\dcim\sysman -ClassName DCIM_NumericSensor -ErrorAction SilentlyContinue | Where-Object { $_.SensorType -eq 2 -and $_.CurrentReading -gt 15 -and $_.CurrentReading -lt 120 } | Sort-Object CurrentReading -Descending | Select-Object -First 1
+    if ($dell) { $tempC = [double]$dell.CurrentReading }
+}
+if ($null -eq $tempC) {
+    # HP Instrumented BIOS temperature sensor
+    $hp = Get-CimInstance -Namespace root\hp\instrumentedBIOS -ClassName HP_BIOSNumericSensor -ErrorAction SilentlyContinue | Where-Object { $_.SensorType -eq 2 -and $_.CurrentReading -gt 15 -and $_.CurrentReading -lt 120 } | Sort-Object CurrentReading -Descending | Select-Object -First 1
+    if ($hp) { $tempC = [double]$hp.CurrentReading }
+}
+if ($null -eq $tempC) {
+    # Lenovo / Generic CIM_TemperatureSensor fallback
+    $cim = Get-CimInstance -Namespace root\cimv2 -ClassName CIM_TemperatureSensor -ErrorAction SilentlyContinue | Where-Object { $_.CurrentReading -gt 150 -and $_.CurrentReading -lt 1200 } | Select-Object -First 1
+    if ($cim) { $tempC = [math]::Round(([double]$cim.CurrentReading / 10.0), 1) }
 }
 @{ tempC = $tempC } | ConvertTo-Json -Compress
 "#;
